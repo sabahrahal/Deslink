@@ -48,7 +48,6 @@ class MainActivity : Activity() {
                             "o escribe la IP a mano."
                     } else {
                         statusText.text = "PC encontrado: ${found.ip} por ${found.route?.transport?.label ?: "red"}"
-                        ip.setText(found.ip)
                         prefs.edit().putString("host", found.ip).apply()
                         startActivity(Intent(this, target).putExtra(StreamActivity.EXTRA_HOST, found.ip))
                     }
