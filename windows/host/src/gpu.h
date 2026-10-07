@@ -14,7 +14,10 @@ struct Gpu {
   ComPtr<IDXGIOutput1> output;
   ComPtr<ID3D11Device> device;
   ComPtr<ID3D11DeviceContext> context;
+  RECT desktop_rect{};  // posición de la salida en el escritorio virtual, en píxeles
 };
 
 // output_index recorre todas las salidas de todos los adaptadores, en orden.
 bool CreateGpuForOutput(int output_index, Gpu* gpu);
+// Busca la salida por su nombre GDI («\\.\DISPLAY3»), p. ej. la del monitor virtual.
+bool CreateGpuForDeviceName(const wchar_t* device_name, Gpu* gpu);

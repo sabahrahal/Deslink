@@ -23,6 +23,7 @@
 #include "history.h"
 #include "touch.h"
 #include "udp.h"
+#include "virtual_display.h"
 
 namespace {
 
@@ -72,6 +73,9 @@ struct Options {
   bool mouse = false;    // --mouse: el táctil mueve el ratón (más compatible, un solo dedo)
   bool touch = true;     // --no-touch desactiva el control táctil
   UINT pace_mbps = 100;  // reparte cada frame a esta tasa; 0 = de golpe (el anclaje USB pierde ráfagas)
+  bool virtual_display = false;  // --virtual: crea un monitor virtual (driver desklink-idd) y captura ese
+  UINT virtual_width = 2944;     // --size: resolución del monitor virtual (por defecto, la Lenovo Idea Tab Pro)
+  UINT virtual_height = 1840;
 };
 
 bool ParseArgs(int argc, char** argv, Options* o) {
@@ -99,6 +103,17 @@ bool ParseArgs(int argc, char** argv, Options* o) {
     } else if (a == "--pace") {
       auto v = next("--pace"); if (!v) return false;
       o->pace_mbps = static_cast<UINT>(std::atoi(v));
+    } else if (a == "--virtual") {
+      o->virtual_display = true;
+    } else if (a == "--size") {
+      auto v = next("--size"); if (!v) return false;
+      unsigned w = 0, h = 0;
+      if (std::sscanf(v, "%ux%u", &w, &h) != 2 || w < 640 || h < 480 || w > 7680 || h > 4320) {
+        std::fprintf(stderr, "--size debe ser ANCHOxALTO, p. ej. 2944x1840\n");
+        return false;
+      }
+      o->virtual_width = w;
+      o->virtual_height = h;
     } else if (a == "--no-cursor") {
       o->cursor = false;
     } else if (a == "--mouse") {
@@ -111,7 +126,8 @@ bool ParseArgs(int argc, char** argv, Options* o) {
     } else {
       std::fprintf(stderr,
                    "Uso: desklink-host [--port 47800] [--output 0] [--fps 60] [--bitrate 50] "
-                   "[--codec hevc|h264] [--pace Mbps] [--no-touch] [--mouse] [--no-cursor]\n");
+                   "[--codec hevc|h264] [--pace Mbps] [--no-touch] [--mouse] [--no-cursor] "
+                   "[--virtual [--size 2944x1840]]\n");
       return false;
     }
   }
@@ -132,8 +148,10 @@ int Run(int argc, char** argv) {
   CoInitializeEx(nullptr, COINIT_MULTITHREADED);
   MFStartup(MF_VERSION);
   timeBeginPeriod(1);  // temporizadores de 1 ms
+  SetConsoleOutputCP(CP_UTF8);  // los mensajes llevan tildes
   SetProcessDPIAware();  // coordenadas en píxeles reales, para que los toques caigan donde toca
 
+  VirtualDisplay virtual_display;  // se declara antes que el resto: el monitor se quita lo último
   Gpu gpu;
   DesktopCapture capture;
   Nv12Converter converter;
@@ -148,8 +166,16 @@ int Run(int argc, char** argv) {
   bool touch_ready = false;
 
   do {
-    if (!CreateGpuForOutput(opt.output, &gpu)) break;
-    if (!capture.Init(gpu)) break;
+    if (opt.virtual_display) {
+      if (!virtual_display.Plug(opt.virtual_width, opt.virtual_height, opt.fps)) break;
+      if (!CreateGpuForDeviceName(virtual_display.gdi_name().c_str(), &gpu)) break;
+    } else if (!CreateGpuForOutput(opt.output, &gpu)) {
+      break;
+    }
+    // Un monitor recién activado puede tardar un instante en dejarse capturar.
+    bool captured_ok = false;
+    for (int i = 0; i < 10 && !(captured_ok = capture.Init(gpu)); ++i) Sleep(300);
+    if (!captured_ok) break;
     const UINT w = capture.width(), h = capture.height();
     std::printf("Captura: %ux%u a %u fps, %u Mbps, %s\n", w, h, opt.fps, opt.bitrate_mbps,
                 opt.codec == VideoCodec::kHevc ? "HEVC" : "H.264");
@@ -324,11 +350,13 @@ int Run(int argc, char** argv) {
       }
     };
     if (opt.touch) {
-      // Los toques se asignan al monitor principal (el que se captura con --output 0).
-      const RECT primary{0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)};
-      touch_ready = touch.Init(primary, opt.mouse);
-      std::printf(touch_ready ? (opt.mouse ? "Táctil en modo ratón (monitor principal %ldx%ld).\n" : "Táctil activado (monitor principal %ldx%ld).\n") : "Táctil NO disponible.\n",
-                  primary.right, primary.bottom);
+      // Los toques caen sobre el monitor que se captura (el virtual con --virtual).
+      const RECT& r = gpu.desktop_rect;
+      touch_ready = touch.Init(r, opt.mouse);
+      std::printf(touch_ready ? (opt.mouse ? "Táctil en modo ratón (pantalla de %ldx%ld en %ld,%ld).\n"
+                                           : "Táctil activado (pantalla de %ldx%ld en %ld,%ld).\n")
+                              : "Táctil NO disponible.\n",
+                  r.right - r.left, r.bottom - r.top, r.left, r.top);
     }
     if (!udp.Bind(opt.port, on_packet)) break;
     std::printf("Escuchando en UDP %u. Abre DeskLink en el móvil e indica la IP de este PC.\n",
@@ -347,6 +375,26 @@ int Run(int argc, char** argv) {
     while (g_running) {
       ID3D11Texture2D* frame = nullptr;
       auto result = capture.Acquire(10, &frame);
+      if (result == DesktopCapture::Result::kLost) {
+        // Windows corta la captura al cambiar de modo, al salir la pantalla de UAC o al bloquear la
+        // sesión. Se vuelve a abrir; si el tamaño cambió hay que reiniciar el codificador (y el host).
+        bool reopened = false;
+        for (int i = 0; i < 50 && g_running && !(reopened = capture.Init(gpu)); ++i) Sleep(200);
+        if (!reopened) {
+          std::fprintf(stderr, "Error: no se pudo recuperar la captura de pantalla.\n");
+          failed = true;
+          break;
+        }
+        if (capture.width() != w || capture.height() != h) {
+          std::fprintf(stderr, "La resolución cambió a %ux%u: vuelve a arrancar el host.\n", capture.width(),
+                       capture.height());
+          failed = true;
+          break;
+        }
+        std::printf("Captura recuperada.\n");
+        encoder.RequestKeyframe();
+        continue;
+      }
       if (result == DesktopCapture::Result::kError) {
         failed = true;
         break;

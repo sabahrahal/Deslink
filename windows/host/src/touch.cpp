@@ -23,13 +23,18 @@ bool TouchInjector::Init(const RECT& rect, bool mouse) {
 }
 
 void TouchInjector::InjectMouse(const std::vector<Contact>& contacts) {
-  // MOUSEEVENTF_ABSOLUTE usa 0..65535 sobre el monitor principal: justo lo que manda la tablet.
+  // Con MOUSEEVENTF_VIRTUALDESK, 0..65535 cubre el escritorio virtual entero (todos los monitores):
+  // se pasa el punto de la tablet a píxeles de su monitor y de ahí a esa escala.
   INPUT in{};
   in.type = INPUT_MOUSE;
   if (!contacts.empty()) {
-    in.mi.dx = static_cast<LONG>(std::clamp(contacts[0].x, 0.0f, 1.0f) * 65535.0f);
-    in.mi.dy = static_cast<LONG>(std::clamp(contacts[0].y, 0.0f, 1.0f) * 65535.0f);
-    in.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE;
+    const int vx = GetSystemMetrics(SM_XVIRTUALSCREEN), vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
+    const int vw = std::max(GetSystemMetrics(SM_CXVIRTUALSCREEN), 2), vh = std::max(GetSystemMetrics(SM_CYVIRTUALSCREEN), 2);
+    const float px = rect_.left + std::clamp(contacts[0].x, 0.0f, 1.0f) * (rect_.right - rect_.left - 1);
+    const float py = rect_.top + std::clamp(contacts[0].y, 0.0f, 1.0f) * (rect_.bottom - rect_.top - 1);
+    in.mi.dx = static_cast<LONG>((px - vx) * 65535.0f / (vw - 1) + 0.5f);
+    in.mi.dy = static_cast<LONG>((py - vy) * 65535.0f / (vh - 1) + 0.5f);
+    in.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
     if (!mouse_down_) in.mi.dwFlags |= MOUSEEVENTF_LEFTDOWN;
     mouse_down_ = true;
   } else if (mouse_down_) {
