@@ -153,6 +153,7 @@ class StreamSession(
         var lastBytes = 0L
         var lastFrames = 0L
         var lastDecoded = 0L
+        var lastLost = 0L
         var lastTime = nowUs()
         var helloAttempts = 0
         while (running) {
@@ -190,6 +191,9 @@ class StreamSession(
                     (if (rtt >= 0) " · RTT ${"%.1f".format(rtt / 1000.0)} ms" else "") +
                     " · perdidos ${reassembler.framesDropped + decoderDrops}",
             )
+            val lost = reassembler.framesDropped + decoderDrops
+            send(Dlp.rateReport((framesReceived - lastFrames).toInt(), (lost - lastLost).toInt(), now))
+            lastLost = lost
             lastBytes = bytesReceived
             lastFrames = framesReceived
             lastDecoded = decoded

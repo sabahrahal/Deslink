@@ -163,6 +163,12 @@ int Run(int argc, char** argv) {
 
     std::atomic<uint32_t> last_client_ip{0};
     std::atomic<uint64_t> last_keyframe_us{0};
+    // Tasa adaptativa (AIMD): baja un 30 % si la tablet pierde frames; sube un 8 % tras 4 s limpios.
+    // Solo se toca desde el hilo de recepción.
+    const uint32_t max_bps = opt.bitrate_mbps * 1'000'000u;
+    const uint32_t min_bps = std::max<uint32_t>(max_bps / 10, 3'000'000u);
+    uint32_t current_bps = max_bps;
+    uint64_t last_decrease_us = 0;
     auto on_packet = [&](const uint8_t* data, size_t size, const sockaddr_in& from) {
       auto header = dlp::ParseHeader(data, size);
       if (!header) return;
@@ -186,6 +192,26 @@ int Run(int argc, char** argv) {
           if (now - last_keyframe_us.load() >= 1'000'000) {
             last_keyframe_us = now;
             encoder.RequestKeyframe();
+          }
+          break;
+        }
+        case dlp::PacketType::kRateReport: {
+          if (header->payload_size < dlp::kRateReportSize) break;
+          const uint8_t* q = data + dlp::kHeaderSize;
+          const uint32_t lost = q[2] | (q[3] << 8);
+          const uint64_t now = NowUs();
+          uint32_t target = current_bps;
+          if (lost > 0) {
+            target = std::max<uint32_t>(static_cast<uint32_t>(current_bps * 0.7), min_bps);
+            last_decrease_us = now;
+          } else if (now - last_decrease_us >= 4'000'000 && current_bps < max_bps) {
+            target = std::min<uint32_t>(static_cast<uint32_t>(current_bps * 1.08) + 1, max_bps);
+          }
+          if (target != current_bps) {
+            current_bps = target;
+            encoder.SetBitrate(current_bps);
+            std::printf("Tasa adaptada a %.1f Mbps (%s)\n", current_bps / 1e6,
+                        lost > 0 ? "la tablet pierde frames" : "enlace limpio");
           }
           break;
         }

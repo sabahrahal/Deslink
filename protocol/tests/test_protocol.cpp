@@ -150,6 +150,7 @@ static void TestBurstTypes() {
   auto h = ParseHeader(pkt.data(), pkt.size());
   CHECK(h && h->type == PacketType::kBurstRequest && h->payload_size == kBurstRequestSize);
   CHECK(static_cast<uint8_t>(PacketType::kBurstData) == 8);
+  CHECK(static_cast<uint8_t>(PacketType::kRateReport) == 9);
 }
 
 int main() {

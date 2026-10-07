@@ -20,6 +20,7 @@ object Dlp {
     const val TYPE_STREAM_INFO = 6
     const val TYPE_BURST_REQUEST = 7
     const val TYPE_BURST_DATA = 8
+    const val TYPE_RATE_REPORT = 9
 
     const val FLAG_KEYFRAME = 1
     const val FLAG_LAST_PACKET = 2
@@ -80,6 +81,20 @@ object Dlp {
         b.putShort(HEADER_SIZE, count.toShort())
         b.putShort(HEADER_SIZE + 2, size.toShort())
         b.putShort(HEADER_SIZE + 4, paceMbps.toShort())
+        return b.array()
+    }
+
+    /** Informe de calidad: frames recibidos y perdidos en el último segundo. */
+    fun rateReport(received: Int, lost: Int, timestampUs: Long): ByteArray {
+        val b = ByteBuffer.allocate(HEADER_SIZE + 4).order(ByteOrder.LITTLE_ENDIAN)
+        b.putShort(0, MAGIC.toShort())
+        b.put(2, VERSION.toByte())
+        b.put(3, TYPE_RATE_REPORT.toByte())
+        b.putShort(12, 1)
+        b.putLong(14, timestampUs)
+        b.putShort(22, 4)
+        b.putShort(HEADER_SIZE, received.coerceIn(0, 0xFFFF).toShort())
+        b.putShort(HEADER_SIZE + 2, lost.coerceIn(0, 0xFFFF).toShort())
         return b.array()
     }
 

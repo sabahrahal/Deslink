@@ -30,6 +30,7 @@ Tamaño máximo de paquete: 1200 bytes (1176 de payload), para no fragmentar en 
 | 5 | PONG | host a cliente | vacío; devuelve el timestamp del PING |
 | 6 | STREAM_INFO | host a cliente | ancho u16, alto u16, fps u16, códec u8 (1 H.264, 2 HEVC) |
 | 7 | BURST_REQUEST | cliente a host | count u16, size u16, pace_mbps u16 (0 = de golpe). El timestamp sirve de nonce |
+| 9 | RATE_REPORT | cliente a host | frames recibidos u16, frames perdidos u16 en el último segundo. El host baja la tasa un 30 % si hay pérdidas y la sube un 8 % tras 4 s limpios (máximo `--bitrate`) |
 | 8 | BURST_DATA | host a cliente | relleno; `packet_index`/`packet_count` numeran la ráfaga y el timestamp devuelve el nonce |
 
 ## Flujo

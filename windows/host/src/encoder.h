@@ -36,6 +36,8 @@ class MfEncoder {
   void Submit(ID3D11Texture2D* nv12, uint64_t timestamp_us);
 
   void RequestKeyframe() { keyframe_requested_ = true; }
+  // Cambia la tasa en caliente; se aplica antes del siguiente frame.
+  void SetBitrate(uint32_t bps) { bitrate_request_ = bps; }
   bool keyframe_pending() const { return keyframe_requested_; }
   // Diagnóstico: frames entregados al MFT y tiempo que esperaron en el buzón hasta que el MFT los pidió.
   std::atomic<uint64_t> fed_frames{0};
@@ -74,5 +76,6 @@ class MfEncoder {
   bool has_pending_ = false;
   PendingFrame pending_;
   std::atomic<bool> stop_{false};
+  std::atomic<uint32_t> bitrate_request_{0};
   std::atomic<bool> keyframe_requested_{true};  // el primer frame es clave
 };

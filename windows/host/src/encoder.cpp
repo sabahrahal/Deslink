@@ -264,6 +264,9 @@ bool MfEncoder::FeedInput(const PendingFrame& frame) {
     if (now > frame.timestamp_us) mailbox_wait_us += now - frame.timestamp_us;
     ++fed_frames;
   }
+  if (const uint32_t bps = bitrate_request_.exchange(0)) {
+    SetU32(codec_api_.Get(), CODECAPI_AVEncCommonMeanBitRate, bps);
+  }
   if (keyframe_requested_.exchange(false)) {
     SetU32(codec_api_.Get(), CODECAPI_AVEncVideoForceKeyFrame, 1);
   }
