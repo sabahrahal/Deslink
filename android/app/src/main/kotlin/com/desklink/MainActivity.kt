@@ -22,7 +22,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
         }
         val hint = TextView(this).apply {
-            text = "Indica la IP del PC donde se ejecuta desklink-host."
+            text = "Deja la IP vacía para buscar el PC automáticamente (WiFi o cable USB con anclaje), o escríbela."
             gravity = Gravity.CENTER
         }
         val ip = EditText(this).apply {
@@ -31,26 +31,39 @@ class MainActivity : Activity() {
             setText(prefs.getString("host", ""))
             setSingleLine()
         }
-        val connect = Button(this).apply {
-            text = "Conectar"
-            setOnClickListener {
-                val host = ip.text.toString().trim()
-                if (host.isNotEmpty()) {
-                    prefs.edit().putString("host", host).apply()
-                    startActivity(Intent(this@MainActivity, StreamActivity::class.java).putExtra(StreamActivity.EXTRA_HOST, host))
-                }
+        val statusText = TextView(this).apply { gravity = Gravity.CENTER }
+        // Si el campo está vacío, busca el PC automáticamente (WiFi o USB) y luego abre la pantalla.
+        fun launch(target: Class<*>) {
+            val typed = ip.text.toString().trim()
+            if (typed.isNotEmpty()) {
+                prefs.edit().putString("host", typed).apply()
+                startActivity(Intent(this, target).putExtra(StreamActivity.EXTRA_HOST, typed))
+                return
             }
+            statusText.text = "Buscando el PC en la red y por USB…"
+            Thread {
+                val found = try { Discovery.find() } catch (_: Exception) { null }
+                runOnUiThread {
+                    if (found == null) {
+                        statusText.text = "No encontré el PC. Abre desklink-host.exe, comprueba el cortafuegos (UDP 47800) " +
+                            "o escribe la IP a mano."
+                    } else {
+                        statusText.text = "PC encontrado: $found"
+                        ip.setText(found)
+                        prefs.edit().putString("host", found).apply()
+                        startActivity(Intent(this, target).putExtra(StreamActivity.EXTRA_HOST, found))
+                    }
+                }
+            }.start()
+        }
+        val connect = Button(this).apply {
+            text = "Conectar (busca el PC solo)"
+            setOnClickListener { launch(StreamActivity::class.java) }
         }
 
         val diagnostics = Button(this).apply {
             text = "Diagnóstico y recomendaciones"
-            setOnClickListener {
-                val host = ip.text.toString().trim()
-                if (host.isNotEmpty()) {
-                    prefs.edit().putString("host", host).apply()
-                    startActivity(Intent(this@MainActivity, DiagnosticsActivity::class.java).putExtra(StreamActivity.EXTRA_HOST, host))
-                }
-            }
+            setOnClickListener { launch(DiagnosticsActivity::class.java) }
         }
 
         val root = LinearLayout(this).apply {
@@ -62,6 +75,7 @@ class MainActivity : Activity() {
             addView(ip, LinearLayout.LayoutParams(-1, -2))
             addView(connect)
             addView(diagnostics)
+            addView(statusText)
         }
         setContentView(root)
     }

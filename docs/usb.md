@@ -6,7 +6,7 @@
 3. En el PC aparece un adaptador de red nuevo. Mira su IPv4 con `ipconfig` (normalmente `192.168.42.x`).
 4. Escribe esa IP en DeskLink. Es el mismo protocolo UDP, sin pasar por el router.
 
-Para comparar con WiFi: pulsa «Diagnóstico y recomendaciones» con cada IP y compara la mediana y el p95.
+Con el campo de IP vacío, la app busca el PC sola (broadcast por todas las redes, incluido el anclaje USB). Para comparar con WiFi: pulsa «Diagnóstico y recomendaciones» con cada IP y compara la mediana y el p95.
 
 ## ADB reverse
 `adb reverse` solo reenvía TCP; DLP va sobre UDP, así que no sirve tal cual. Queda para la fase 5 junto con AOA
