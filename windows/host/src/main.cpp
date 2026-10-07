@@ -66,7 +66,7 @@ struct Options {
   UINT fps = 60;
   UINT bitrate_mbps = 50;
   VideoCodec codec = VideoCodec::kHevc;
-  UINT pace_mbps = 0;  // 0 = enviar cada frame de golpe
+  UINT pace_mbps = 100;  // reparte cada frame a esta tasa; 0 = de golpe (el anclaje USB pierde ráfagas)
 };
 
 bool ParseArgs(int argc, char** argv, Options* o) {

@@ -32,7 +32,7 @@ Los umbrales están en `Advisor.kt` y se ajustarán con mediciones reales. La ve
    administrador: `netsh advfirewall firewall add rule name="DeskLink" dir=in action=allow protocol=UDP localport=47800 profile=any`.
 
 ## Opciones del host para enlaces difíciles
-`desklink-host.exe --pace <Mbps>` reparte el envío de cada frame a esa tasa (por defecto sin límite) y `--bitrate <Mbps>` baja
+`desklink-host.exe --pace <Mbps>` reparte el envío de cada frame a esa tasa (por defecto 100; `--pace 0` envía de golpe) y `--bitrate <Mbps>` baja
 la calidad. La consola muestra «errores de envío» si Windows rechaza paquetes.
 
 ## Desconexión
