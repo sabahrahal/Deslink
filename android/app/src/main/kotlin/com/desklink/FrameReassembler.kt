@@ -54,6 +54,9 @@ class FrameReassembler {
     var packetsRequested = 0L
         private set
 
+    /** Hay frames a medias (esperando paquetes o reenvíos): conviene despertar a menudo para reclamarlos. */
+    val hasPending: Boolean get() = pending.isNotEmpty()
+
     /** Procesa un paquete; devuelve un frame listo (llamar a [poll] hasta null para el resto). */
     fun push(packet: ByteArray, length: Int, nowUs: Long = 0L): Frame? {
         store(packet, length, nowUs)

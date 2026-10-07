@@ -36,6 +36,23 @@ bool StartsWithHevcVps(const uint8_t* d, size_t n) {
   return i < n && ((d[i] >> 1) & 0x3F) == 32;
 }
 
+// El conversor produce BT.709 de rango limitado (converter.cpp). Se declara en el tipo para que el flujo
+// lo lleve en la VUI: sin ella cada decodificador supone lo que quiere y algunos pintan los colores
+// lavados o con otro tono.
+void SetBt709(IMFMediaType* type) {
+  type->SetUINT32(MF_MT_VIDEO_PRIMARIES, MFVideoPrimaries_BT709);
+  type->SetUINT32(MF_MT_TRANSFER_FUNCTION, MFVideoTransFunc_709);
+  type->SetUINT32(MF_MT_YUV_MATRIX, MFVideoTransferMatrix_BT709);
+  type->SetUINT32(MF_MT_VIDEO_NOMINAL_RANGE, MFNominalRange_16_235);
+}
+
+void ClearColor(IMFMediaType* type) {
+  type->DeleteItem(MF_MT_VIDEO_PRIMARIES);
+  type->DeleteItem(MF_MT_TRANSFER_FUNCTION);
+  type->DeleteItem(MF_MT_YUV_MATRIX);
+  type->DeleteItem(MF_MT_VIDEO_NOMINAL_RANGE);
+}
+
 }  // namespace
 
 MfEncoder::~MfEncoder() { Stop(); }
@@ -180,7 +197,13 @@ bool MfEncoder::ConfigureTypes(VideoCodec codec) {
   out->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
   out->SetUINT32(MF_MT_MPEG2_PROFILE,
                  codec == VideoCodec::kHevc ? eAVEncH265VProfile_Main_420_8 : eAVEncH264VProfile_High);
+  SetBt709(out.Get());
   HRESULT hr = mft_->SetOutputType(0, out.Get(), 0);
+  if (FAILED(hr)) {
+    // Algún codificador puede rechazar los atributos de color: mejor sin ellos que sin vídeo.
+    ClearColor(out.Get());
+    hr = mft_->SetOutputType(0, out.Get(), 0);
+  }
   if (FAILED(hr)) {
     std::fprintf(stderr, "SetOutputType falló: 0x%08lx\n", hr);
     return false;
@@ -194,7 +217,12 @@ bool MfEncoder::ConfigureTypes(VideoCodec codec) {
   MFSetAttributeRatio(in.Get(), MF_MT_FRAME_RATE, fps_, 1);
   MFSetAttributeRatio(in.Get(), MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
   in->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
+  SetBt709(in.Get());
   hr = mft_->SetInputType(0, in.Get(), 0);
+  if (FAILED(hr)) {
+    ClearColor(in.Get());
+    hr = mft_->SetInputType(0, in.Get(), 0);
+  }
   if (FAILED(hr)) {
     std::fprintf(stderr, "SetInputType falló: 0x%08lx\n", hr);
     return false;

@@ -23,6 +23,9 @@ class StreamActivity : Activity(), SurfaceHolder.Callback, StreamSession.Listene
     private lateinit var statsView: TextView
     private var session: StreamSession? = null
     private var wifiLock: WifiManager.WifiLock? = null
+    @Volatile private var wifiNeeded = true  // false si el host se alcanza por USB o Ethernet
+    @Volatile private var statsVisible = true
+    private var started = false
     private lateinit var host: String
     private val probe by lazy { DeviceProbe(this) }
 
@@ -74,7 +77,8 @@ class StreamActivity : Activity(), SurfaceHolder.Callback, StreamSession.Listene
     private fun onSurfaceTouch(event: MotionEvent): Boolean {
         // Cuatro dedos a la vez: mostrar u ocultar las estadísticas (el toque normal va al PC).
         if (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN && event.pointerCount == 4) {
-            statsView.visibility = if (statsView.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+            statsVisible = statsView.visibility != View.VISIBLE
+            statsView.visibility = if (statsVisible) View.VISIBLE else View.GONE
             return true
         }
         val w = surfaceView.width.coerceAtLeast(1).toFloat()
@@ -102,16 +106,36 @@ class StreamActivity : Activity(), SurfaceHolder.Callback, StreamSession.Listene
 
     override fun onStart() {
         super.onStart()
-        // Sin ahorro de energía del WiFi: es la mayor fuente de picos de latencia en la red.
+        started = true
+        if (wifiNeeded) acquireWifiLock()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        started = false
+        releaseWifiLock()
+    }
+
+    // Sin ahorro de energía del WiFi: es la mayor fuente de picos de latencia en la red. Por cable no hace
+    // falta y mantener la radio WiFi despierta sin usarla solo gasta batería.
+    private fun acquireWifiLock() {
+        if (wifiLock != null) return
         val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
         val mode = if (Build.VERSION.SDK_INT >= 29) WifiManager.WIFI_MODE_FULL_LOW_LATENCY else WifiManager.WIFI_MODE_FULL_HIGH_PERF
         wifiLock = wifi.createWifiLock(mode, "desklink").also { it.acquire() }
     }
 
-    override fun onStop() {
-        super.onStop()
+    private fun releaseWifiLock() {
         wifiLock?.takeIf { it.isHeld }?.release()
         wifiLock = null
+    }
+
+    override fun onRoute(route: Route?) {
+        val needed = route == null || route.transport == Transport.WIFI || route.transport == Transport.OTHER
+        runOnUiThread {
+            wifiNeeded = needed
+            if (!needed) releaseWifiLock() else if (started) acquireWifiLock()
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -150,6 +174,7 @@ class StreamActivity : Activity(), SurfaceHolder.Callback, StreamSession.Listene
     }
 
     override fun onStats(text: String) {
+        if (!statsVisible) return  // ocultas: ni se mide la batería ni se repinta el texto
         val b = probe.sampleBattery()
         val power = b.netMilliwatts?.let { " · batería ${"%+.1f".format(it / 1000)} W" } ?: ""
         runOnUiThread { statsView.text = text + power }

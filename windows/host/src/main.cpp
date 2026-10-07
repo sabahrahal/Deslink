@@ -39,27 +39,44 @@ uint64_t NowUs() {
       duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count());
 }
 
-// Espera (durmiendo y luego girando) hasta el instante target_us.
-void WaitUntil(uint64_t target_us) {
-  for (;;) {
-    const uint64_t now = NowUs();
-    if (now >= target_us) return;
-    if (target_us - now > 1500) {
-      Sleep(1);
-    } else {
-      YieldProcessor();
+#ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
+#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
+#endif
+
+// Duerme us microsegundos sin ocupar la CPU. Con el temporizador de alta resolución (Windows 10 1803 o
+// posterior) la espera es de ~0,5 ms; si no existe, Sleep(1) con timeBeginPeriod(1).
+void SleepUs(uint64_t us) {
+  struct Timer {
+    HANDLE h = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+    ~Timer() {
+      if (h) CloseHandle(h);
     }
+  };
+  thread_local Timer timer;
+  LARGE_INTEGER due;
+  due.QuadPart = -static_cast<LONGLONG>(us) * 10;  // relativo, en unidades de 100 ns
+  if (timer.h && SetWaitableTimer(timer.h, &due, 0, nullptr, nullptr, FALSE)) {
+    WaitForSingleObject(timer.h, INFINITE);
+  } else {
+    Sleep(static_cast<DWORD>(std::max<uint64_t>(us / 1000, 1)));
   }
 }
 
 // Envía los paquetes uno tras otro; con pace_mbps > 0 reparte el envío para no saturar
 // los búferes de enlaces lentos o con ráfagas mal toleradas (p. ej. el anclaje USB).
+// Los paquetes salen en ráfagas de como mucho kBurstUs y entre ráfagas el hilo duerme: antes giraba
+// esperando cada paquete (a 100 Mbps hay uno cada ~0,1 ms) y gastaba un núcleo entero mientras enviaba.
 template <typename SendFn>
 void SendPaced(const std::vector<std::vector<uint8_t>>& packets, uint32_t pace_mbps, SendFn send) {
+  constexpr uint64_t kBurstUs = 500;
   const uint64_t start = NowUs();
   uint64_t bits = 0;
   for (const auto& p : packets) {
-    if (pace_mbps > 0) WaitUntil(start + bits / pace_mbps);  // bits / (Mbit/s) = µs
+    if (pace_mbps > 0) {
+      const uint64_t due = start + bits / pace_mbps;  // bits / (Mbit/s) = µs
+      const uint64_t now = NowUs();
+      if (due > now + kBurstUs) SleepUs(due - now);
+    }
     send(p);
     bits += p.size() * 8;
   }
@@ -111,6 +128,7 @@ struct Options {
   UINT virtual_width = 2944;     // --size: resolución del monitor virtual (por defecto, la Lenovo Idea Tab Pro)
   UINT virtual_height = 1840;
   bool size_given = false;       // si no se pasa --size, se usa la última resolución recordada
+  UINT refine = 4;               // --refine: repeticiones extra al quedarse quieta la imagen para afinar la calidad
 };
 
 // Todo lo que depende de la resolución y de la GPU de la salida capturada. Cuando Windows cambia la
@@ -161,6 +179,9 @@ bool ParseArgs(int argc, char** argv, Options* o) {
       o->virtual_width = w;
       o->virtual_height = h;
       o->size_given = true;
+    } else if (a == "--refine") {
+      auto v = next("--refine"); if (!v) return false;
+      o->refine = static_cast<UINT>(std::atoi(v));
     } else if (a == "--no-cursor") {
       o->cursor = false;
     } else if (a == "--mouse") {
@@ -173,12 +194,12 @@ bool ParseArgs(int argc, char** argv, Options* o) {
     } else {
       std::fprintf(stderr,
                    "Uso: desklink-host [--port 47800] [--output 0] [--fps 60] [--bitrate 50] "
-                   "[--codec hevc|h264] [--pace Mbps] [--no-touch] [--mouse] [--no-cursor] "
+                   "[--codec hevc|h264] [--pace Mbps] [--refine 4] [--no-touch] [--mouse] [--no-cursor] "
                    "[--virtual [--size 2944x1840]]\n");
       return false;
     }
   }
-  return o->fps > 0 && o->fps <= 240 && o->bitrate_mbps > 0;
+  return o->fps > 0 && o->fps <= 240 && o->bitrate_mbps > 0 && o->refine <= 30;
 }
 
 }  // namespace
@@ -447,19 +468,36 @@ int Run(int argc, char** argv) {
                 opt.port);
 
     const uint64_t min_interval_us = 1'000'000ull / opt.fps;
+    constexpr uint64_t kRefineIntervalUs = 100'000;  // separación de las repeticiones de afinado
     uint64_t last_submit_us = 0;
     uint64_t last_rect_check_us = 0;
     ID3D11Texture2D* last_nv12 = nullptr;
-    bool dirty = false;      // hay una imagen convertida que aún no se envió
+    bool dirty = false;      // la imagen guardada (o el cursor) cambió y aún no se convirtió ni envió
     int flush_left = 0;      // repeticiones pendientes para vaciar el codificador
-    uint64_t captured = 0, last_stats_us = NowUs();
+    UINT refine_left = 0;    // repeticiones lentas pendientes para afinar la calidad de la imagen quieta
+    uint64_t captured = 0, composed = 0, last_composed = 0, last_stats_us = NowUs();
     uint64_t convert_us = 0, last_convert = 0, last_fed = 0, last_mailbox = 0;
     uint64_t last_bytes = 0, last_encoded = 0, last_latency = 0, last_captured = 0, last_keyframes = 0, last_retransmits = 0, last_touch = 0;
     bool failed = false;
 
     while (g_running) {
       ID3D11Texture2D* frame = nullptr;
-      auto result = pipe->capture.Acquire(10, &frame);
+      // Sin nada pendiente se espera más a la siguiente imagen: sin cliente o con el escritorio quieto el
+      // bucle apenas despierta. Con algo pendiente, justo hasta el siguiente hueco de envío.
+      UINT timeout_ms = udp.has_peer() ? 16 : 100;
+      if (udp.has_peer() && pipe->converter.has_image()) {
+        uint64_t due = 0;
+        if (dirty || flush_left > 0 || pipe->encoder->keyframe_pending()) {
+          due = last_submit_us + min_interval_us;
+        } else if (refine_left > 0) {
+          due = last_submit_us + kRefineIntervalUs;
+        }
+        if (due) {
+          const uint64_t t = NowUs();
+          timeout_ms = due > t ? static_cast<UINT>(std::min<uint64_t>((due - t + 999) / 1000, 16)) : 0;
+        }
+      }
+      auto result = pipe->capture.Acquire(timeout_ms, &frame);
       if (result == DesktopCapture::Result::kLost) {
         // Windows corta la captura al cambiar de modo, al salir la pantalla de UAC o al bloquear la
         // sesión. Primero se intenta reabrirla tal cual; si el tamaño cambió (el usuario cambió la
@@ -498,6 +536,7 @@ int Run(int argc, char** argv) {
         last_nv12 = nullptr;
         dirty = false;
         flush_left = 0;
+        refine_left = 0;
         last_fed = last_mailbox = 0;
         if (udp.has_peer()) {
           std::lock_guard<std::mutex> lock(info_mutex);
@@ -519,44 +558,51 @@ int Run(int argc, char** argv) {
         std::printf("Cliente desconectado (sin respuesta durante 5 s). Esperando cliente.\n");
       }
 
-      // Cada imagen nueva del escritorio se convierte siempre (es barato) y queda como «última»;
-      // así la última actualización antes de quedarse quieto nunca se pierde por el límite de fps.
+      // Cada imagen nueva del escritorio solo se copia (hay que hacerlo antes de soltarla) y queda como
+      // «última»; así la última actualización antes de quedarse quieto nunca se pierde por el límite de fps.
+      // El cursor y la conversión a NV12 se hacen solo cuando el frame va al codificador: con el escritorio
+      // a 120-144 Hz, el cursor moviéndose o sin cliente conectado ya no se convierten imágenes que nadie ve.
       if (result == DesktopCapture::Result::kFrame) {
-        const uint64_t conv_start = NowUs();
-        ID3D11Texture2D* nv12 = pipe->converter.Convert(frame);
-        convert_us += NowUs() - conv_start;
+        pipe->converter.Store(frame);
         pipe->capture.Release();
-        if (!nv12) {
-          failed = true;
-          break;
-        }
-        last_nv12 = nv12;
         dirty = true;
         ++captured;
-      } else if (result == DesktopCapture::Result::kCursorMoved) {
-        // Solo se movió el cursor: se redibuja sobre la última imagen.
-        pipe->capture.Release();
-        if (ID3D11Texture2D* nv12 = pipe->converter.Refresh()) {
-          last_nv12 = nv12;
-          dirty = true;
-        }
       } else {
         pipe->capture.Release();
+        // Solo se movió el cursor: se redibujará sobre la última imagen.
+        if (result == DesktopCapture::Result::kCursorMoved && opt.cursor && pipe->converter.has_image()) dirty = true;
       }
 
       // Se envía la última imagen si es nueva y toca por fps. Tras la última imagen nueva se repite
       // 2 veces: el codificador de hardware retiene un par de frames y, sin nuevas entradas, la
-      // última actualización se quedaba dentro durante cientos de ms (imagen «pegada»).
+      // última actualización se quedaba dentro durante cientos de ms (imagen «pegada»). Después se
+      // repite unas pocas veces más, despacio: con CBR el codificador gasta esos bits en afinar la imagen
+      // quieta (texto nítido tras desplazar o arrastrar una ventana) en vez de dejarla como salió en movimiento.
       const uint64_t now = NowUs();
-      if (udp.has_peer() && last_nv12 && now - last_submit_us >= min_interval_us &&
-          (dirty || flush_left > 0 || pipe->encoder->keyframe_pending())) {
+      const bool refine_due = refine_left > 0 && now - last_submit_us >= kRefineIntervalUs;
+      if (udp.has_peer() && pipe->converter.has_image() && now - last_submit_us >= min_interval_us &&
+          (dirty || flush_left > 0 || refine_due || pipe->encoder->keyframe_pending())) {
+        if (dirty || !last_nv12) {
+          const uint64_t conv_start = NowUs();
+          ID3D11Texture2D* nv12 = pipe->converter.Compose();
+          convert_us += NowUs() - conv_start;
+          if (!nv12) {
+            failed = true;
+            break;
+          }
+          last_nv12 = nv12;
+          ++composed;
+        }
         pipe->encoder->Submit(last_nv12, now);
         last_submit_us = now;
         if (dirty) {
           dirty = false;
           flush_left = 2;
+          refine_left = opt.refine;
         } else if (flush_left > 0) {
           --flush_left;
+        } else if (refine_left > 0) {
+          --refine_left;
         }
       }
 
@@ -583,7 +629,7 @@ int Run(int argc, char** argv) {
                     (captured - last_captured) / secs, enc / secs,
                     (bytes_sent - last_bytes) * 8 / secs / 1e6, enc ? lat / 1000.0 / enc : 0.0,
                     static_cast<unsigned long long>(keyframes_sent.load() - last_keyframes),
-                    captured > last_captured ? (convert_us - last_convert) / 1000.0 / (captured - last_captured) : 0.0,
+                    composed > last_composed ? (convert_us - last_convert) / 1000.0 / (composed - last_composed) : 0.0,
                     pipe->encoder->fed_frames > last_fed ? (pipe->encoder->mailbox_wait_us - last_mailbox) / 1000.0 / (pipe->encoder->fed_frames - last_fed) : 0.0,
                     static_cast<unsigned long long>(udp.send_errors()),
                     static_cast<unsigned long long>(retransmits.load() - last_retransmits),
@@ -598,6 +644,7 @@ int Run(int argc, char** argv) {
         last_retransmits = retransmits;
         last_touch = touch_packets;
         last_convert = convert_us;
+        last_composed = composed;
         last_fed = pipe->encoder->fed_frames;
         last_mailbox = pipe->encoder->mailbox_wait_us;
       }
