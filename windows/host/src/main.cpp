@@ -77,7 +77,7 @@ bool ParseArgs(int argc, char** argv, Options* o) {
 
 }  // namespace
 
-int main(int argc, char** argv) {
+int Run(int argc, char** argv) {
   Options opt;
   if (!ParseArgs(argc, argv, &opt)) return 2;
 
@@ -216,4 +216,17 @@ int main(int argc, char** argv) {
   CoUninitialize();
   WSACleanup();
   return exit_code;
+}
+
+// Si se abrió con doble clic, la consola desaparece al terminar: se espera una tecla
+// para poder leer el resultado o el error.
+int main(int argc, char** argv) {
+  const int code = Run(argc, argv);
+  DWORD pids[2];
+  const bool own_console = GetConsoleProcessList(pids, 2) == 1;
+  if (own_console || code != 0) {
+    std::printf("\nPulsa Enter para salir.\n");
+    std::getchar();
+  }
+  return code;
 }

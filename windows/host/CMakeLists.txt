@@ -8,6 +8,10 @@ if(NOT WIN32)
   message(FATAL_ERROR "desklink-host sólo se compila en Windows (DXGI, Media Foundation).")
 endif()
 
+# Runtime de C++ enlazado de forma estática: el .exe no necesita instalar el
+# paquete redistribuible de Visual C++ en el PC.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
+
 add_subdirectory(../../protocol protocol)
 
 add_executable(desklink-host
