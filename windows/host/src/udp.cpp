@@ -63,8 +63,10 @@ void UdpEndpoint::SendToPeer(const std::vector<uint8_t>& packet) {
 }
 
 void UdpEndpoint::SendTo(const sockaddr_in& to, const std::vector<uint8_t>& packet) {
-  ::sendto(socket_, reinterpret_cast<const char*>(packet.data()), static_cast<int>(packet.size()), 0,
-           reinterpret_cast<const sockaddr*>(&to), sizeof(to));
+  if (::sendto(socket_, reinterpret_cast<const char*>(packet.data()), static_cast<int>(packet.size()), 0,
+               reinterpret_cast<const sockaddr*>(&to), sizeof(to)) == SOCKET_ERROR) {
+    ++send_errors_;
+  }
 }
 
 void UdpEndpoint::ReceiveLoop() {

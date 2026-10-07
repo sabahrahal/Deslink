@@ -27,6 +27,7 @@ class UdpEndpoint {
   void SendToPeer(const std::vector<uint8_t>& packet);
   void SendTo(const sockaddr_in& to, const std::vector<uint8_t>& packet);
   void Stop();
+  uint64_t send_errors() const { return send_errors_; }
 
  private:
   void ReceiveLoop();
@@ -38,5 +39,6 @@ class UdpEndpoint {
   mutable std::mutex mutex_;
   sockaddr_in peer_{};
   bool has_peer_ = false;
+  std::atomic<uint64_t> send_errors_{0};
   std::chrono::steady_clock::time_point last_rx_{};
 };

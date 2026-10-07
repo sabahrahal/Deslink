@@ -44,4 +44,19 @@ class AdvisorTest {
         val f = Advisor.advise(null, null, null, 3)
         assertTrue(f.any { it.title.contains("calentando") })
     }
+
+    @Test fun burstLossWithPacedOkSuggestsPace() {
+        val f = Advisor.adviseBurst(BurstResult(400, 250, 300.0, 0), BurstResult(400, 400, 98.0, 100))
+        assertTrue(f.any { it.severity == Severity.WARNING && it.detail.contains("--pace 100") })
+    }
+
+    @Test fun burstLossEvenPacedSuggestsLowerBitrate() {
+        val f = Advisor.adviseBurst(BurstResult(400, 200, 80.0, 0), BurstResult(400, 300, 60.0, 100))
+        assertTrue(f.any { it.detail.contains("--bitrate") })
+    }
+
+    @Test fun cleanBurstIsOk() {
+        val f = Advisor.adviseBurst(BurstResult(400, 400, 400.0, 0), null)
+        assertTrue(f.single().severity == Severity.OK)
+    }
 }

@@ -5,6 +5,7 @@
 #include <mmsystem.h>
 #include <windows.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -12,6 +13,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "capture.h"
 #include "converter.h"
@@ -32,12 +34,39 @@ uint64_t NowUs() {
       duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count());
 }
 
+// Espera (durmiendo y luego girando) hasta el instante target_us.
+void WaitUntil(uint64_t target_us) {
+  for (;;) {
+    const uint64_t now = NowUs();
+    if (now >= target_us) return;
+    if (target_us - now > 1500) {
+      Sleep(1);
+    } else {
+      YieldProcessor();
+    }
+  }
+}
+
+// Envía los paquetes uno tras otro; con pace_mbps > 0 reparte el envío para no saturar
+// los búferes de enlaces lentos o con ráfagas mal toleradas (p. ej. el anclaje USB).
+template <typename SendFn>
+void SendPaced(const std::vector<std::vector<uint8_t>>& packets, uint32_t pace_mbps, SendFn send) {
+  const uint64_t start = NowUs();
+  uint64_t bits = 0;
+  for (const auto& p : packets) {
+    if (pace_mbps > 0) WaitUntil(start + bits / pace_mbps);  // bits / (Mbit/s) = µs
+    send(p);
+    bits += p.size() * 8;
+  }
+}
+
 struct Options {
   uint16_t port = dlp::kDefaultPort;
   int output = 0;
   UINT fps = 60;
   UINT bitrate_mbps = 50;
   VideoCodec codec = VideoCodec::kHevc;
+  UINT pace_mbps = 0;  // 0 = enviar cada frame de golpe
 };
 
 bool ParseArgs(int argc, char** argv, Options* o) {
@@ -62,13 +91,16 @@ bool ParseArgs(int argc, char** argv, Options* o) {
     } else if (a == "--bitrate") {
       auto v = next("--bitrate"); if (!v) return false;
       o->bitrate_mbps = static_cast<UINT>(std::atoi(v));
+    } else if (a == "--pace") {
+      auto v = next("--pace"); if (!v) return false;
+      o->pace_mbps = static_cast<UINT>(std::atoi(v));
     } else if (a == "--codec") {
       auto v = next("--codec"); if (!v) return false;
       o->codec = std::string(v) == "h264" ? VideoCodec::kH264 : VideoCodec::kHevc;
     } else {
       std::fprintf(stderr,
                    "Uso: desklink-host [--port 47800] [--output 0] [--fps 60] [--bitrate 50] "
-                   "[--codec hevc|h264]\n");
+                   "[--codec hevc|h264] [--pace Mbps]\n");
       return false;
     }
   }
@@ -117,7 +149,7 @@ int Run(int argc, char** argv) {
 
     auto on_encoded = [&](const uint8_t* data, size_t size, bool keyframe, uint64_t ts_us) {
       auto packets = dlp::PacketizeFrame(data, size, next_frame_id++, keyframe, ts_us);
-      for (const auto& p : packets) udp.SendToPeer(p);
+      SendPaced(packets, opt.pace_mbps, [&](const std::vector<uint8_t>& p) { udp.SendToPeer(p); });
       bytes_sent += size;
       ++frames_encoded;
       const uint64_t now = NowUs();
@@ -147,6 +179,29 @@ int Run(int argc, char** argv) {
         case dlp::PacketType::kKeyframeRequest:
           encoder.RequestKeyframe();
           break;
+        case dlp::PacketType::kBurstRequest: {
+          // Ráfaga de prueba: count paquetes de size bytes, opcionalmente con tasa limitada.
+          if (header->payload_size < dlp::kBurstRequestSize) break;
+          const uint8_t* q = data + dlp::kHeaderSize;
+          const uint32_t count = std::min<uint32_t>(std::max<uint32_t>(q[0] | (q[1] << 8), 1), 2000);
+          const uint32_t size = std::min<uint32_t>(std::max<uint32_t>(q[2] | (q[3] << 8), 100), dlp::kMaxPacketSize);
+          const uint32_t pace = q[4] | (q[5] << 8);
+          std::vector<std::vector<uint8_t>> burst;
+          burst.reserve(count);
+          for (uint32_t i = 0; i < count; ++i) {
+            dlp::Header bh;
+            bh.type = dlp::PacketType::kBurstData;
+            bh.packet_index = static_cast<uint16_t>(i);
+            bh.packet_count = static_cast<uint16_t>(count);
+            bh.timestamp_us = header->timestamp_us;
+            bh.payload_size = static_cast<uint16_t>(size - dlp::kHeaderSize);
+            std::vector<uint8_t> pkt(size, 0);
+            dlp::WriteHeader(bh, pkt.data());
+            burst.push_back(std::move(pkt));
+          }
+          SendPaced(burst, pace, [&](const std::vector<uint8_t>& p) { udp.SendTo(from, p); });
+          break;
+        }
         case dlp::PacketType::kPing:
           udp.SendTo(from, dlp::MakeControlPacket(dlp::PacketType::kPong, nullptr, 0,
                                                   header->timestamp_us));
@@ -205,9 +260,10 @@ int Run(int argc, char** argv) {
         const double secs = (t - last_stats_us) / 1e6;
         const uint64_t enc = frames_encoded - last_encoded;
         const uint64_t lat = encode_latency_us - last_latency;
-        std::printf("capturados %.0f/s | codificados %.0f/s | %.1f Mbps | codificación %.1f ms%s\n",
+        std::printf("capturados %.0f/s | codificados %.0f/s | %.1f Mbps | codificación %.1f ms | errores de envío %llu%s\n",
                     (captured - last_captured) / secs, enc / secs,
                     (bytes_sent - last_bytes) * 8 / secs / 1e6, enc ? lat / 1000.0 / enc : 0.0,
+                    static_cast<unsigned long long>(udp.send_errors()),
                     udp.has_peer() ? "" : " | esperando cliente");
         last_stats_us = t;
         last_bytes = bytes_sent;

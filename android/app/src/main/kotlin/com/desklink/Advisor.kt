@@ -7,6 +7,11 @@ data class LinkResult(val sent: Int, val received: Int, val rttP50Ms: Double, va
     val lossPercent: Double get() = if (sent == 0) 0.0 else (sent - received) * 100.0 / sent
 }
 
+/** Resultado de una ráfaga de prueba (como un frame clave). [paceMbps] 0 = de golpe. */
+data class BurstResult(val sent: Int, val received: Int, val mbps: Double, val paceMbps: Int) {
+    val lossPercent: Double get() = if (sent == 0) 0.0 else (sent - received) * 100.0 / sent
+}
+
 /** Estado de la red de la tablet. */
 data class NetworkInfo(val isWifi: Boolean, val wifiLinkMbps: Int, val wifiRssiDbm: Int, val wifiFrequencyMhz: Int, val isEthernetLike: Boolean)
 
@@ -22,9 +27,17 @@ data class Finding(val severity: Severity, val title: String, val detail: String
  * Los umbrales son conservadores y se ajustarán con las mediciones reales (ver docs/diagnostics-panel.md).
  */
 object Advisor {
-    fun advise(link: LinkResult?, net: NetworkInfo?, battery: BatteryInfo?, thermalStatus: Int?): List<Finding> {
+    fun advise(
+        link: LinkResult?,
+        net: NetworkInfo?,
+        battery: BatteryInfo?,
+        thermalStatus: Int?,
+        raw: BurstResult? = null,
+        paced: BurstResult? = null,
+    ): List<Finding> {
         val out = ArrayList<Finding>()
         if (link != null) out += adviseLink(link, net)
+        if (raw != null) out += adviseBurst(raw, paced)
         val wifiRoute = link?.route?.transport?.let { it == Transport.WIFI } ?: (net?.isWifi == true)
         if (net != null && wifiRoute) out += adviseWifi(net)
         if (battery != null) out += adviseBattery(battery)
@@ -81,6 +94,38 @@ object Advisor {
             )
         }
         return out
+    }
+
+    /** Qué hacer según cómo aguanta el enlace una ráfaga del tamaño de un frame clave. */
+    fun adviseBurst(raw: BurstResult, paced: BurstResult?): List<Finding> {
+        val rawLoss = raw.lossPercent
+        val pacedLoss = paced?.lossPercent
+        return when {
+            raw.received == 0 -> emptyList()
+            rawLoss < 3.0 -> listOf(
+                Finding(Severity.OK, "Aguanta bien las ráfagas", "Un frame grande llega completo (${"%.0f".format(raw.mbps)} Mbps de pico)."),
+            )
+            paced != null && pacedLoss != null && pacedLoss < 3.0 -> listOf(
+                Finding(
+                    Severity.WARNING, "El enlace pierde datos en ráfagas",
+                    "Enviado de golpe se pierde el ${"%.0f".format(rawLoss)} % de un frame grande, y repartido a ${paced.paceMbps} Mbps " +
+                        "llega completo. Arranca el programa del PC con `desklink-host.exe --pace ${paced.paceMbps}` " +
+                        "y la imagen debería dejar de congelarse.",
+                ),
+            )
+            else -> {
+                val base = paced?.takeIf { it.received > 0 }?.mbps ?: raw.mbps
+                val suggested = max(5, (base * 0.4).toInt())
+                listOf(
+                    Finding(
+                        Severity.WARNING, "El enlace no da para tanta calidad",
+                        "Se pierde el ${"%.0f".format(rawLoss)} % de un frame grande aunque se reparta. Baja la calidad: " +
+                            "`desklink-host.exe --bitrate $suggested --pace ${max(10, (base * 0.8).toInt())}`. " +
+                            "Si es USB, prueba otro cable o puerto, o el WiFi.",
+                    ),
+                )
+            }
+        }
     }
 
     private fun adviseWifi(net: NetworkInfo): List<Finding> {

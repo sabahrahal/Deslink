@@ -22,6 +22,8 @@ enum class PacketType : uint8_t {
   kPing = 4,             // cliente -> host: medir RTT
   kPong = 5,             // host -> cliente: respuesta al ping (devuelve el timestamp)
   kStreamInfo = 6,       // host -> cliente: resolución, fps y códec
+  kBurstRequest = 7,     // cliente -> host: pide una ráfaga de prueba (count u16, size u16, pace_mbps u16)
+  kBurstData = 8,        // host -> cliente: paquete de relleno de la ráfaga (packet_index/packet_count)
 };
 
 enum Flags : uint8_t {
@@ -49,6 +51,7 @@ struct StreamInfo {
 };
 
 constexpr size_t kStreamInfoSize = 7;
+constexpr size_t kBurstRequestSize = 6;
 
 // Escribe la cabecera en kHeaderSize bytes.
 void WriteHeader(const Header& header, uint8_t* out);

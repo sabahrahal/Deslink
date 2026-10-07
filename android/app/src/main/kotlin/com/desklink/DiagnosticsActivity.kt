@@ -18,6 +18,8 @@ class DiagnosticsActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var runButton: Button
     private var link: LinkResult? = null
+    private var raw: BurstResult? = null
+    private var paced: BurstResult? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -27,7 +29,7 @@ class DiagnosticsActivity : Activity() {
         status = TextView(this).apply { textSize = 14f; gravity = Gravity.CENTER }
         results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         runButton = Button(this).apply {
-            text = "Probar ahora (unos 3 segundos)"
+            text = "Probar ahora (unos 5 segundos)"
             setOnClickListener { startTest() }
         }
         val root = LinearLayout(this).apply {
@@ -55,8 +57,14 @@ class DiagnosticsActivity : Activity() {
             } catch (e: Exception) {
                 null
             }
+            runOnUiThread { status.text = "Probando ráfagas (como un frame grande)…" }
+            val rawBurst = try { LinkTester.burst(host, paceMbps = 0) } catch (e: Exception) { null }
+            Thread.sleep(300)
+            val pacedBurst = try { LinkTester.burst(host, paceMbps = 100) } catch (e: Exception) { null }
             runOnUiThread {
                 link = result
+                raw = rawBurst
+                paced = pacedBurst
                 runButton.isEnabled = true
                 status.text = if (result == null) "No se pudo realizar la prueba." else "Prueba terminada."
                 refresh()
@@ -66,7 +74,7 @@ class DiagnosticsActivity : Activity() {
 
     private fun refresh() {
         val net = probe.networkInfo()
-        val findings = Advisor.advise(link, net, probe.sampleBattery(), probe.thermalStatus())
+        val findings = Advisor.advise(link, net, probe.sampleBattery(), probe.thermalStatus(), raw, paced)
         results.removeAllViews()
         for (f in findings) {
             val color = when (f.severity) {
@@ -90,7 +98,9 @@ class DiagnosticsActivity : Activity() {
                     setPadding(0, 32, 0, 0)
                     textSize = 12f
                     text = "Detalle: ${it.received}/${it.sent} respuestas · mediana ${"%.1f".format(it.rttP50Ms)} ms · " +
-                        "p95 ${"%.1f".format(it.rttP95Ms)} ms · variación ${"%.1f".format(it.jitterMs)} ms"
+                        "p95 ${"%.1f".format(it.rttP95Ms)} ms · variación ${"%.1f".format(it.jitterMs)} ms" +
+                        (raw?.let { r -> "\nRáfaga de golpe: ${r.received}/${r.sent} paquetes (${"%.0f".format(r.mbps)} Mbps)" } ?: "") +
+                        (paced?.let { r -> "\nRáfaga a ${r.paceMbps} Mbps: ${r.received}/${r.sent} paquetes" } ?: "")
                 },
             )
         }

@@ -14,6 +14,9 @@ Con el campo de IP vacío, la app busca el PC sola (broadcast por todas las rede
 
 ## Qué mide el diagnóstico
 - Prueba de conexión: 100 PING/PONG de DLP (uno cada 20 ms) → mediana, p95, variación y pérdida.
+- Prueba de ráfaga: el host envía 400 paquetes seguidos (como un frame clave), de golpe y repartidos a 100 Mbps. Si de golpe
+  se pierden y repartidos no, el enlace no tolera ráfagas: usa `desklink-host.exe --pace 100`. Si se pierden igualmente,
+  baja la calidad con `--bitrate` (el diagnóstico sugiere valores).
 - WiFi: banda (2,4/5/6 GHz), señal y velocidad de enlace.
 - Batería: consumo neto desde `CHARGE_COUNTER` (el signo de `CURRENT_NOW` varía según fabricante), carga por USB/red,
   temperatura. Avisa si «está conectada pero se descarga».
@@ -27,6 +30,10 @@ Los umbrales están en `Advisor.kt` y se ajustarán con mediciones reales. La ve
 2. Al fallar, la app lista las redes que ve la tablet; con el anclaje activo debe aparecer una `USB (rndis0 …)`.
 3. Windows suele clasificar el adaptador del anclaje como red **pública** y bloquea UDP entrante. En PowerShell como
    administrador: `netsh advfirewall firewall add rule name="DeskLink" dir=in action=allow protocol=UDP localport=47800 profile=any`.
+
+## Opciones del host para enlaces difíciles
+`desklink-host.exe --pace <Mbps>` reparte el envío de cada frame a esa tasa (por defecto sin límite) y `--bitrate <Mbps>` baja
+la calidad. La consola muestra «errores de envío» si Windows rechaza paquetes.
 
 ## Desconexión
 El host olvida al cliente si pasan 5 s sin recibir nada de él y vuelve a «esperando cliente»; la tablet reenvía HELLO
