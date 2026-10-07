@@ -4,6 +4,7 @@
 #include <ws2tcpip.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <mutex>
@@ -19,10 +20,14 @@ class UdpEndpoint {
 
   bool Bind(uint16_t port, PacketHandler handler);
   void SetPeer(const sockaddr_in& peer);
+  // Olvida al cliente si lleva más de timeout sin enviar nada (la tablet manda PING cada segundo).
+  // Devuelve true si lo olvidó.
+  bool ExpirePeer(std::chrono::milliseconds timeout);
   bool has_peer() const;
   void SendToPeer(const std::vector<uint8_t>& packet);
   void SendTo(const sockaddr_in& to, const std::vector<uint8_t>& packet);
   void Stop();
+  uint64_t send_errors() const { return send_errors_; }
 
  private:
   void ReceiveLoop();
@@ -34,4 +39,6 @@ class UdpEndpoint {
   mutable std::mutex mutex_;
   sockaddr_in peer_{};
   bool has_peer_ = false;
+  std::atomic<uint64_t> send_errors_{0};
+  std::chrono::steady_clock::time_point last_rx_{};
 };

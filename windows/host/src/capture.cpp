@@ -31,7 +31,7 @@ DesktopCapture::Result DesktopCapture::Acquire(UINT timeout_ms, ID3D11Texture2D*
   // Sólo se movió el cursor: no hay imagen nueva que codificar.
   if (info.LastPresentTime.QuadPart == 0) {
     Release();
-    return Result::kTimeout;
+    return info.LastMouseUpdateTime.QuadPart != 0 ? Result::kCursorMoved : Result::kTimeout;
   }
   if (FAILED(resource.As(&frame_))) {
     Release();

@@ -22,24 +22,47 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
         }
         val hint = TextView(this).apply {
-            text = "Indica la IP del PC donde se ejecuta desklink-host."
+            text = "Deja la IP vacía para buscar el PC automáticamente (WiFi o cable USB con anclaje), o escríbela."
             gravity = Gravity.CENTER
         }
         val ip = EditText(this).apply {
-            setHint("192.168.1.20")
+            setHint(prefs.getString("host", null)?.let { "Última: $it (vacío = buscar solo)" } ?: "Vacío = buscar el PC solo")
             inputType = InputType.TYPE_CLASS_PHONE
-            setText(prefs.getString("host", ""))
             setSingleLine()
         }
-        val connect = Button(this).apply {
-            text = "Conectar"
-            setOnClickListener {
-                val host = ip.text.toString().trim()
-                if (host.isNotEmpty()) {
-                    prefs.edit().putString("host", host).apply()
-                    startActivity(Intent(this@MainActivity, StreamActivity::class.java).putExtra(StreamActivity.EXTRA_HOST, host))
-                }
+        val statusText = TextView(this).apply { gravity = Gravity.CENTER }
+        // Si el campo está vacío, busca el PC automáticamente (WiFi o USB) y luego abre la pantalla.
+        fun launch(target: Class<*>) {
+            val typed = ip.text.toString().trim()
+            if (typed.isNotEmpty()) {
+                prefs.edit().putString("host", typed).apply()
+                startActivity(Intent(this, target).putExtra(StreamActivity.EXTRA_HOST, typed))
+                return
             }
+            statusText.text = "Buscando el PC en la red y por USB…"
+            Thread {
+                val found = try { Discovery.find() } catch (_: Exception) { null }
+                runOnUiThread {
+                    if (found == null) {
+                        statusText.text = "No encontré el PC. Redes de la tablet: ${Discovery.describeNetworks()}. " +
+                            "Abre desklink-host.exe; por USB activa Ajustes → Anclaje USB; y permite UDP 47800 " +
+                            "en el cortafuegos de Windows (todos los perfiles de red)."
+                    } else {
+                        statusText.text = "PC encontrado: ${found.ip} por ${found.route?.transport?.label ?: "red"}"
+                        prefs.edit().putString("host", found.ip).apply()
+                        startActivity(Intent(this, target).putExtra(StreamActivity.EXTRA_HOST, found.ip))
+                    }
+                }
+            }.start()
+        }
+        val connect = Button(this).apply {
+            text = "Conectar (busca el PC solo)"
+            setOnClickListener { launch(StreamActivity::class.java) }
+        }
+
+        val diagnostics = Button(this).apply {
+            text = "Diagnóstico y recomendaciones"
+            setOnClickListener { launch(DiagnosticsActivity::class.java) }
         }
 
         val root = LinearLayout(this).apply {
@@ -50,6 +73,8 @@ class MainActivity : Activity() {
             addView(hint)
             addView(ip, LinearLayout.LayoutParams(-1, -2))
             addView(connect)
+            addView(diagnostics)
+            addView(statusText)
         }
         setContentView(root)
     }

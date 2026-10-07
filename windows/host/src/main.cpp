@@ -5,6 +5,7 @@
 #include <mmsystem.h>
 #include <windows.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -12,12 +13,15 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "capture.h"
 #include "converter.h"
 #include "dlp/packet.h"
 #include "encoder.h"
 #include "gpu.h"
+#include "history.h"
+#include "touch.h"
 #include "udp.h"
 
 namespace {
@@ -32,12 +36,42 @@ uint64_t NowUs() {
       duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count());
 }
 
+// Espera (durmiendo y luego girando) hasta el instante target_us.
+void WaitUntil(uint64_t target_us) {
+  for (;;) {
+    const uint64_t now = NowUs();
+    if (now >= target_us) return;
+    if (target_us - now > 1500) {
+      Sleep(1);
+    } else {
+      YieldProcessor();
+    }
+  }
+}
+
+// Envía los paquetes uno tras otro; con pace_mbps > 0 reparte el envío para no saturar
+// los búferes de enlaces lentos o con ráfagas mal toleradas (p. ej. el anclaje USB).
+template <typename SendFn>
+void SendPaced(const std::vector<std::vector<uint8_t>>& packets, uint32_t pace_mbps, SendFn send) {
+  const uint64_t start = NowUs();
+  uint64_t bits = 0;
+  for (const auto& p : packets) {
+    if (pace_mbps > 0) WaitUntil(start + bits / pace_mbps);  // bits / (Mbit/s) = µs
+    send(p);
+    bits += p.size() * 8;
+  }
+}
+
 struct Options {
   uint16_t port = dlp::kDefaultPort;
   int output = 0;
   UINT fps = 60;
   UINT bitrate_mbps = 50;
   VideoCodec codec = VideoCodec::kHevc;
+  bool cursor = true;    // --no-cursor: no dibuja el cursor en la imagen
+  bool mouse = false;    // --mouse: el táctil mueve el ratón (más compatible, un solo dedo)
+  bool touch = true;     // --no-touch desactiva el control táctil
+  UINT pace_mbps = 100;  // reparte cada frame a esta tasa; 0 = de golpe (el anclaje USB pierde ráfagas)
 };
 
 bool ParseArgs(int argc, char** argv, Options* o) {
@@ -62,13 +96,22 @@ bool ParseArgs(int argc, char** argv, Options* o) {
     } else if (a == "--bitrate") {
       auto v = next("--bitrate"); if (!v) return false;
       o->bitrate_mbps = static_cast<UINT>(std::atoi(v));
+    } else if (a == "--pace") {
+      auto v = next("--pace"); if (!v) return false;
+      o->pace_mbps = static_cast<UINT>(std::atoi(v));
+    } else if (a == "--no-cursor") {
+      o->cursor = false;
+    } else if (a == "--mouse") {
+      o->mouse = true;
+    } else if (a == "--no-touch") {
+      o->touch = false;
     } else if (a == "--codec") {
       auto v = next("--codec"); if (!v) return false;
       o->codec = std::string(v) == "h264" ? VideoCodec::kH264 : VideoCodec::kHevc;
     } else {
       std::fprintf(stderr,
                    "Uso: desklink-host [--port 47800] [--output 0] [--fps 60] [--bitrate 50] "
-                   "[--codec hevc|h264]\n");
+                   "[--codec hevc|h264] [--pace Mbps] [--no-touch] [--mouse] [--no-cursor]\n");
       return false;
     }
   }
@@ -89,6 +132,7 @@ int Run(int argc, char** argv) {
   CoInitializeEx(nullptr, COINIT_MULTITHREADED);
   MFStartup(MF_VERSION);
   timeBeginPeriod(1);  // temporizadores de 1 ms
+  SetProcessDPIAware();  // coordenadas en píxeles reales, para que los toques caigan donde toca
 
   Gpu gpu;
   DesktopCapture capture;
@@ -98,7 +142,10 @@ int Run(int argc, char** argv) {
   int exit_code = 1;
 
   std::atomic<uint32_t> next_frame_id{1};
-  std::atomic<uint64_t> bytes_sent{0}, frames_encoded{0}, encode_latency_us{0};
+  std::atomic<uint64_t> bytes_sent{0}, frames_encoded{0}, encode_latency_us{0}, keyframes_sent{0}, retransmits{0}, touch_packets{0};
+  PacketHistory history;
+  TouchInjector touch;
+  bool touch_ready = false;
 
   do {
     if (!CreateGpuForOutput(opt.output, &gpu)) break;
@@ -106,7 +153,8 @@ int Run(int argc, char** argv) {
     const UINT w = capture.width(), h = capture.height();
     std::printf("Captura: %ux%u a %u fps, %u Mbps, %s\n", w, h, opt.fps, opt.bitrate_mbps,
                 opt.codec == VideoCodec::kHevc ? "HEVC" : "H.264");
-    if (!converter.Init(gpu, w, h)) break;
+    if (!converter.Init(gpu, w, h, 24)) break;
+    converter.SetDrawCursor(opt.cursor);
 
     dlp::StreamInfo info;
     info.width = static_cast<uint16_t>(w);
@@ -117,9 +165,14 @@ int Run(int argc, char** argv) {
 
     auto on_encoded = [&](const uint8_t* data, size_t size, bool keyframe, uint64_t ts_us) {
       auto packets = dlp::PacketizeFrame(data, size, next_frame_id++, keyframe, ts_us);
-      for (const auto& p : packets) udp.SendToPeer(p);
+      for (const auto& pkt : packets) {
+        auto ph = dlp::ParseHeader(pkt.data(), pkt.size());
+        if (ph) history.Put(ph->frame_id, ph->packet_index, pkt);
+      }
+      SendPaced(packets, opt.pace_mbps, [&](const std::vector<uint8_t>& p) { udp.SendToPeer(p); });
       bytes_sent += size;
       ++frames_encoded;
+      if (keyframe) ++keyframes_sent;
       const uint64_t now = NowUs();
       if (now > ts_us) encode_latency_us += now - ts_us;
     };
@@ -129,6 +182,29 @@ int Run(int argc, char** argv) {
     }
 
     std::atomic<uint32_t> last_client_ip{0};
+    std::atomic<uint64_t> last_keyframe_us{0};
+    // Tasa adaptativa (AIMD): baja un 30 % ante pérdidas (informe de la tablet o petición de frame
+    // clave) y recuerda un techo por debajo de la tasa que falló; sube un 10 % cada 2 s tras 8 s limpios y el
+    // techo se relaja 1 Mbps cada 20 s limpios. Solo se toca desde el hilo de recepción.
+    const uint32_t max_bps = opt.bitrate_mbps * 1'000'000u;
+    const uint32_t min_bps = std::max<uint32_t>(max_bps / 10, 3'000'000u);
+    uint32_t current_bps = max_bps;
+    uint32_t ceiling_bps = max_bps;
+    uint64_t last_decrease_us = 0;
+    uint64_t last_relax_us = 0;
+    uint64_t last_increase_us = 0;
+    constexpr uint32_t kStartBps = 20'000'000;  // un frame clave de 50 Mbps desborda el enlace al conectar
+    auto decrease_rate = [&](uint64_t now, const char* why) {
+      if (now - last_decrease_us < 1'000'000) return;  // un solo recorte por segundo
+      last_decrease_us = now;
+      last_relax_us = now;
+      ceiling_bps = std::max<uint32_t>(static_cast<uint32_t>(current_bps * 0.9), min_bps);
+      const uint32_t target = std::max<uint32_t>(static_cast<uint32_t>(current_bps * 0.7), min_bps);
+      if (target == current_bps) return;
+      current_bps = target;
+      encoder.SetBitrate(current_bps);
+      std::printf("Tasa adaptada a %.1f Mbps (%s)\n", current_bps / 1e6, why);
+    };
     auto on_packet = [&](const uint8_t* data, size_t size, const sockaddr_in& from) {
       auto header = dlp::ParseHeader(data, size);
       if (!header) return;
@@ -138,15 +214,107 @@ int Run(int argc, char** argv) {
             char ip[INET_ADDRSTRLEN] = {};
             inet_ntop(AF_INET, &from.sin_addr, ip, sizeof(ip));
             std::printf("Cliente conectado: %s:%u\n", ip, ntohs(from.sin_port));
+            current_bps = std::min(max_bps, kStartBps);
+            ceiling_bps = max_bps;
+            last_decrease_us = last_increase_us = NowUs();
+            encoder.SetBitrate(current_bps);
           }
           udp.SetPeer(from);
           udp.SendTo(from, dlp::MakeControlPacket(dlp::PacketType::kStreamInfo, info_payload.data(),
                                                   info_payload.size(), NowUs()));
+          last_keyframe_us = NowUs();
           encoder.RequestKeyframe();
           break;
-        case dlp::PacketType::kKeyframeRequest:
-          encoder.RequestKeyframe();
+        case dlp::PacketType::kKeyframeRequest: {
+          // Un frame clave es varias veces más grande que uno normal: si la red pierde paquetes y
+          // se piden uno tras otro, la propia petición mantiene la imagen congelada. Se limita a 1/s.
+          const uint64_t now = NowUs();
+          decrease_rate(now, "la tablet pide frame clave");
+          if (now - last_keyframe_us.load() >= 1'000'000) {
+            last_keyframe_us = now;
+            encoder.RequestKeyframe();
+          }
           break;
+        }
+        case dlp::PacketType::kRateReport: {
+          if (header->payload_size < dlp::kRateReportSize) break;
+          const uint8_t* q = data + dlp::kHeaderSize;
+          const uint32_t lost = q[2] | (q[3] << 8);
+          const uint64_t now = NowUs();
+          if (lost > 0) {
+            decrease_rate(now, "la tablet pierde frames");
+          } else {
+            if (now - last_relax_us >= 20'000'000 && ceiling_bps < max_bps) {
+              ceiling_bps = std::min<uint32_t>(ceiling_bps + 1'000'000, max_bps);
+              last_relax_us = now;
+            }
+            if (now - last_decrease_us >= 8'000'000 && now - last_increase_us >= 2'000'000 && current_bps < ceiling_bps) {
+              last_increase_us = now;
+              current_bps = std::min<uint32_t>(static_cast<uint32_t>(current_bps * 1.1) + 1, ceiling_bps);
+              encoder.SetBitrate(current_bps);
+              std::printf("Tasa adaptada a %.1f Mbps (enlace limpio)\n", current_bps / 1e6);
+            }
+          }
+          break;
+        }
+        case dlp::PacketType::kTouch: {
+          if (!touch_ready || header->payload_size < 1) break;
+          const uint8_t* q = data + dlp::kHeaderSize;
+          const size_t n = std::min<size_t>({q[0], dlp::kMaxTouchContacts,
+                                              (header->payload_size - 1u) / dlp::kTouchContactSize});
+          std::vector<TouchInjector::Contact> contacts;
+          for (size_t i = 0; i < n; ++i) {
+            const uint8_t* c = q + 1 + i * dlp::kTouchContactSize;
+            TouchInjector::Contact tc;
+            tc.id = c[0];
+            tc.x = (c[1] | (c[2] << 8)) / 65535.0f;
+            tc.y = (c[3] | (c[4] << 8)) / 65535.0f;
+            tc.pressure = static_cast<uint16_t>(c[5] | (c[6] << 8));
+            contacts.push_back(tc);
+          }
+          if (touch_packets++ == 0) std::printf("Primer toque recibido de la tablet.\n");
+          touch.Update(contacts);
+          break;
+        }
+        case dlp::PacketType::kNack: {
+          // La tablet reclama paquetes concretos de un frame: se reenvían (rápido y sin esperar a un frame clave).
+          const uint8_t* q = data + dlp::kHeaderSize;
+          const size_t n = std::min<size_t>(header->payload_size / 2, 128);
+          std::vector<std::vector<uint8_t>> resend;
+          for (size_t i = 0; i < n; ++i) {
+            std::vector<uint8_t> pkt;
+            const uint16_t index = static_cast<uint16_t>(q[2 * i] | (q[2 * i + 1] << 8));
+            if (history.Get(header->frame_id, index, &pkt)) resend.push_back(std::move(pkt));
+          }
+          if (!resend.empty()) {
+            SendPaced(resend, opt.pace_mbps, [&](const std::vector<uint8_t>& p) { udp.SendToPeer(p); });
+            retransmits += resend.size();
+          }
+          break;
+        }
+        case dlp::PacketType::kBurstRequest: {
+          // Ráfaga de prueba: count paquetes de size bytes, opcionalmente con tasa limitada.
+          if (header->payload_size < dlp::kBurstRequestSize) break;
+          const uint8_t* q = data + dlp::kHeaderSize;
+          const uint32_t count = std::min<uint32_t>(std::max<uint32_t>(q[0] | (q[1] << 8), 1), 2000);
+          const uint32_t size = std::min<uint32_t>(std::max<uint32_t>(q[2] | (q[3] << 8), 100), dlp::kMaxPacketSize);
+          const uint32_t pace = q[4] | (q[5] << 8);
+          std::vector<std::vector<uint8_t>> burst;
+          burst.reserve(count);
+          for (uint32_t i = 0; i < count; ++i) {
+            dlp::Header bh;
+            bh.type = dlp::PacketType::kBurstData;
+            bh.packet_index = static_cast<uint16_t>(i);
+            bh.packet_count = static_cast<uint16_t>(count);
+            bh.timestamp_us = header->timestamp_us;
+            bh.payload_size = static_cast<uint16_t>(size - dlp::kHeaderSize);
+            std::vector<uint8_t> pkt(size, 0);
+            dlp::WriteHeader(bh, pkt.data());
+            burst.push_back(std::move(pkt));
+          }
+          SendPaced(burst, pace, [&](const std::vector<uint8_t>& p) { udp.SendTo(from, p); });
+          break;
+        }
         case dlp::PacketType::kPing:
           udp.SendTo(from, dlp::MakeControlPacket(dlp::PacketType::kPong, nullptr, 0,
                                                   header->timestamp_us));
@@ -155,6 +323,13 @@ int Run(int argc, char** argv) {
           break;
       }
     };
+    if (opt.touch) {
+      // Los toques se asignan al monitor principal (el que se captura con --output 0).
+      const RECT primary{0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)};
+      touch_ready = touch.Init(primary, opt.mouse);
+      std::printf(touch_ready ? (opt.mouse ? "Táctil en modo ratón (monitor principal %ldx%ld).\n" : "Táctil activado (monitor principal %ldx%ld).\n") : "Táctil NO disponible.\n",
+                  primary.right, primary.bottom);
+    }
     if (!udp.Bind(opt.port, on_packet)) break;
     std::printf("Escuchando en UDP %u. Abre DeskLink en el móvil e indica la IP de este PC.\n",
                 opt.port);
@@ -162,36 +337,66 @@ int Run(int argc, char** argv) {
     const uint64_t min_interval_us = 1'000'000ull / opt.fps;
     uint64_t last_submit_us = 0;
     ID3D11Texture2D* last_nv12 = nullptr;
+    bool dirty = false;      // hay una imagen convertida que aún no se envió
+    int flush_left = 0;      // repeticiones pendientes para vaciar el codificador
     uint64_t captured = 0, last_stats_us = NowUs();
-    uint64_t last_bytes = 0, last_encoded = 0, last_latency = 0, last_captured = 0;
+    uint64_t convert_us = 0, last_convert = 0, last_fed = 0, last_mailbox = 0;
+    uint64_t last_bytes = 0, last_encoded = 0, last_latency = 0, last_captured = 0, last_keyframes = 0, last_retransmits = 0, last_touch = 0;
     bool failed = false;
 
     while (g_running) {
       ID3D11Texture2D* frame = nullptr;
-      auto result = capture.Acquire(50, &frame);
+      auto result = capture.Acquire(10, &frame);
       if (result == DesktopCapture::Result::kError) {
         failed = true;
         break;
       }
 
-      const uint64_t now = NowUs();
-      if (result == DesktopCapture::Result::kFrame && udp.has_peer() &&
-          now - last_submit_us >= min_interval_us) {
+      touch.ExpireIfSilent(GetTickCount64(), 700);
+      if (udp.ExpirePeer(std::chrono::seconds(5))) {
+        touch.ReleaseAll();
+        last_client_ip = 0;
+        std::printf("Cliente desconectado (sin respuesta durante 5 s). Esperando cliente.\n");
+      }
+
+      // Cada imagen nueva del escritorio se convierte siempre (es barato) y queda como «última»;
+      // así la última actualización antes de quedarse quieto nunca se pierde por el límite de fps.
+      if (result == DesktopCapture::Result::kFrame) {
+        const uint64_t conv_start = NowUs();
         ID3D11Texture2D* nv12 = converter.Convert(frame);
+        convert_us += NowUs() - conv_start;
         capture.Release();
         if (!nv12) {
           failed = true;
           break;
         }
         last_nv12 = nv12;
-        last_submit_us = now;
+        dirty = true;
         ++captured;
-        encoder.Submit(nv12, now);
+      } else if (result == DesktopCapture::Result::kCursorMoved) {
+        // Solo se movió el cursor: se redibuja sobre la última imagen.
+        capture.Release();
+        if (ID3D11Texture2D* nv12 = converter.Refresh()) {
+          last_nv12 = nv12;
+          dirty = true;
+        }
       } else {
         capture.Release();
-        // Pantalla quieta pero un cliente pidió un frame clave: se recodifica el último frame.
-        if (result == DesktopCapture::Result::kTimeout && last_nv12 && encoder.keyframe_pending()) {
-          encoder.Submit(last_nv12, NowUs());
+      }
+
+      // Se envía la última imagen si es nueva y toca por fps. Tras la última imagen nueva se repite
+      // 2 veces: el codificador de hardware retiene un par de frames y, sin nuevas entradas, la
+      // última actualización se quedaba dentro durante cientos de ms (imagen «pegada»).
+      const uint64_t now = NowUs();
+      if (udp.has_peer() && last_nv12 && now - last_submit_us >= min_interval_us &&
+          (dirty || flush_left > 0 || encoder.keyframe_pending())) {
+        encoder.Submit(last_nv12, now);
+        last_submit_us = now;
+        if (dirty) {
+          dirty = false;
+          flush_left = 2;
+        } else if (flush_left > 0) {
+          --flush_left;
         }
       }
 
@@ -200,15 +405,27 @@ int Run(int argc, char** argv) {
         const double secs = (t - last_stats_us) / 1e6;
         const uint64_t enc = frames_encoded - last_encoded;
         const uint64_t lat = encode_latency_us - last_latency;
-        std::printf("capturados %.0f/s | codificados %.0f/s | %.1f Mbps | codificación %.1f ms%s\n",
+        std::printf("capturados %.0f/s | codificados %.0f/s | %.1f Mbps | codificación %.1f ms | claves %llu | conv %.1f ms | buzón %.1f ms | errores de envío %llu | reenvíos %llu | toques %llu%s\n",
                     (captured - last_captured) / secs, enc / secs,
                     (bytes_sent - last_bytes) * 8 / secs / 1e6, enc ? lat / 1000.0 / enc : 0.0,
+                    static_cast<unsigned long long>(keyframes_sent.load() - last_keyframes),
+                    captured > last_captured ? (convert_us - last_convert) / 1000.0 / (captured - last_captured) : 0.0,
+                    encoder.fed_frames > last_fed ? (encoder.mailbox_wait_us - last_mailbox) / 1000.0 / (encoder.fed_frames - last_fed) : 0.0,
+                    static_cast<unsigned long long>(udp.send_errors()),
+                    static_cast<unsigned long long>(retransmits.load() - last_retransmits),
+                    static_cast<unsigned long long>(touch_packets.load() - last_touch),
                     udp.has_peer() ? "" : " | esperando cliente");
         last_stats_us = t;
         last_bytes = bytes_sent;
         last_encoded = frames_encoded;
         last_latency = encode_latency_us;
         last_captured = captured;
+        last_keyframes = keyframes_sent;
+        last_retransmits = retransmits;
+        last_touch = touch_packets;
+        last_convert = convert_us;
+        last_fed = encoder.fed_frames;
+        last_mailbox = encoder.mailbox_wait_us;
       }
     }
     // Los hilos usan variables de este bloque: se paran antes de salir de él.

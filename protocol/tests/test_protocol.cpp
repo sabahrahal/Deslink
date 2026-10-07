@@ -144,7 +144,19 @@ static void TestStreamInfoAndControl() {
   CHECK(d && d->width == 2944 && d->height == 1840 && d->fps == 60 && d->codec == Codec::kHevc);
 }
 
+static void TestBurstTypes() {
+  const uint8_t payload[kBurstRequestSize] = {0x90, 0x01, 0xB0, 0x04, 0x64, 0x00};
+  auto pkt = MakeControlPacket(PacketType::kBurstRequest, payload, sizeof(payload), 42);
+  auto h = ParseHeader(pkt.data(), pkt.size());
+  CHECK(h && h->type == PacketType::kBurstRequest && h->payload_size == kBurstRequestSize);
+  CHECK(static_cast<uint8_t>(PacketType::kBurstData) == 8);
+  CHECK(static_cast<uint8_t>(PacketType::kRateReport) == 9);
+  CHECK(static_cast<uint8_t>(PacketType::kNack) == 10);
+  CHECK(static_cast<uint8_t>(PacketType::kTouch) == 11);
+}
+
 int main() {
+  TestBurstTypes();
   TestHeaderRoundtrip();
   TestHeaderRejects();
   TestRoundtripSizes();
