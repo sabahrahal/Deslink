@@ -125,11 +125,17 @@ int Run(int argc, char** argv) {
     };
     if (!encoder.Init(gpu, opt.codec, w, h, opt.fps, opt.bitrate_mbps * 1'000'000u, on_encoded)) break;
 
+    std::atomic<uint32_t> last_client_ip{0};
     auto on_packet = [&](const uint8_t* data, size_t size, const sockaddr_in& from) {
       auto header = dlp::ParseHeader(data, size);
       if (!header) return;
       switch (header->type) {
         case dlp::PacketType::kHello:
+          if (last_client_ip.exchange(from.sin_addr.s_addr) != from.sin_addr.s_addr) {
+            char ip[INET_ADDRSTRLEN] = {};
+            inet_ntop(AF_INET, &from.sin_addr, ip, sizeof(ip));
+            std::printf("Cliente conectado: %s:%u\n", ip, ntohs(from.sin_port));
+          }
           udp.SetPeer(from);
           udp.SendTo(from, dlp::MakeControlPacket(dlp::PacketType::kStreamInfo, info_payload.data(),
                                                   info_payload.size(), NowUs()));

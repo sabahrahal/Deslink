@@ -148,6 +148,7 @@ class StreamSession(
         var lastFrames = 0L
         var lastDecoded = 0L
         var lastTime = nowUs()
+        var helloAttempts = 0
         while (running) {
             val info = streamInfo
             send(Dlp.controlPacket(if (info == null) Dlp.TYPE_HELLO else Dlp.TYPE_PING, nowUs()))
@@ -157,7 +158,16 @@ class StreamSession(
                 break
             }
             if (info == null) {
-                listener.onStats("Conectando con $host…")
+                helloAttempts++
+                listener.onStats(
+                    if (helloAttempts < 5) {
+                        "Conectando con $host…"
+                    } else {
+                        "Sin respuesta del PC en $host:${Dlp.DEFAULT_PORT}. Comprueba que desklink-host.exe " +
+                            "está abierto, que el cortafuegos permite UDP ${Dlp.DEFAULT_PORT} y que el PC y " +
+                            "la tablet están en la misma red."
+                    },
+                )
                 continue
             }
             val now = nowUs()
