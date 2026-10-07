@@ -2,9 +2,9 @@ name: windows-host
 
 on:
   push:
-    paths: ['windows/host/**', 'protocol/**', '.github/workflows/windows-host.yml']
+    paths: ['windows/host/**', 'windows/driver/include/**', 'protocol/**', '.github/workflows/windows-host.yml']
   pull_request:
-    paths: ['windows/host/**', 'protocol/**', '.github/workflows/windows-host.yml']
+    paths: ['windows/host/**', 'windows/driver/include/**', 'protocol/**', '.github/workflows/windows-host.yml']
 
 jobs:
   build:

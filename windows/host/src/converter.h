@@ -17,6 +17,11 @@ class Nv12Converter {
   ID3D11Texture2D* Refresh();
   // Dibuja el cursor del sistema sobre la imagen (Desktop Duplication no lo incluye).
   void SetDrawCursor(bool on) { draw_cursor_ = on; }
+  // Posición del monitor en el escritorio virtual (cambia si el usuario lo mueve en Configuración).
+  void SetOrigin(int x, int y) {
+    origin_x_ = x;
+    origin_y_ = y;
+  }
 
  private:
   ID3D11Texture2D* ComposeAndConvert();

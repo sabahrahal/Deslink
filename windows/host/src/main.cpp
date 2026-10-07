@@ -12,6 +12,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -23,6 +25,7 @@
 #include "history.h"
 #include "touch.h"
 #include "udp.h"
+#include "virtual_display.h"
 
 namespace {
 
@@ -62,6 +65,38 @@ void SendPaced(const std::vector<std::vector<uint8_t>>& packets, uint32_t pace_m
   }
 }
 
+// Última resolución del monitor virtual (la que el usuario dejó en Windows), para la próxima vez.
+std::wstring SizeFilePath() {
+  wchar_t base[MAX_PATH];
+  if (!GetEnvironmentVariableW(L"APPDATA", base, MAX_PATH)) return {};
+  return std::wstring(base) + L"\\DeskLink\\virtual-size.txt";
+}
+
+bool LoadSavedSize(UINT* w, UINT* h) {
+  const std::wstring path = SizeFilePath();
+  if (path.empty()) return false;
+  FILE* f = _wfopen(path.c_str(), L"r");
+  if (!f) return false;
+  unsigned a = 0, b = 0;
+  const bool ok = std::fscanf(f, "%ux%u", &a, &b) == 2 && a >= 640 && b >= 480 && a <= 7680 && b <= 4320;
+  std::fclose(f);
+  if (ok) {
+    *w = a;
+    *h = b;
+  }
+  return ok;
+}
+
+void SaveSize(UINT w, UINT h) {
+  const std::wstring path = SizeFilePath();
+  if (path.empty()) return;
+  CreateDirectoryW(path.substr(0, path.find_last_of(L'\\')).c_str(), nullptr);
+  if (FILE* f = _wfopen(path.c_str(), L"w")) {
+    std::fprintf(f, "%ux%u\n", w, h);
+    std::fclose(f);
+  }
+}
+
 struct Options {
   uint16_t port = dlp::kDefaultPort;
   int output = 0;
@@ -72,6 +107,21 @@ struct Options {
   bool mouse = false;    // --mouse: el táctil mueve el ratón (más compatible, un solo dedo)
   bool touch = true;     // --no-touch desactiva el control táctil
   UINT pace_mbps = 100;  // reparte cada frame a esta tasa; 0 = de golpe (el anclaje USB pierde ráfagas)
+  bool virtual_display = false;  // --virtual: crea un monitor virtual (driver desklink-idd) y captura ese
+  UINT virtual_width = 2944;     // --size: resolución del monitor virtual (por defecto, la Lenovo Idea Tab Pro)
+  UINT virtual_height = 1840;
+  bool size_given = false;       // si no se pasa --size, se usa la última resolución recordada
+};
+
+// Todo lo que depende de la resolución y de la GPU de la salida capturada. Cuando Windows cambia la
+// resolución se tira entero y se vuelve a crear. El orden de los miembros importa: el codificador se destruye
+// primero y la GPU la última.
+struct Pipeline {
+  Gpu gpu;
+  DesktopCapture capture;
+  Nv12Converter converter;
+  std::unique_ptr<MfEncoder> encoder;
+  UINT w = 0, h = 0;
 };
 
 bool ParseArgs(int argc, char** argv, Options* o) {
@@ -99,6 +149,18 @@ bool ParseArgs(int argc, char** argv, Options* o) {
     } else if (a == "--pace") {
       auto v = next("--pace"); if (!v) return false;
       o->pace_mbps = static_cast<UINT>(std::atoi(v));
+    } else if (a == "--virtual") {
+      o->virtual_display = true;
+    } else if (a == "--size") {
+      auto v = next("--size"); if (!v) return false;
+      unsigned w = 0, h = 0;
+      if (std::sscanf(v, "%ux%u", &w, &h) != 2 || w < 640 || h < 480 || w > 7680 || h > 4320) {
+        std::fprintf(stderr, "--size debe ser ANCHOxALTO, p. ej. 2944x1840\n");
+        return false;
+      }
+      o->virtual_width = w;
+      o->virtual_height = h;
+      o->size_given = true;
     } else if (a == "--no-cursor") {
       o->cursor = false;
     } else if (a == "--mouse") {
@@ -111,7 +173,8 @@ bool ParseArgs(int argc, char** argv, Options* o) {
     } else {
       std::fprintf(stderr,
                    "Uso: desklink-host [--port 47800] [--output 0] [--fps 60] [--bitrate 50] "
-                   "[--codec hevc|h264] [--pace Mbps] [--no-touch] [--mouse] [--no-cursor]\n");
+                   "[--codec hevc|h264] [--pace Mbps] [--no-touch] [--mouse] [--no-cursor] "
+                   "[--virtual [--size 2944x1840]]\n");
       return false;
     }
   }
@@ -132,12 +195,11 @@ int Run(int argc, char** argv) {
   CoInitializeEx(nullptr, COINIT_MULTITHREADED);
   MFStartup(MF_VERSION);
   timeBeginPeriod(1);  // temporizadores de 1 ms
+  SetConsoleOutputCP(CP_UTF8);  // los mensajes llevan tildes
   SetProcessDPIAware();  // coordenadas en píxeles reales, para que los toques caigan donde toca
 
-  Gpu gpu;
-  DesktopCapture capture;
-  Nv12Converter converter;
-  MfEncoder encoder;
+  VirtualDisplay virtual_display;  // se declara antes que el resto: el monitor se quita lo último
+  std::unique_ptr<Pipeline> pipe;
   UdpEndpoint udp;
   int exit_code = 1;
 
@@ -147,39 +209,84 @@ int Run(int argc, char** argv) {
   TouchInjector touch;
   bool touch_ready = false;
 
-  do {
-    if (!CreateGpuForOutput(opt.output, &gpu)) break;
-    if (!capture.Init(gpu)) break;
-    const UINT w = capture.width(), h = capture.height();
-    std::printf("Captura: %ux%u a %u fps, %u Mbps, %s\n", w, h, opt.fps, opt.bitrate_mbps,
-                opt.codec == VideoCodec::kHevc ? "HEVC" : "H.264");
-    if (!converter.Init(gpu, w, h, 24)) break;
-    converter.SetDrawCursor(opt.cursor);
+  // El codificador lo toca también el hilo de recepción (tasa, frames clave): su puntero se publica
+  // bajo este cerrojo y se retira antes de destruirlo.
+  std::mutex enc_mutex;
+  MfEncoder* enc_ptr = nullptr;
+  auto enc_bitrate = [&](uint32_t bps) {
+    std::lock_guard<std::mutex> lock(enc_mutex);
+    if (enc_ptr) enc_ptr->SetBitrate(bps);
+  };
+  auto enc_keyframe = [&]() {
+    std::lock_guard<std::mutex> lock(enc_mutex);
+    if (enc_ptr) enc_ptr->RequestKeyframe();
+  };
+  std::mutex info_mutex;
+  std::vector<uint8_t> info_payload;
 
+  auto on_encoded = [&](const uint8_t* data, size_t size, bool keyframe, uint64_t ts_us) {
+    auto packets = dlp::PacketizeFrame(data, size, next_frame_id++, keyframe, ts_us);
+    for (const auto& pkt : packets) {
+      auto ph = dlp::ParseHeader(pkt.data(), pkt.size());
+      if (ph) history.Put(ph->frame_id, ph->packet_index, pkt);
+    }
+    SendPaced(packets, opt.pace_mbps, [&](const std::vector<uint8_t>& p) { udp.SendToPeer(p); });
+    bytes_sent += size;
+    ++frames_encoded;
+    if (keyframe) ++keyframes_sent;
+    const uint64_t now = NowUs();
+    if (now > ts_us) encode_latency_us += now - ts_us;
+  };
+
+  // Crea la GPU, la captura, el conversor y el codificador para el tamaño actual de la salida.
+  auto build = [&](int capture_attempts) -> std::unique_ptr<Pipeline> {
+    auto p = std::make_unique<Pipeline>();
+    if (opt.virtual_display) {
+      if (!CreateGpuForDeviceName(virtual_display.gdi_name().c_str(), &p->gpu)) return nullptr;
+    } else if (!CreateGpuForOutput(opt.output, &p->gpu)) {
+      return nullptr;
+    }
+    // Un monitor recién activado (o recién cambiado de modo) puede tardar en dejarse capturar.
+    bool captured_ok = false;
+    for (int i = 0; i < capture_attempts && g_running && !(captured_ok = p->capture.Init(p->gpu)); ++i) Sleep(300);
+    if (!captured_ok) return nullptr;
+    p->w = p->capture.width();
+    p->h = p->capture.height();
+    std::printf("Captura: %ux%u a %u fps, %u Mbps, %s\n", p->w, p->h, opt.fps, opt.bitrate_mbps,
+                opt.codec == VideoCodec::kHevc ? "HEVC" : "H.264");
+    if (!p->converter.Init(p->gpu, p->w, p->h, 24)) return nullptr;
+    p->converter.SetDrawCursor(opt.cursor);
+    p->encoder = std::make_unique<MfEncoder>();
+    if (!p->encoder->Init(p->gpu, opt.codec, p->w, p->h, opt.fps, opt.bitrate_mbps * 1'000'000u, on_encoded)) {
+      std::fprintf(stderr, "Error: no se pudo iniciar el codificador (arriba está el motivo).\n");
+      return nullptr;
+    }
     dlp::StreamInfo info;
-    info.width = static_cast<uint16_t>(w);
-    info.height = static_cast<uint16_t>(h);
+    info.width = static_cast<uint16_t>(p->w);
+    info.height = static_cast<uint16_t>(p->h);
     info.fps = static_cast<uint16_t>(opt.fps);
     info.codec = opt.codec == VideoCodec::kHevc ? dlp::Codec::kHevc : dlp::Codec::kH264;
-    const auto info_payload = dlp::EncodeStreamInfo(info);
-
-    auto on_encoded = [&](const uint8_t* data, size_t size, bool keyframe, uint64_t ts_us) {
-      auto packets = dlp::PacketizeFrame(data, size, next_frame_id++, keyframe, ts_us);
-      for (const auto& pkt : packets) {
-        auto ph = dlp::ParseHeader(pkt.data(), pkt.size());
-        if (ph) history.Put(ph->frame_id, ph->packet_index, pkt);
-      }
-      SendPaced(packets, opt.pace_mbps, [&](const std::vector<uint8_t>& p) { udp.SendToPeer(p); });
-      bytes_sent += size;
-      ++frames_encoded;
-      if (keyframe) ++keyframes_sent;
-      const uint64_t now = NowUs();
-      if (now > ts_us) encode_latency_us += now - ts_us;
-    };
-    if (!encoder.Init(gpu, opt.codec, w, h, opt.fps, opt.bitrate_mbps * 1'000'000u, on_encoded)) {
-      std::fprintf(stderr, "Error: no se pudo iniciar el codificador (arriba está el motivo).\n");
-      break;
+    {
+      std::lock_guard<std::mutex> lock(info_mutex);
+      info_payload = dlp::EncodeStreamInfo(info);
     }
+    return p;
+  };
+
+  do {
+    if (opt.virtual_display) {
+      if (!opt.size_given && LoadSavedSize(&opt.virtual_width, &opt.virtual_height)) {
+        std::printf("Resolución recordada del monitor virtual: %ux%u.\n", opt.virtual_width, opt.virtual_height);
+      }
+      if (!virtual_display.Plug(opt.virtual_width, opt.virtual_height, opt.fps)) break;
+    }
+    pipe = build(10);
+    if (!pipe) break;
+    {
+      std::lock_guard<std::mutex> lock(enc_mutex);
+      enc_ptr = pipe->encoder.get();
+    }
+    if (opt.virtual_display) SaveSize(pipe->w, pipe->h);
 
     std::atomic<uint32_t> last_client_ip{0};
     std::atomic<uint64_t> last_keyframe_us{0};
@@ -202,7 +309,7 @@ int Run(int argc, char** argv) {
       const uint32_t target = std::max<uint32_t>(static_cast<uint32_t>(current_bps * 0.7), min_bps);
       if (target == current_bps) return;
       current_bps = target;
-      encoder.SetBitrate(current_bps);
+      enc_bitrate(current_bps);
       std::printf("Tasa adaptada a %.1f Mbps (%s)\n", current_bps / 1e6, why);
     };
     auto on_packet = [&](const uint8_t* data, size_t size, const sockaddr_in& from) {
@@ -217,13 +324,16 @@ int Run(int argc, char** argv) {
             current_bps = std::min(max_bps, kStartBps);
             ceiling_bps = max_bps;
             last_decrease_us = last_increase_us = NowUs();
-            encoder.SetBitrate(current_bps);
+            enc_bitrate(current_bps);
           }
           udp.SetPeer(from);
-          udp.SendTo(from, dlp::MakeControlPacket(dlp::PacketType::kStreamInfo, info_payload.data(),
-                                                  info_payload.size(), NowUs()));
+          {
+            std::lock_guard<std::mutex> lock(info_mutex);
+            udp.SendTo(from, dlp::MakeControlPacket(dlp::PacketType::kStreamInfo, info_payload.data(),
+                                                    info_payload.size(), NowUs()));
+          }
           last_keyframe_us = NowUs();
-          encoder.RequestKeyframe();
+          enc_keyframe();
           break;
         case dlp::PacketType::kKeyframeRequest: {
           // Un frame clave es varias veces más grande que uno normal: si la red pierde paquetes y
@@ -232,7 +342,7 @@ int Run(int argc, char** argv) {
           decrease_rate(now, "la tablet pide frame clave");
           if (now - last_keyframe_us.load() >= 1'000'000) {
             last_keyframe_us = now;
-            encoder.RequestKeyframe();
+            enc_keyframe();
           }
           break;
         }
@@ -251,7 +361,7 @@ int Run(int argc, char** argv) {
             if (now - last_decrease_us >= 8'000'000 && now - last_increase_us >= 2'000'000 && current_bps < ceiling_bps) {
               last_increase_us = now;
               current_bps = std::min<uint32_t>(static_cast<uint32_t>(current_bps * 1.1) + 1, ceiling_bps);
-              encoder.SetBitrate(current_bps);
+              enc_bitrate(current_bps);
               std::printf("Tasa adaptada a %.1f Mbps (enlace limpio)\n", current_bps / 1e6);
             }
           }
@@ -324,11 +434,13 @@ int Run(int argc, char** argv) {
       }
     };
     if (opt.touch) {
-      // Los toques se asignan al monitor principal (el que se captura con --output 0).
-      const RECT primary{0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)};
-      touch_ready = touch.Init(primary, opt.mouse);
-      std::printf(touch_ready ? (opt.mouse ? "Táctil en modo ratón (monitor principal %ldx%ld).\n" : "Táctil activado (monitor principal %ldx%ld).\n") : "Táctil NO disponible.\n",
-                  primary.right, primary.bottom);
+      // Los toques caen sobre el monitor que se captura (el virtual con --virtual).
+      const RECT r = pipe->gpu.desktop_rect;
+      touch_ready = touch.Init(r, opt.mouse);
+      std::printf(touch_ready ? (opt.mouse ? "Táctil en modo ratón (pantalla de %ldx%ld en %ld,%ld).\n"
+                                           : "Táctil activado (pantalla de %ldx%ld en %ld,%ld).\n")
+                              : "Táctil NO disponible.\n",
+                  r.right - r.left, r.bottom - r.top, r.left, r.top);
     }
     if (!udp.Bind(opt.port, on_packet)) break;
     std::printf("Escuchando en UDP %u. Abre DeskLink en el móvil e indica la IP de este PC.\n",
@@ -336,6 +448,7 @@ int Run(int argc, char** argv) {
 
     const uint64_t min_interval_us = 1'000'000ull / opt.fps;
     uint64_t last_submit_us = 0;
+    uint64_t last_rect_check_us = 0;
     ID3D11Texture2D* last_nv12 = nullptr;
     bool dirty = false;      // hay una imagen convertida que aún no se envió
     int flush_left = 0;      // repeticiones pendientes para vaciar el codificador
@@ -346,7 +459,54 @@ int Run(int argc, char** argv) {
 
     while (g_running) {
       ID3D11Texture2D* frame = nullptr;
-      auto result = capture.Acquire(10, &frame);
+      auto result = pipe->capture.Acquire(10, &frame);
+      if (result == DesktopCapture::Result::kLost) {
+        // Windows corta la captura al cambiar de modo, al salir la pantalla de UAC o al bloquear la
+        // sesión. Primero se intenta reabrirla tal cual; si el tamaño cambió (el usuario cambió la
+        // resolución) se recrea todo el pipeline con el tamaño nuevo y se avisa a la tablet.
+        bool reopened = false;
+        for (int i = 0; i < 50 && g_running && !(reopened = pipe->capture.Init(pipe->gpu)); ++i) Sleep(200);
+        if (!reopened) {
+          std::fprintf(stderr, "Error: no se pudo recuperar la captura de pantalla.\n");
+          failed = true;
+          break;
+        }
+        if (pipe->capture.width() == pipe->w && pipe->capture.height() == pipe->h) {
+          std::printf("Captura recuperada.\n");
+          enc_keyframe();
+          continue;
+        }
+        std::printf("La resolución cambió a %ux%u: reinicio la captura.\n", pipe->capture.width(),
+                    pipe->capture.height());
+        {
+          std::lock_guard<std::mutex> lock(enc_mutex);
+          enc_ptr = nullptr;
+        }
+        pipe.reset();
+        pipe = build(50);
+        if (!pipe) {
+          std::fprintf(stderr, "Error: no se pudo reiniciar la captura con la nueva resolución.\n");
+          failed = true;
+          break;
+        }
+        {
+          std::lock_guard<std::mutex> lock(enc_mutex);
+          enc_ptr = pipe->encoder.get();
+        }
+        if (opt.virtual_display) SaveSize(pipe->w, pipe->h);
+        if (touch_ready) touch.SetRect(pipe->gpu.desktop_rect);
+        last_nv12 = nullptr;
+        dirty = false;
+        flush_left = 0;
+        last_fed = last_mailbox = 0;
+        if (udp.has_peer()) {
+          std::lock_guard<std::mutex> lock(info_mutex);
+          udp.SendToPeer(dlp::MakeControlPacket(dlp::PacketType::kStreamInfo, info_payload.data(),
+                                                info_payload.size(), NowUs()));
+        }
+        enc_keyframe();
+        continue;
+      }
       if (result == DesktopCapture::Result::kError) {
         failed = true;
         break;
@@ -363,9 +523,9 @@ int Run(int argc, char** argv) {
       // así la última actualización antes de quedarse quieto nunca se pierde por el límite de fps.
       if (result == DesktopCapture::Result::kFrame) {
         const uint64_t conv_start = NowUs();
-        ID3D11Texture2D* nv12 = converter.Convert(frame);
+        ID3D11Texture2D* nv12 = pipe->converter.Convert(frame);
         convert_us += NowUs() - conv_start;
-        capture.Release();
+        pipe->capture.Release();
         if (!nv12) {
           failed = true;
           break;
@@ -375,13 +535,13 @@ int Run(int argc, char** argv) {
         ++captured;
       } else if (result == DesktopCapture::Result::kCursorMoved) {
         // Solo se movió el cursor: se redibuja sobre la última imagen.
-        capture.Release();
-        if (ID3D11Texture2D* nv12 = converter.Refresh()) {
+        pipe->capture.Release();
+        if (ID3D11Texture2D* nv12 = pipe->converter.Refresh()) {
           last_nv12 = nv12;
           dirty = true;
         }
       } else {
-        capture.Release();
+        pipe->capture.Release();
       }
 
       // Se envía la última imagen si es nueva y toca por fps. Tras la última imagen nueva se repite
@@ -389,14 +549,28 @@ int Run(int argc, char** argv) {
       // última actualización se quedaba dentro durante cientos de ms (imagen «pegada»).
       const uint64_t now = NowUs();
       if (udp.has_peer() && last_nv12 && now - last_submit_us >= min_interval_us &&
-          (dirty || flush_left > 0 || encoder.keyframe_pending())) {
-        encoder.Submit(last_nv12, now);
+          (dirty || flush_left > 0 || pipe->encoder->keyframe_pending())) {
+        pipe->encoder->Submit(last_nv12, now);
         last_submit_us = now;
         if (dirty) {
           dirty = false;
           flush_left = 2;
         } else if (flush_left > 0) {
           --flush_left;
+        }
+      }
+
+      // Si el usuario mueve el monitor virtual en Configuración, el cursor dibujado y el táctil siguen su sitio.
+      if (now - last_rect_check_us >= 1'000'000) {
+        last_rect_check_us = now;
+        DXGI_OUTPUT_DESC od{};
+        if (SUCCEEDED(pipe->gpu.output->GetDesc(&od)) &&
+            (od.DesktopCoordinates.left != pipe->gpu.desktop_rect.left ||
+             od.DesktopCoordinates.top != pipe->gpu.desktop_rect.top)) {
+          pipe->gpu.desktop_rect = od.DesktopCoordinates;
+          pipe->converter.SetOrigin(od.DesktopCoordinates.left, od.DesktopCoordinates.top);
+          if (touch_ready) touch.SetRect(od.DesktopCoordinates);
+          std::printf("La pantalla se movió a %ld,%ld.\n", od.DesktopCoordinates.left, od.DesktopCoordinates.top);
         }
       }
 
@@ -410,7 +584,7 @@ int Run(int argc, char** argv) {
                     (bytes_sent - last_bytes) * 8 / secs / 1e6, enc ? lat / 1000.0 / enc : 0.0,
                     static_cast<unsigned long long>(keyframes_sent.load() - last_keyframes),
                     captured > last_captured ? (convert_us - last_convert) / 1000.0 / (captured - last_captured) : 0.0,
-                    encoder.fed_frames > last_fed ? (encoder.mailbox_wait_us - last_mailbox) / 1000.0 / (encoder.fed_frames - last_fed) : 0.0,
+                    pipe->encoder->fed_frames > last_fed ? (pipe->encoder->mailbox_wait_us - last_mailbox) / 1000.0 / (pipe->encoder->fed_frames - last_fed) : 0.0,
                     static_cast<unsigned long long>(udp.send_errors()),
                     static_cast<unsigned long long>(retransmits.load() - last_retransmits),
                     static_cast<unsigned long long>(touch_packets.load() - last_touch),
@@ -424,19 +598,22 @@ int Run(int argc, char** argv) {
         last_retransmits = retransmits;
         last_touch = touch_packets;
         last_convert = convert_us;
-        last_fed = encoder.fed_frames;
-        last_mailbox = encoder.mailbox_wait_us;
+        last_fed = pipe->encoder->fed_frames;
+        last_mailbox = pipe->encoder->mailbox_wait_us;
       }
     }
     // Los hilos usan variables de este bloque: se paran antes de salir de él.
-    encoder.Stop();
+    {
+      std::lock_guard<std::mutex> lock(enc_mutex);
+      enc_ptr = nullptr;
+    }
+    if (pipe && pipe->encoder) pipe->encoder->Stop();
     udp.Stop();
     exit_code = failed ? 1 : 0;
   } while (false);
 
-  encoder.Stop();
   udp.Stop();
-  capture.Release();
+  pipe.reset();
   timeEndPeriod(1);
   MFShutdown();
   CoUninitialize();

@@ -6,7 +6,8 @@
 // la GPU y sólo es válida hasta la siguiente llamada a Release().
 class DesktopCapture {
  public:
-  enum class Result { kFrame, kCursorMoved, kTimeout, kError };
+  // kLost: Windows cortó la captura (cambio de modo, pantalla de UAC...); hay que volver a llamar a Init().
+  enum class Result { kFrame, kCursorMoved, kTimeout, kLost, kError };
 
   bool Init(Gpu& gpu);
   Result Acquire(UINT timeout_ms, ID3D11Texture2D** texture);

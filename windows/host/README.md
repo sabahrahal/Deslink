@@ -2,7 +2,7 @@
 
 Servicio de Windows que captura una salida, la codifica por hardware y la envía por UDP al cliente Android (protocolo DLP, ver `docs/protocol-dlp.md`).
 
-Fase 1: duplica un monitor existente con DXGI Desktop Duplication. El monitor virtual (IddCx) llega en la fase 3.
+Por defecto duplica un monitor existente con DXGI Desktop Duplication. Con `--virtual` crea un monitor virtual (driver de `windows/driver/`, ver `docs/fase-3.md`) y captura ese.
 
 ## Compilar
 
@@ -23,6 +23,8 @@ build\host\Release\desklink-host.exe --fps 60 --bitrate 50 --codec hevc
 | `--fps` | 60 | Fotogramas por segundo máximos |
 | `--bitrate` | 50 | Mbps (CBR) |
 | `--codec` | hevc | `hevc` o `h264` |
+| `--virtual` | apagado | Monitor virtual en vez de `--output` (requiere el driver) |
+| `--size` | 2944x1840 | Resolución del monitor virtual |
 
 Cada segundo imprime fps capturados, fps codificados, Mbps y la latencia de codificación media (desde que el frame llega al codificador hasta que sale el flujo).
 
