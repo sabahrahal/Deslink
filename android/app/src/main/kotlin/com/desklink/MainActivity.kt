@@ -26,9 +26,8 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
         }
         val ip = EditText(this).apply {
-            setHint("192.168.1.20")
+            setHint(prefs.getString("host", null)?.let { "Última: $it (vacío = buscar solo)" } ?: "Vacío = buscar el PC solo")
             inputType = InputType.TYPE_CLASS_PHONE
-            setText(prefs.getString("host", ""))
             setSingleLine()
         }
         val statusText = TextView(this).apply { gravity = Gravity.CENTER }
