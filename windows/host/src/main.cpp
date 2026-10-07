@@ -138,7 +138,7 @@ int Run(int argc, char** argv) {
     const UINT w = capture.width(), h = capture.height();
     std::printf("Captura: %ux%u a %u fps, %u Mbps, %s\n", w, h, opt.fps, opt.bitrate_mbps,
                 opt.codec == VideoCodec::kHevc ? "HEVC" : "H.264");
-    if (!converter.Init(gpu, w, h)) break;
+    if (!converter.Init(gpu, w, h, 24)) break;
 
     dlp::StreamInfo info;
     info.width = static_cast<uint16_t>(w);
@@ -253,6 +253,8 @@ int Run(int argc, char** argv) {
     const uint64_t min_interval_us = 1'000'000ull / opt.fps;
     uint64_t last_submit_us = 0;
     ID3D11Texture2D* last_nv12 = nullptr;
+    bool dirty = false;      // hay una imagen convertida que aún no se envió
+    int flush_left = 0;      // repeticiones pendientes para vaciar el codificador
     uint64_t captured = 0, last_stats_us = NowUs();
     uint64_t convert_us = 0, last_convert = 0, last_fed = 0, last_mailbox = 0;
     uint64_t last_bytes = 0, last_encoded = 0, last_latency = 0, last_captured = 0, last_keyframes = 0;
@@ -260,7 +262,7 @@ int Run(int argc, char** argv) {
 
     while (g_running) {
       ID3D11Texture2D* frame = nullptr;
-      auto result = capture.Acquire(50, &frame);
+      auto result = capture.Acquire(10, &frame);
       if (result == DesktopCapture::Result::kError) {
         failed = true;
         break;
@@ -271,9 +273,9 @@ int Run(int argc, char** argv) {
         std::printf("Cliente desconectado (sin respuesta durante 5 s). Esperando cliente.\n");
       }
 
-      const uint64_t now = NowUs();
-      if (result == DesktopCapture::Result::kFrame && udp.has_peer() &&
-          now - last_submit_us >= min_interval_us) {
+      // Cada imagen nueva del escritorio se convierte siempre (es barato) y queda como «última»;
+      // así la última actualización antes de quedarse quieto nunca se pierde por el límite de fps.
+      if (result == DesktopCapture::Result::kFrame) {
         const uint64_t conv_start = NowUs();
         ID3D11Texture2D* nv12 = converter.Convert(frame);
         convert_us += NowUs() - conv_start;
@@ -283,14 +285,25 @@ int Run(int argc, char** argv) {
           break;
         }
         last_nv12 = nv12;
-        last_submit_us = now;
+        dirty = true;
         ++captured;
-        encoder.Submit(nv12, now);
       } else {
         capture.Release();
-        // Pantalla quieta pero un cliente pidió un frame clave: se recodifica el último frame.
-        if (result == DesktopCapture::Result::kTimeout && last_nv12 && encoder.keyframe_pending()) {
-          encoder.Submit(last_nv12, NowUs());
+      }
+
+      // Se envía la última imagen si es nueva y toca por fps. Tras la última imagen nueva se repite
+      // 2 veces: el codificador de hardware retiene un par de frames y, sin nuevas entradas, la
+      // última actualización se quedaba dentro durante cientos de ms (imagen «pegada»).
+      const uint64_t now = NowUs();
+      if (udp.has_peer() && last_nv12 && now - last_submit_us >= min_interval_us &&
+          (dirty || flush_left > 0 || encoder.keyframe_pending())) {
+        encoder.Submit(last_nv12, now);
+        last_submit_us = now;
+        if (dirty) {
+          dirty = false;
+          flush_left = 2;
+        } else if (flush_left > 0) {
+          --flush_left;
         }
       }
 
