@@ -170,7 +170,7 @@ int Run(int argc, char** argv) {
     std::atomic<uint32_t> last_client_ip{0};
     std::atomic<uint64_t> last_keyframe_us{0};
     // Tasa adaptativa (AIMD): baja un 30 % ante pérdidas (informe de la tablet o petición de frame
-    // clave) y recuerda un techo por debajo de la tasa que falló; sube un 5 % tras 8 s limpios y el
+    // clave) y recuerda un techo por debajo de la tasa que falló; sube un 10 % cada 2 s tras 8 s limpios y el
     // techo se relaja 1 Mbps cada 20 s limpios. Solo se toca desde el hilo de recepción.
     const uint32_t max_bps = opt.bitrate_mbps * 1'000'000u;
     const uint32_t min_bps = std::max<uint32_t>(max_bps / 10, 3'000'000u);
@@ -178,6 +178,8 @@ int Run(int argc, char** argv) {
     uint32_t ceiling_bps = max_bps;
     uint64_t last_decrease_us = 0;
     uint64_t last_relax_us = 0;
+    uint64_t last_increase_us = 0;
+    constexpr uint32_t kStartBps = 20'000'000;  // un frame clave de 50 Mbps desborda el enlace al conectar
     auto decrease_rate = [&](uint64_t now, const char* why) {
       if (now - last_decrease_us < 1'000'000) return;  // un solo recorte por segundo
       last_decrease_us = now;
@@ -198,6 +200,10 @@ int Run(int argc, char** argv) {
             char ip[INET_ADDRSTRLEN] = {};
             inet_ntop(AF_INET, &from.sin_addr, ip, sizeof(ip));
             std::printf("Cliente conectado: %s:%u\n", ip, ntohs(from.sin_port));
+            current_bps = std::min(max_bps, kStartBps);
+            ceiling_bps = max_bps;
+            last_decrease_us = last_increase_us = NowUs();
+            encoder.SetBitrate(current_bps);
           }
           udp.SetPeer(from);
           udp.SendTo(from, dlp::MakeControlPacket(dlp::PacketType::kStreamInfo, info_payload.data(),
@@ -228,8 +234,9 @@ int Run(int argc, char** argv) {
               ceiling_bps = std::min<uint32_t>(ceiling_bps + 1'000'000, max_bps);
               last_relax_us = now;
             }
-            if (now - last_decrease_us >= 8'000'000 && current_bps < ceiling_bps) {
-              current_bps = std::min<uint32_t>(static_cast<uint32_t>(current_bps * 1.05) + 1, ceiling_bps);
+            if (now - last_decrease_us >= 8'000'000 && now - last_increase_us >= 2'000'000 && current_bps < ceiling_bps) {
+              last_increase_us = now;
+              current_bps = std::min<uint32_t>(static_cast<uint32_t>(current_bps * 1.1) + 1, ceiling_bps);
               encoder.SetBitrate(current_bps);
               std::printf("Tasa adaptada a %.1f Mbps (enlace limpio)\n", current_bps / 1e6);
             }
