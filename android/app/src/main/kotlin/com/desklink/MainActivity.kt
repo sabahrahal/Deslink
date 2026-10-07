@@ -42,6 +42,17 @@ class MainActivity : Activity() {
             }
         }
 
+        val diagnostics = Button(this).apply {
+            text = "Diagnóstico y recomendaciones"
+            setOnClickListener {
+                val host = ip.text.toString().trim()
+                if (host.isNotEmpty()) {
+                    prefs.edit().putString("host", host).apply()
+                    startActivity(Intent(this@MainActivity, DiagnosticsActivity::class.java).putExtra(StreamActivity.EXTRA_HOST, host))
+                }
+            }
+        }
+
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
@@ -50,6 +61,7 @@ class MainActivity : Activity() {
             addView(hint)
             addView(ip, LinearLayout.LayoutParams(-1, -2))
             addView(connect)
+            addView(diagnostics)
         }
         setContentView(root)
     }

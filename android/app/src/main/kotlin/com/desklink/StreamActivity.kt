@@ -21,6 +21,7 @@ class StreamActivity : Activity(), SurfaceHolder.Callback, StreamSession.Listene
     private var session: StreamSession? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private lateinit var host: String
+    private val probe by lazy { DeviceProbe(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -101,7 +102,9 @@ class StreamActivity : Activity(), SurfaceHolder.Callback, StreamSession.Listene
     }
 
     override fun onStats(text: String) {
-        runOnUiThread { statsView.text = text }
+        val b = probe.sampleBattery()
+        val power = b.netMilliwatts?.let { " · batería ${"%+.1f".format(it / 1000)} W" } ?: ""
+        runOnUiThread { statsView.text = text + power }
     }
 
     override fun onError(message: String) {
