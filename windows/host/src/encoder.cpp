@@ -11,20 +11,20 @@
 
 namespace {
 
-void SetBool(ICodecAPI* api, const GUID& key, bool value) {
+void SetBool(ICodecAPI* api, const char* name, const GUID& key, bool value) {
   VARIANT v;
   VariantInit(&v);
   v.vt = VT_BOOL;
   v.boolVal = value ? VARIANT_TRUE : VARIANT_FALSE;
-  if (FAILED(api->SetValue(&key, &v))) std::fprintf(stderr, "aviso: ajuste de códec no soportado\n");
+  if (FAILED(api->SetValue(&key, &v))) std::fprintf(stderr, "aviso: ajuste de códec no soportado (%s)\n", name);
 }
 
-void SetU32(ICodecAPI* api, const GUID& key, ULONG value) {
+void SetU32(ICodecAPI* api, const char* name, const GUID& key, ULONG value) {
   VARIANT v;
   VariantInit(&v);
   v.vt = VT_UI4;
   v.ulVal = value;
-  if (FAILED(api->SetValue(&key, &v))) std::fprintf(stderr, "aviso: ajuste de códec no soportado\n");
+  if (FAILED(api->SetValue(&key, &v))) std::fprintf(stderr, "aviso: ajuste de códec no soportado (%s)\n", name);
 }
 
 // El flujo HEVC debe empezar con el VPS (NAL tipo 32) en los frames clave.
@@ -160,12 +160,12 @@ bool MfEncoder::SetupTransform(IMFActivate* activate, UINT bitrate_bps) {
 }
 
 void MfEncoder::ApplyLowLatencySettings(UINT bitrate_bps) {
-  SetBool(codec_api_.Get(), CODECAPI_AVLowLatencyMode, true);
-  SetBool(codec_api_.Get(), CODECAPI_AVEncCommonRealTime, true);
-  SetU32(codec_api_.Get(), CODECAPI_AVEncCommonRateControlMode, eAVEncCommonRateControlMode_CBR);
-  SetU32(codec_api_.Get(), CODECAPI_AVEncCommonMeanBitRate, bitrate_bps);
-  SetU32(codec_api_.Get(), CODECAPI_AVEncMPVDefaultBPictureCount, 0);
-  SetU32(codec_api_.Get(), CODECAPI_AVEncMPVGOPSize, 0x7FFFFFFF);  // sin keyframes periódicos
+  SetBool(codec_api_.Get(), "CODECAPI_AVLowLatencyMode", CODECAPI_AVLowLatencyMode, true);
+  SetBool(codec_api_.Get(), "CODECAPI_AVEncCommonRealTime", CODECAPI_AVEncCommonRealTime, true);
+  SetU32(codec_api_.Get(), "CODECAPI_AVEncCommonRateControlMode", CODECAPI_AVEncCommonRateControlMode, eAVEncCommonRateControlMode_CBR);
+  SetU32(codec_api_.Get(), "CODECAPI_AVEncCommonMeanBitRate", CODECAPI_AVEncCommonMeanBitRate, bitrate_bps);
+  SetU32(codec_api_.Get(), "CODECAPI_AVEncMPVDefaultBPictureCount", CODECAPI_AVEncMPVDefaultBPictureCount, 0);
+  SetU32(codec_api_.Get(), "CODECAPI_AVEncMPVGOPSize", CODECAPI_AVEncMPVGOPSize, 0x7FFFFFFF);  // sin keyframes periódicos
 }
 
 bool MfEncoder::ConfigureTypes(VideoCodec codec) {
@@ -265,10 +265,10 @@ bool MfEncoder::FeedInput(const PendingFrame& frame) {
     ++fed_frames;
   }
   if (const uint32_t bps = bitrate_request_.exchange(0)) {
-    SetU32(codec_api_.Get(), CODECAPI_AVEncCommonMeanBitRate, bps);
+    SetU32(codec_api_.Get(), "CODECAPI_AVEncCommonMeanBitRate", CODECAPI_AVEncCommonMeanBitRate, bps);
   }
   if (keyframe_requested_.exchange(false)) {
-    SetU32(codec_api_.Get(), CODECAPI_AVEncVideoForceKeyFrame, 1);
+    SetU32(codec_api_.Get(), "CODECAPI_AVEncVideoForceKeyFrame", CODECAPI_AVEncVideoForceKeyFrame, 1);
   }
 
   ComPtr<IMFMediaBuffer> buffer;
