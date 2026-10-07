@@ -228,6 +228,7 @@ int Run(int argc, char** argv) {
     uint64_t last_submit_us = 0;
     ID3D11Texture2D* last_nv12 = nullptr;
     uint64_t captured = 0, last_stats_us = NowUs();
+    uint64_t convert_us = 0, last_convert = 0, last_fed = 0, last_mailbox = 0;
     uint64_t last_bytes = 0, last_encoded = 0, last_latency = 0, last_captured = 0, last_keyframes = 0;
     bool failed = false;
 
@@ -247,7 +248,9 @@ int Run(int argc, char** argv) {
       const uint64_t now = NowUs();
       if (result == DesktopCapture::Result::kFrame && udp.has_peer() &&
           now - last_submit_us >= min_interval_us) {
+        const uint64_t conv_start = NowUs();
         ID3D11Texture2D* nv12 = converter.Convert(frame);
+        convert_us += NowUs() - conv_start;
         capture.Release();
         if (!nv12) {
           failed = true;
@@ -270,10 +273,12 @@ int Run(int argc, char** argv) {
         const double secs = (t - last_stats_us) / 1e6;
         const uint64_t enc = frames_encoded - last_encoded;
         const uint64_t lat = encode_latency_us - last_latency;
-        std::printf("capturados %.0f/s | codificados %.0f/s | %.1f Mbps | codificación %.1f ms | claves %llu | errores de envío %llu%s\n",
+        std::printf("capturados %.0f/s | codificados %.0f/s | %.1f Mbps | codificación %.1f ms | claves %llu | conv %.1f ms | buzón %.1f ms | errores de envío %llu%s\n",
                     (captured - last_captured) / secs, enc / secs,
                     (bytes_sent - last_bytes) * 8 / secs / 1e6, enc ? lat / 1000.0 / enc : 0.0,
                     static_cast<unsigned long long>(keyframes_sent.load() - last_keyframes),
+                    captured > last_captured ? (convert_us - last_convert) / 1000.0 / (captured - last_captured) : 0.0,
+                    encoder.fed_frames > last_fed ? (encoder.mailbox_wait_us - last_mailbox) / 1000.0 / (encoder.fed_frames - last_fed) : 0.0,
                     static_cast<unsigned long long>(udp.send_errors()),
                     udp.has_peer() ? "" : " | esperando cliente");
         last_stats_us = t;
@@ -282,6 +287,9 @@ int Run(int argc, char** argv) {
         last_latency = encode_latency_us;
         last_captured = captured;
         last_keyframes = keyframes_sent;
+        last_convert = convert_us;
+        last_fed = encoder.fed_frames;
+        last_mailbox = encoder.mailbox_wait_us;
       }
     }
     // Los hilos usan variables de este bloque: se paran antes de salir de él.

@@ -37,6 +37,9 @@ class MfEncoder {
 
   void RequestKeyframe() { keyframe_requested_ = true; }
   bool keyframe_pending() const { return keyframe_requested_; }
+  // Diagnóstico: frames entregados al MFT y tiempo que esperaron en el buzón hasta que el MFT los pidió.
+  std::atomic<uint64_t> fed_frames{0};
+  std::atomic<uint64_t> mailbox_wait_us{0};
 
   void Stop();
 

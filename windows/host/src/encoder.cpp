@@ -1,5 +1,7 @@
 #include "encoder.h"
 
+#include <chrono>
+
 #include <codecapi.h>
 #include <oleauto.h>
 
@@ -255,6 +257,13 @@ void MfEncoder::EventLoop() {
 }
 
 bool MfEncoder::FeedInput(const PendingFrame& frame) {
+  {
+    using namespace std::chrono;
+    const uint64_t now = static_cast<uint64_t>(
+        duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count());
+    if (now > frame.timestamp_us) mailbox_wait_us += now - frame.timestamp_us;
+    ++fed_frames;
+  }
   if (keyframe_requested_.exchange(false)) {
     SetU32(codec_api_.Get(), CODECAPI_AVEncVideoForceKeyFrame, 1);
   }
