@@ -130,7 +130,7 @@ int Run(int argc, char** argv) {
   int exit_code = 1;
 
   std::atomic<uint32_t> next_frame_id{1};
-  std::atomic<uint64_t> bytes_sent{0}, frames_encoded{0}, encode_latency_us{0};
+  std::atomic<uint64_t> bytes_sent{0}, frames_encoded{0}, encode_latency_us{0}, keyframes_sent{0};
 
   do {
     if (!CreateGpuForOutput(opt.output, &gpu)) break;
@@ -152,6 +152,7 @@ int Run(int argc, char** argv) {
       SendPaced(packets, opt.pace_mbps, [&](const std::vector<uint8_t>& p) { udp.SendToPeer(p); });
       bytes_sent += size;
       ++frames_encoded;
+      if (keyframe) ++keyframes_sent;
       const uint64_t now = NowUs();
       if (now > ts_us) encode_latency_us += now - ts_us;
     };
@@ -161,6 +162,7 @@ int Run(int argc, char** argv) {
     }
 
     std::atomic<uint32_t> last_client_ip{0};
+    std::atomic<uint64_t> last_keyframe_us{0};
     auto on_packet = [&](const uint8_t* data, size_t size, const sockaddr_in& from) {
       auto header = dlp::ParseHeader(data, size);
       if (!header) return;
@@ -174,11 +176,19 @@ int Run(int argc, char** argv) {
           udp.SetPeer(from);
           udp.SendTo(from, dlp::MakeControlPacket(dlp::PacketType::kStreamInfo, info_payload.data(),
                                                   info_payload.size(), NowUs()));
+          last_keyframe_us = NowUs();
           encoder.RequestKeyframe();
           break;
-        case dlp::PacketType::kKeyframeRequest:
-          encoder.RequestKeyframe();
+        case dlp::PacketType::kKeyframeRequest: {
+          // Un frame clave es varias veces más grande que uno normal: si la red pierde paquetes y
+          // se piden uno tras otro, la propia petición mantiene la imagen congelada. Se limita a 1/s.
+          const uint64_t now = NowUs();
+          if (now - last_keyframe_us.load() >= 1'000'000) {
+            last_keyframe_us = now;
+            encoder.RequestKeyframe();
+          }
           break;
+        }
         case dlp::PacketType::kBurstRequest: {
           // Ráfaga de prueba: count paquetes de size bytes, opcionalmente con tasa limitada.
           if (header->payload_size < dlp::kBurstRequestSize) break;
@@ -218,7 +228,7 @@ int Run(int argc, char** argv) {
     uint64_t last_submit_us = 0;
     ID3D11Texture2D* last_nv12 = nullptr;
     uint64_t captured = 0, last_stats_us = NowUs();
-    uint64_t last_bytes = 0, last_encoded = 0, last_latency = 0, last_captured = 0;
+    uint64_t last_bytes = 0, last_encoded = 0, last_latency = 0, last_captured = 0, last_keyframes = 0;
     bool failed = false;
 
     while (g_running) {
@@ -260,9 +270,10 @@ int Run(int argc, char** argv) {
         const double secs = (t - last_stats_us) / 1e6;
         const uint64_t enc = frames_encoded - last_encoded;
         const uint64_t lat = encode_latency_us - last_latency;
-        std::printf("capturados %.0f/s | codificados %.0f/s | %.1f Mbps | codificación %.1f ms | errores de envío %llu%s\n",
+        std::printf("capturados %.0f/s | codificados %.0f/s | %.1f Mbps | codificación %.1f ms | claves %llu | errores de envío %llu%s\n",
                     (captured - last_captured) / secs, enc / secs,
                     (bytes_sent - last_bytes) * 8 / secs / 1e6, enc ? lat / 1000.0 / enc : 0.0,
+                    static_cast<unsigned long long>(keyframes_sent.load() - last_keyframes),
                     static_cast<unsigned long long>(udp.send_errors()),
                     udp.has_peer() ? "" : " | esperando cliente");
         last_stats_us = t;
@@ -270,6 +281,7 @@ int Run(int argc, char** argv) {
         last_encoded = frames_encoded;
         last_latency = encode_latency_us;
         last_captured = captured;
+        last_keyframes = keyframes_sent;
       }
     }
     // Los hilos usan variables de este bloque: se paran antes de salir de él.

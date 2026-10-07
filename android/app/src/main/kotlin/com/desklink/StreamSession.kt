@@ -143,7 +143,7 @@ class StreamSession(
 
     private fun requestKeyframe() {
         val now = nowUs()
-        if (now - lastKeyframeRequestUs < 200_000) return
+        if (now - lastKeyframeRequestUs < 500_000) return
         lastKeyframeRequestUs = now
         send(Dlp.controlPacket(Dlp.TYPE_KEYFRAME_REQUEST, now))
     }
