@@ -20,6 +20,11 @@ class TouchInjector {
   // `rect`: zona de pantalla (en píxeles del escritorio virtual) a la que se asignan los toques.
   // `mouse`: en vez de toques, mueve el ratón con el primer dedo (más compatible, sin multitáctil).
   bool Init(const RECT& rect, bool mouse = false);
+  // Cambia la zona de pantalla (resolución o posición del monitor capturado distintas).
+  void SetRect(const RECT& rect) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    rect_ = rect;
+  }
   void Update(const std::vector<Contact>& contacts);
   // Suelta los dedos si la tablet lleva más de timeout_ms sin decir nada (cable desconectado, etc.).
   void ExpireIfSilent(uint64_t now_ms, uint64_t timeout_ms);

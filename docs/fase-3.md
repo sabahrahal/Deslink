@@ -28,6 +28,6 @@ Al cerrar el host, la pantalla desaparece sola. Para quitarlo todo: `desinstalar
 
 ## Limitaciones
 
-- La resolución se elige al arrancar el host (`--size`). Que la tablet la mande sola al conectar queda para más adelante.
-- Si cambias la resolución de la pantalla DeskLink en Windows, el host se detiene y hay que volver a arrancarlo.
+- La resolución inicial se elige al arrancar el host (`--size`). Que la tablet la mande sola al conectar queda para más adelante.
+- Si cambias la resolución de la pantalla DeskLink en Windows, el host reinicia la captura solo y avisa a la tablet (hay un parpadeo de un segundo). La última resolución se guarda en `%APPDATA%\DeskLink\virtual-size.txt` y se usa la próxima vez que arranques sin `--size`.
 - El driver está firmado con un certificado propio, válido para tu PC (ver `windows/driver/README.md`).
