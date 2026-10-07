@@ -176,7 +176,9 @@ class StreamActivity : Activity(), SurfaceHolder.Callback, StreamSession.Listene
     override fun onStats(text: String) {
         if (!statsVisible) return  // ocultas: ni se mide la batería ni se repinta el texto
         val b = probe.sampleBattery()
-        val power = b.netMilliwatts?.let { " · batería ${"%+.1f".format(it / 1000)} W" } ?: ""
+        val level = if (b.percent >= 0) " ${b.percent} %" else ""
+        val watts = b.netMilliwatts?.let { " ${"%+.1f".format(it / 1000)} W" } ?: " (midiendo…)"
+        val power = " · batería$level$watts"
         runOnUiThread { statsView.text = text + power }
     }
 
