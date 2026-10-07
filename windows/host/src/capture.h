@@ -6,7 +6,7 @@
 // la GPU y sólo es válida hasta la siguiente llamada a Release().
 class DesktopCapture {
  public:
-  enum class Result { kFrame, kTimeout, kError };
+  enum class Result { kFrame, kCursorMoved, kTimeout, kError };
 
   bool Init(Gpu& gpu);
   Result Acquire(UINT timeout_ms, ID3D11Texture2D** texture);

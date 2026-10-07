@@ -68,6 +68,7 @@ struct Options {
   UINT fps = 60;
   UINT bitrate_mbps = 50;
   VideoCodec codec = VideoCodec::kHevc;
+  bool cursor = true;    // --no-cursor: no dibuja el cursor en la imagen
   bool mouse = false;    // --mouse: el táctil mueve el ratón (más compatible, un solo dedo)
   bool touch = true;     // --no-touch desactiva el control táctil
   UINT pace_mbps = 100;  // reparte cada frame a esta tasa; 0 = de golpe (el anclaje USB pierde ráfagas)
@@ -98,6 +99,8 @@ bool ParseArgs(int argc, char** argv, Options* o) {
     } else if (a == "--pace") {
       auto v = next("--pace"); if (!v) return false;
       o->pace_mbps = static_cast<UINT>(std::atoi(v));
+    } else if (a == "--no-cursor") {
+      o->cursor = false;
     } else if (a == "--mouse") {
       o->mouse = true;
     } else if (a == "--no-touch") {
@@ -108,7 +111,7 @@ bool ParseArgs(int argc, char** argv, Options* o) {
     } else {
       std::fprintf(stderr,
                    "Uso: desklink-host [--port 47800] [--output 0] [--fps 60] [--bitrate 50] "
-                   "[--codec hevc|h264] [--pace Mbps] [--no-touch] [--mouse]\n");
+                   "[--codec hevc|h264] [--pace Mbps] [--no-touch] [--mouse] [--no-cursor]\n");
       return false;
     }
   }
@@ -151,6 +154,7 @@ int Run(int argc, char** argv) {
     std::printf("Captura: %ux%u a %u fps, %u Mbps, %s\n", w, h, opt.fps, opt.bitrate_mbps,
                 opt.codec == VideoCodec::kHevc ? "HEVC" : "H.264");
     if (!converter.Init(gpu, w, h, 24)) break;
+    converter.SetDrawCursor(opt.cursor);
 
     dlp::StreamInfo info;
     info.width = static_cast<uint16_t>(w);
@@ -369,6 +373,13 @@ int Run(int argc, char** argv) {
         last_nv12 = nv12;
         dirty = true;
         ++captured;
+      } else if (result == DesktopCapture::Result::kCursorMoved) {
+        // Solo se movió el cursor: se redibuja sobre la última imagen.
+        capture.Release();
+        if (ID3D11Texture2D* nv12 = converter.Refresh()) {
+          last_nv12 = nv12;
+          dirty = true;
+        }
       } else {
         capture.Release();
       }
