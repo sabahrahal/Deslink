@@ -1,0 +1,31 @@
+cmake_minimum_required(VERSION 3.16)
+project(desklink_host CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+if(NOT WIN32)
+  message(FATAL_ERROR "desklink-host sólo se compila en Windows (DXGI, Media Foundation).")
+endif()
+
+# Runtime de C++ enlazado de forma estática: el .exe no necesita instalar el
+# paquete redistribuible de Visual C++ en el PC.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
+
+add_subdirectory(../../protocol protocol)
+
+add_executable(desklink-host
+  src/main.cpp
+  src/gpu.cpp
+  src/capture.cpp
+  src/converter.cpp
+  src/encoder.cpp
+  src/udp.cpp)
+
+target_compile_definitions(desklink-host PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00)
+target_link_libraries(desklink-host PRIVATE dlp
+  d3d11 dxgi mfplat mf mfuuid strmiids ole32 oleaut32 ws2_32 winmm)
+
+if(MSVC)
+  target_compile_options(desklink-host PRIVATE /W3 /utf-8)
+endif()

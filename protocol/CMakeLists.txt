@@ -1,0 +1,19 @@
+cmake_minimum_required(VERSION 3.16)
+project(dlp CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+add_library(dlp STATIC src/packet.cpp src/reassembler.cpp)
+target_include_directories(dlp PUBLIC include)
+
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+  enable_testing()
+  add_executable(dlp_tests tests/test_protocol.cpp)
+  target_link_libraries(dlp_tests PRIVATE dlp)
+  add_test(NAME dlp_tests COMMAND dlp_tests)
+  if(NOT MSVC)
+    target_compile_options(dlp PRIVATE -Wall -Wextra)
+    target_compile_options(dlp_tests PRIVATE -Wall -Wextra)
+  endif()
+endif()

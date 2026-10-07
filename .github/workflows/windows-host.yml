@@ -1,0 +1,21 @@
+name: windows-host
+
+on:
+  push:
+    paths: ['windows/host/**', 'protocol/**', '.github/workflows/windows-host.yml']
+  pull_request:
+    paths: ['windows/host/**', 'protocol/**', '.github/workflows/windows-host.yml']
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configurar
+        run: cmake -S windows/host -B build/host -A x64
+      - name: Compilar
+        run: cmake --build build/host --config Release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desklink-host-windows
+          path: build/host/Release/desklink-host.exe
