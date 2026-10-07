@@ -21,6 +21,7 @@
 #include "encoder.h"
 #include "gpu.h"
 #include "history.h"
+#include "touch.h"
 #include "udp.h"
 
 namespace {
@@ -67,6 +68,7 @@ struct Options {
   UINT fps = 60;
   UINT bitrate_mbps = 50;
   VideoCodec codec = VideoCodec::kHevc;
+  bool touch = true;     // --no-touch desactiva el control táctil
   UINT pace_mbps = 100;  // reparte cada frame a esta tasa; 0 = de golpe (el anclaje USB pierde ráfagas)
 };
 
@@ -95,13 +97,15 @@ bool ParseArgs(int argc, char** argv, Options* o) {
     } else if (a == "--pace") {
       auto v = next("--pace"); if (!v) return false;
       o->pace_mbps = static_cast<UINT>(std::atoi(v));
+    } else if (a == "--no-touch") {
+      o->touch = false;
     } else if (a == "--codec") {
       auto v = next("--codec"); if (!v) return false;
       o->codec = std::string(v) == "h264" ? VideoCodec::kH264 : VideoCodec::kHevc;
     } else {
       std::fprintf(stderr,
                    "Uso: desklink-host [--port 47800] [--output 0] [--fps 60] [--bitrate 50] "
-                   "[--codec hevc|h264] [--pace Mbps]\n");
+                   "[--codec hevc|h264] [--pace Mbps] [--no-touch]\n");
       return false;
     }
   }
@@ -122,6 +126,7 @@ int Run(int argc, char** argv) {
   CoInitializeEx(nullptr, COINIT_MULTITHREADED);
   MFStartup(MF_VERSION);
   timeBeginPeriod(1);  // temporizadores de 1 ms
+  SetProcessDPIAware();  // coordenadas en píxeles reales, para que los toques caigan donde toca
 
   Gpu gpu;
   DesktopCapture capture;
@@ -133,6 +138,8 @@ int Run(int argc, char** argv) {
   std::atomic<uint32_t> next_frame_id{1};
   std::atomic<uint64_t> bytes_sent{0}, frames_encoded{0}, encode_latency_us{0}, keyframes_sent{0}, retransmits{0};
   PacketHistory history;
+  TouchInjector touch;
+  bool touch_ready = false;
 
   do {
     if (!CreateGpuForOutput(opt.output, &gpu)) break;
@@ -243,6 +250,24 @@ int Run(int argc, char** argv) {
           }
           break;
         }
+        case dlp::PacketType::kTouch: {
+          if (!touch_ready || header->payload_size < 1) break;
+          const uint8_t* q = data + dlp::kHeaderSize;
+          const size_t n = std::min<size_t>({q[0], dlp::kMaxTouchContacts,
+                                              (header->payload_size - 1u) / dlp::kTouchContactSize});
+          std::vector<TouchInjector::Contact> contacts;
+          for (size_t i = 0; i < n; ++i) {
+            const uint8_t* c = q + 1 + i * dlp::kTouchContactSize;
+            TouchInjector::Contact tc;
+            tc.id = c[0];
+            tc.x = (c[1] | (c[2] << 8)) / 65535.0f;
+            tc.y = (c[3] | (c[4] << 8)) / 65535.0f;
+            tc.pressure = static_cast<uint16_t>(c[5] | (c[6] << 8));
+            contacts.push_back(tc);
+          }
+          touch.Update(contacts);
+          break;
+        }
         case dlp::PacketType::kNack: {
           // La tablet reclama paquetes concretos de un frame: se reenvían (rápido y sin esperar a un frame clave).
           const uint8_t* q = data + dlp::kHeaderSize;
@@ -290,6 +315,11 @@ int Run(int argc, char** argv) {
           break;
       }
     };
+    if (opt.touch) {
+      // Los toques se asignan al monitor principal (el que se captura con --output 0).
+      const RECT primary{0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)};
+      touch_ready = touch.Init(primary);
+    }
     if (!udp.Bind(opt.port, on_packet)) break;
     std::printf("Escuchando en UDP %u. Abre DeskLink en el móvil e indica la IP de este PC.\n",
                 opt.port);
@@ -312,7 +342,9 @@ int Run(int argc, char** argv) {
         break;
       }
 
+      touch.ExpireIfSilent(GetTickCount64(), 700);
       if (udp.ExpirePeer(std::chrono::seconds(5))) {
+        touch.ReleaseAll();
         last_client_ip = 0;
         std::printf("Cliente desconectado (sin respuesta durante 5 s). Esperando cliente.\n");
       }

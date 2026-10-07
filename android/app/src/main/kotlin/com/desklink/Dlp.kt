@@ -22,6 +22,7 @@ object Dlp {
     const val TYPE_BURST_DATA = 8
     const val TYPE_RATE_REPORT = 9
     const val TYPE_NACK = 10
+    const val TYPE_TOUCH = 11
 
     const val FLAG_KEYFRAME = 1
     const val FLAG_LAST_PACKET = 2
@@ -111,6 +112,31 @@ object Dlp {
         b.putLong(14, timestampUs)
         b.putShort(22, (2 * n).toShort())
         for (i in 0 until n) b.putShort(HEADER_SIZE + 2 * i, indices[i].toShort())
+        return b.array()
+    }
+
+    /**
+     * Estado táctil completo: [n] dedos con (id, x, y, presión) consecutivos en [state]; x e y en 0..1.
+     * Se manda entero cada vez, así un paquete perdido no deja un dedo "pegado" en el PC.
+     */
+    fun touch(state: FloatArray, n: Int, timestampUs: Long): ByteArray {
+        val count = minOf(n, 10)
+        val size = 1 + 7 * count
+        val b = ByteBuffer.allocate(HEADER_SIZE + size).order(ByteOrder.LITTLE_ENDIAN)
+        b.putShort(0, MAGIC.toShort())
+        b.put(2, VERSION.toByte())
+        b.put(3, TYPE_TOUCH.toByte())
+        b.putShort(12, 1)
+        b.putLong(14, timestampUs)
+        b.putShort(22, size.toShort())
+        b.put(HEADER_SIZE, count.toByte())
+        for (i in 0 until count) {
+            val o = HEADER_SIZE + 1 + 7 * i
+            b.put(o, state[4 * i].toInt().toByte())
+            b.putShort(o + 1, (state[4 * i + 1].coerceIn(0f, 1f) * 65535f).toInt().toShort())
+            b.putShort(o + 3, (state[4 * i + 2].coerceIn(0f, 1f) * 65535f).toInt().toShort())
+            b.putShort(o + 5, (state[4 * i + 3].coerceIn(0f, 1f) * 1024f).toInt().toShort())
+        }
         return b.array()
     }
 

@@ -25,6 +25,7 @@ enum class PacketType : uint8_t {
   kBurstRequest = 7,     // cliente -> host: pide una ráfaga de prueba (count u16, size u16, pace_mbps u16)
   kRateReport = 9,       // cliente -> host: frames recibidos y perdidos en el último segundo (u16, u16)
   kNack = 10,            // cliente -> host: reenvía estos paquetes de un frame (frame_id en la cabecera; payload: u16 por índice)
+  kTouch = 11,           // cliente -> host: estado táctil completo (u8 n, n x {u8 id, u16 x, u16 y, u16 presión}); x,y en 0..65535
   kBurstData = 8,        // host -> cliente: paquete de relleno de la ráfaga (packet_index/packet_count)
 };
 
@@ -55,6 +56,8 @@ struct StreamInfo {
 constexpr size_t kStreamInfoSize = 7;
 constexpr size_t kBurstRequestSize = 6;
 constexpr size_t kRateReportSize = 4;
+constexpr size_t kTouchContactSize = 7;
+constexpr size_t kMaxTouchContacts = 10;
 
 // Escribe la cabecera en kHeaderSize bytes.
 void WriteHeader(const Header& header, uint8_t* out);

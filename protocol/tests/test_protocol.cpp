@@ -152,6 +152,7 @@ static void TestBurstTypes() {
   CHECK(static_cast<uint8_t>(PacketType::kBurstData) == 8);
   CHECK(static_cast<uint8_t>(PacketType::kRateReport) == 9);
   CHECK(static_cast<uint8_t>(PacketType::kNack) == 10);
+  CHECK(static_cast<uint8_t>(PacketType::kTouch) == 11);
 }
 
 int main() {

@@ -8,6 +8,7 @@ import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.SocketTimeoutException
+import java.util.concurrent.Executors
 
 /**
  * Sesión de recepción: envía HELLO al host, recibe vídeo por UDP, lo reensambla y lo
@@ -37,6 +38,7 @@ class StreamSession(
     private var controlThread: Thread? = null
     private val reassembler = FrameReassembler()
 
+    private val touchExecutor = Executors.newSingleThreadExecutor { Thread(it, "desklink-touch") }
     private var bytesReceived = 0L
     private var framesReceived = 0L
     private var decoderDrops = 0L
@@ -50,6 +52,7 @@ class StreamSession(
 
     fun stop() {
         running = false
+        touchExecutor.shutdownNow()
         socket?.close()
         receiveThread?.join(500)
         controlThread?.interrupt()
@@ -168,6 +171,13 @@ class StreamSession(
             send(Dlp.nack(n.frameId, n.indices, n.count, now))
         }
         if (reassembler.needsKeyframe) requestKeyframe()
+    }
+
+    /** Manda el estado táctil completo (ver [Dlp.touch]); se llama desde el hilo de la interfaz. */
+    fun sendTouch(state: FloatArray, n: Int) {
+        val packet = Dlp.touch(state, n, nowUs())
+        // Android no permite enviar por red desde el hilo de la interfaz.
+        touchExecutor.execute { send(packet) }
     }
 
     private fun requestKeyframe() {

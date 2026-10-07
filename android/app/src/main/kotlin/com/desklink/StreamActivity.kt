@@ -6,7 +6,10 @@ import android.graphics.Color
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
@@ -22,6 +25,22 @@ class StreamActivity : Activity(), SurfaceHolder.Callback, StreamSession.Listene
     private var wifiLock: WifiManager.WifiLock? = null
     private lateinit var host: String
     private val probe by lazy { DeviceProbe(this) }
+
+    // Estado táctil: [id, x, y, presión] por dedo apoyado. Se reenvía cada 100 ms mientras haya dedos
+    // para que el PC no suelte un toque si se pierde algún paquete, y se repite el "sin dedos" final.
+    private val touchState = FloatArray(40)
+    private var touchCount = 0
+    private var touchIdleRepeats = 0
+    private val touchHandler = Handler(Looper.getMainLooper())
+    private val touchKeepAlive = object : Runnable {
+        override fun run() {
+            if (touchCount > 0 || touchIdleRepeats > 0) {
+                session?.sendTouch(touchState, touchCount)
+                if (touchCount == 0) touchIdleRepeats--
+                touchHandler.postDelayed(this, 100)
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -44,14 +63,41 @@ class StreamActivity : Activity(), SurfaceHolder.Callback, StreamSession.Listene
             setPadding(16, 8, 16, 8)
             text = "Conectando…"
         }
-        surfaceView.setOnClickListener {
-            statsView.visibility = if (statsView.visibility == View.VISIBLE) View.GONE else View.VISIBLE
-        }
+        surfaceView.setOnTouchListener { _, event -> onSurfaceTouch(event) }
 
         val root = FrameLayout(this)
         root.addView(surfaceView, FrameLayout.LayoutParams(-1, -1))
         root.addView(statsView, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START))
         setContentView(root)
+    }
+
+    private fun onSurfaceTouch(event: MotionEvent): Boolean {
+        // Cuatro dedos a la vez: mostrar u ocultar las estadísticas (el toque normal va al PC).
+        if (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN && event.pointerCount == 4) {
+            statsView.visibility = if (statsView.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+            return true
+        }
+        val w = surfaceView.width.coerceAtLeast(1).toFloat()
+        val h = surfaceView.height.coerceAtLeast(1).toFloat()
+        val up = event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL
+        val liftedIndex = if (event.actionMasked == MotionEvent.ACTION_POINTER_UP) event.actionIndex else -1
+        var n = 0
+        if (!up) {
+            for (i in 0 until minOf(event.pointerCount, 10)) {
+                if (i == liftedIndex) continue
+                touchState[4 * n] = event.getPointerId(i).toFloat()
+                touchState[4 * n + 1] = event.getX(i) / w
+                touchState[4 * n + 2] = event.getY(i) / h
+                touchState[4 * n + 3] = event.getPressure(i)
+                n++
+            }
+        }
+        touchCount = n
+        session?.sendTouch(touchState, n)
+        touchHandler.removeCallbacks(touchKeepAlive)
+        if (n == 0) touchIdleRepeats = 3
+        touchHandler.postDelayed(touchKeepAlive, 100)
+        return true
     }
 
     override fun onStart() {
@@ -88,6 +134,8 @@ class StreamActivity : Activity(), SurfaceHolder.Callback, StreamSession.Listene
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) = Unit
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
+        touchHandler.removeCallbacks(touchKeepAlive)
+        touchCount = 0
         session?.stop()
         session = null
     }
