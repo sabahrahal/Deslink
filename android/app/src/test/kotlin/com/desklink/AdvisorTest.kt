@@ -47,7 +47,7 @@ class AdvisorTest {
 
     @Test fun burstLossWithPacedOkSuggestsPace() {
         val f = Advisor.adviseBurst(BurstResult(400, 250, 300.0, 0), BurstResult(400, 400, 98.0, 100))
-        assertTrue(f.any { it.severity == Severity.WARNING && it.detail.contains("--pace 100") })
+        assertTrue(f.any { it.severity == Severity.INFO && it.detail.contains("--pace 100") })
     }
 
     @Test fun burstLossEvenPacedSuggestsLowerBitrate() {

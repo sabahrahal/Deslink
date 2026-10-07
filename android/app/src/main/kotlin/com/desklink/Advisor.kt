@@ -107,10 +107,10 @@ object Advisor {
             )
             paced != null && pacedLoss != null && pacedLoss < 3.0 -> listOf(
                 Finding(
-                    Severity.WARNING, "El enlace pierde datos en ráfagas",
+                    Severity.INFO, "El enlace pierde datos en ráfagas",
                     "Enviado de golpe se pierde el ${"%.0f".format(rawLoss)} % de un frame grande, y repartido a ${paced.paceMbps} Mbps " +
-                        "llega completo. Arranca el programa del PC con `desklink-host.exe --pace ${paced.paceMbps}` " +
-                        "y la imagen debería dejar de congelarse.",
+                        "llega completo. El programa del PC ya reparte el envío a ${paced.paceMbps} Mbps de serie; si usas una " +
+                        "versión antigua, actualízala o arráncala con `desklink-host.exe --pace ${paced.paceMbps}`.",
                 ),
             )
             else -> {
