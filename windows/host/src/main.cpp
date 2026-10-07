@@ -20,6 +20,7 @@
 #include "dlp/packet.h"
 #include "encoder.h"
 #include "gpu.h"
+#include "history.h"
 #include "udp.h"
 
 namespace {
@@ -130,7 +131,8 @@ int Run(int argc, char** argv) {
   int exit_code = 1;
 
   std::atomic<uint32_t> next_frame_id{1};
-  std::atomic<uint64_t> bytes_sent{0}, frames_encoded{0}, encode_latency_us{0}, keyframes_sent{0};
+  std::atomic<uint64_t> bytes_sent{0}, frames_encoded{0}, encode_latency_us{0}, keyframes_sent{0}, retransmits{0};
+  PacketHistory history;
 
   do {
     if (!CreateGpuForOutput(opt.output, &gpu)) break;
@@ -149,6 +151,10 @@ int Run(int argc, char** argv) {
 
     auto on_encoded = [&](const uint8_t* data, size_t size, bool keyframe, uint64_t ts_us) {
       auto packets = dlp::PacketizeFrame(data, size, next_frame_id++, keyframe, ts_us);
+      for (const auto& pkt : packets) {
+        auto ph = dlp::ParseHeader(pkt.data(), pkt.size());
+        if (ph) history.Put(ph->frame_id, ph->packet_index, pkt);
+      }
       SendPaced(packets, opt.pace_mbps, [&](const std::vector<uint8_t>& p) { udp.SendToPeer(p); });
       bytes_sent += size;
       ++frames_encoded;
@@ -230,6 +236,22 @@ int Run(int argc, char** argv) {
           }
           break;
         }
+        case dlp::PacketType::kNack: {
+          // La tablet reclama paquetes concretos de un frame: se reenvían (rápido y sin esperar a un frame clave).
+          const uint8_t* q = data + dlp::kHeaderSize;
+          const size_t n = std::min<size_t>(header->payload_size / 2, 128);
+          std::vector<std::vector<uint8_t>> resend;
+          for (size_t i = 0; i < n; ++i) {
+            std::vector<uint8_t> pkt;
+            const uint16_t index = static_cast<uint16_t>(q[2 * i] | (q[2 * i + 1] << 8));
+            if (history.Get(header->frame_id, index, &pkt)) resend.push_back(std::move(pkt));
+          }
+          if (!resend.empty()) {
+            SendPaced(resend, opt.pace_mbps, [&](const std::vector<uint8_t>& p) { udp.SendToPeer(p); });
+            retransmits += resend.size();
+          }
+          break;
+        }
         case dlp::PacketType::kBurstRequest: {
           // Ráfaga de prueba: count paquetes de size bytes, opcionalmente con tasa limitada.
           if (header->payload_size < dlp::kBurstRequestSize) break;
@@ -272,7 +294,7 @@ int Run(int argc, char** argv) {
     int flush_left = 0;      // repeticiones pendientes para vaciar el codificador
     uint64_t captured = 0, last_stats_us = NowUs();
     uint64_t convert_us = 0, last_convert = 0, last_fed = 0, last_mailbox = 0;
-    uint64_t last_bytes = 0, last_encoded = 0, last_latency = 0, last_captured = 0, last_keyframes = 0;
+    uint64_t last_bytes = 0, last_encoded = 0, last_latency = 0, last_captured = 0, last_keyframes = 0, last_retransmits = 0;
     bool failed = false;
 
     while (g_running) {
@@ -327,13 +349,14 @@ int Run(int argc, char** argv) {
         const double secs = (t - last_stats_us) / 1e6;
         const uint64_t enc = frames_encoded - last_encoded;
         const uint64_t lat = encode_latency_us - last_latency;
-        std::printf("capturados %.0f/s | codificados %.0f/s | %.1f Mbps | codificación %.1f ms | claves %llu | conv %.1f ms | buzón %.1f ms | errores de envío %llu%s\n",
+        std::printf("capturados %.0f/s | codificados %.0f/s | %.1f Mbps | codificación %.1f ms | claves %llu | conv %.1f ms | buzón %.1f ms | errores de envío %llu | reenvíos %llu%s\n",
                     (captured - last_captured) / secs, enc / secs,
                     (bytes_sent - last_bytes) * 8 / secs / 1e6, enc ? lat / 1000.0 / enc : 0.0,
                     static_cast<unsigned long long>(keyframes_sent.load() - last_keyframes),
                     captured > last_captured ? (convert_us - last_convert) / 1000.0 / (captured - last_captured) : 0.0,
                     encoder.fed_frames > last_fed ? (encoder.mailbox_wait_us - last_mailbox) / 1000.0 / (encoder.fed_frames - last_fed) : 0.0,
                     static_cast<unsigned long long>(udp.send_errors()),
+                    static_cast<unsigned long long>(retransmits.load() - last_retransmits),
                     udp.has_peer() ? "" : " | esperando cliente");
         last_stats_us = t;
         last_bytes = bytes_sent;
@@ -341,6 +364,7 @@ int Run(int argc, char** argv) {
         last_latency = encode_latency_us;
         last_captured = captured;
         last_keyframes = keyframes_sent;
+        last_retransmits = retransmits;
         last_convert = convert_us;
         last_fed = encoder.fed_frames;
         last_mailbox = encoder.mailbox_wait_us;

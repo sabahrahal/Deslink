@@ -30,7 +30,8 @@ Tamaño máximo de paquete: 1200 bytes (1176 de payload), para no fragmentar en 
 | 5 | PONG | host a cliente | vacío; devuelve el timestamp del PING |
 | 6 | STREAM_INFO | host a cliente | ancho u16, alto u16, fps u16, códec u8 (1 H.264, 2 HEVC) |
 | 7 | BURST_REQUEST | cliente a host | count u16, size u16, pace_mbps u16 (0 = de golpe). El timestamp sirve de nonce |
-| 9 | RATE_REPORT | cliente a host | frames recibidos u16, frames perdidos u16 en el último segundo. El host baja la tasa un 30 % si hay pérdidas y la sube un 8 % tras 4 s limpios (máximo `--bitrate`) |
+| 9 | RATE_REPORT | cliente a host | frames recibidos u16, frames perdidos u16 en el último segundo. El host baja la tasa un 30 % si hay pérdidas (o si la tablet pide un frame clave), recuerda un techo por debajo de la tasa que falló y la sube un 5 % tras 8 s limpios (máximo `--bitrate`) |
+| 10 | NACK | cliente a host | `frame_id` en la cabecera; payload: u16 por cada `packet_index` que falta (máx. 128). El host guarda los últimos 4096 paquetes y los reenvía al ritmo de `--pace`. La tablet reclama a ~2 RTT (mín. 4 ms), hasta 4 veces por paquete, y retiene un frame completo (15–60 ms según el RTT) mientras recupera uno anterior; si no llega, se descarta y se pide frame clave |
 | 8 | BURST_DATA | host a cliente | relleno; `packet_index`/`packet_count` numeran la ráfaga y el timestamp devuelve el nonce |
 
 ## Flujo

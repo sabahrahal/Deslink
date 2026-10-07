@@ -24,6 +24,7 @@ enum class PacketType : uint8_t {
   kStreamInfo = 6,       // host -> cliente: resolución, fps y códec
   kBurstRequest = 7,     // cliente -> host: pide una ráfaga de prueba (count u16, size u16, pace_mbps u16)
   kRateReport = 9,       // cliente -> host: frames recibidos y perdidos en el último segundo (u16, u16)
+  kNack = 10,            // cliente -> host: reenvía estos paquetes de un frame (frame_id en la cabecera; payload: u16 por índice)
   kBurstData = 8,        // host -> cliente: paquete de relleno de la ráfaga (packet_index/packet_count)
 };
 

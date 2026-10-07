@@ -75,7 +75,7 @@ class StreamSession(
             routeLabel = route?.let { "[${it.transport.label}] " } ?: ""
             sock = if (route != null) DatagramSocket(InetSocketAddress(route.local, 0)) else DatagramSocket()
             sock.receiveBufferSize = 1 shl 20
-            sock.soTimeout = 200
+            sock.soTimeout = 4  // despierta a menudo para reclamar paquetes perdidos y entregar frames
             sock.connect(InetAddress.getByName(host), Dlp.DEFAULT_PORT)
             socket = sock
         } catch (e: IOException) {
@@ -90,6 +90,7 @@ class StreamSession(
             try {
                 sock.receive(packet)
             } catch (_: SocketTimeoutException) {
+                pump()
                 continue
             } catch (e: IOException) {
                 if (running) listener.onError("Conexión perdida: ${e.message}")
@@ -127,16 +128,44 @@ class StreamSession(
     private fun onVideo(buf: ByteArray, length: Int) {
         val dec = decoder ?: return
         bytesReceived += length
-        val frame = reassembler.push(buf, length)
-        if (frame != null) {
-            framesReceived++
-            // Mientras falte un frame clave, los frames intermedios no se pueden decodificar.
-            if (!reassembler.needsKeyframe || frame.keyframe) {
-                if (!dec.queue(frame)) {
-                    decoderDrops++
-                    requestKeyframe()
-                }
+        val now = nowUs()
+        var frame = reassembler.push(buf, length, now)
+        while (frame != null) {
+            deliver(dec, frame)
+            frame = reassembler.poll(now)
+        }
+        afterPoll(now)
+    }
+
+    /** Sin paquetes nuevos también hay que reclamar los perdidos y soltar frames que esperaron demasiado. */
+    private fun pump() {
+        val dec = decoder ?: return
+        val now = nowUs()
+        var frame = reassembler.poll(now)
+        while (frame != null) {
+            deliver(dec, frame)
+            frame = reassembler.poll(now)
+        }
+        afterPoll(now)
+    }
+
+    private fun deliver(dec: VideoDecoder, frame: Frame) {
+        framesReceived++
+        // Mientras falte un frame clave, los frames intermedios no se pueden decodificar.
+        if (!reassembler.needsKeyframe || frame.keyframe) {
+            if (!dec.queue(frame)) {
+                decoderDrops++
+                requestKeyframe()
             }
+        }
+    }
+
+    private fun afterPoll(now: Long) {
+        // Reintento a ~2 RTT (mínimo 4 ms); la espera máxima de un frame crece con el RTT.
+        val rtt = rttUs.takeIf { it > 0 } ?: 2_000L
+        reassembler.graceUs = (4 * rtt + 8_000).coerceIn(15_000L, 60_000L)
+        for (n in reassembler.collectNacks(now, retryUs = maxOf(2 * rtt, 4_000L))) {
+            send(Dlp.nack(n.frameId, n.indices, n.count, now))
         }
         if (reassembler.needsKeyframe) requestKeyframe()
     }
@@ -189,7 +218,8 @@ class StreamSession(
                     " · decodificados ${"%.0f".format((decoded - lastDecoded) / secs)}/s" +
                     " · ${"%.1f".format(mbps)} Mbps" +
                     (if (rtt >= 0) " · RTT ${"%.1f".format(rtt / 1000.0)} ms" else "") +
-                    " · perdidos ${reassembler.framesDropped + decoderDrops}",
+                    " · perdidos ${reassembler.framesDropped + decoderDrops}" +
+                    " · reclamados ${reassembler.packetsRequested}",
             )
             val lost = reassembler.framesDropped + decoderDrops
             send(Dlp.rateReport((framesReceived - lastFrames).toInt(), (lost - lastLost).toInt(), now))

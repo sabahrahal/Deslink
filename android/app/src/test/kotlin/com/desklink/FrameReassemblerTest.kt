@@ -102,4 +102,60 @@ class FrameReassemblerTest {
         assertEquals(Dlp.TYPE_PING, h!!.type)
         assertEquals(99L, h.timestampUs)
     }
+
+    @Test
+    fun missingPacketRecoveredByNack() {
+        val r = FrameReassembler()
+        r.graceUs = 50_000
+        val d = data(10_000, 5)
+        val packets = packetize(d, 1, true, 1)
+        assertTrue(packets.size > 3)
+        // Falta el paquete 1; llegan los demás.
+        var out: Frame? = null
+        for ((i, p) in packets.withIndex()) if (i != 1) r.push(p, p.size, 1_000)?.let { out = it }
+        assertNull(out)
+        val nacks = r.collectNacks(10_000, retryUs = 4_000)
+        assertEquals(1, nacks.size)
+        assertEquals(1L, nacks[0].frameId)
+        assertEquals(1, nacks[0].count)
+        assertEquals(1, nacks[0].indices[0])
+        // No se vuelve a pedir antes del reintento.
+        assertTrue(r.collectNacks(11_000, retryUs = 4_000).isEmpty())
+        // Llega el reenvío.
+        val f = r.push(packets[1], packets[1].size, 12_000)
+        assertNotNull(f)
+        assertArrayEquals(d, f!!.data.copyOf(f.size))
+        assertFalse(r.needsKeyframe)
+    }
+
+    @Test
+    fun completeFrameWaitsForOlderOneWithinGrace() {
+        val r = FrameReassembler()
+        r.graceUs = 50_000
+        val a = packetize(data(5_000, 1), 1, true, 1)
+        val b = packetize(data(5_000, 2), 2, false, 2)
+        for (p in a.drop(1)) r.push(p, p.size, 1_000)
+        var out: Frame? = null
+        for (p in b) r.push(p, p.size, 2_000)?.let { out = it }
+        assertNull(out)  // el frame 2 espera al 1
+        // Llega el paquete que faltaba: salen ambos en orden.
+        val first = r.push(a[0], a[0].size, 3_000)
+        assertEquals(1L, first!!.frameId)
+        assertEquals(2L, r.poll(3_000)!!.frameId)
+        assertEquals(0L, r.framesDropped)
+    }
+
+    @Test
+    fun olderFrameDroppedAfterGrace() {
+        val r = FrameReassembler()
+        r.graceUs = 20_000
+        val a = packetize(data(5_000, 1), 1, true, 1)
+        val b = packetize(data(5_000, 2), 2, false, 2)
+        for (p in a.drop(1)) r.push(p, p.size, 1_000)
+        for (p in b) r.push(p, p.size, 2_000)
+        val f = r.poll(30_000)
+        assertEquals(2L, f!!.frameId)
+        assertEquals(1L, r.framesDropped)
+        assertTrue(r.needsKeyframe)
+    }
 }

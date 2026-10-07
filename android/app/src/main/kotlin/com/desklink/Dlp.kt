@@ -21,6 +21,7 @@ object Dlp {
     const val TYPE_BURST_REQUEST = 7
     const val TYPE_BURST_DATA = 8
     const val TYPE_RATE_REPORT = 9
+    const val TYPE_NACK = 10
 
     const val FLAG_KEYFRAME = 1
     const val FLAG_LAST_PACKET = 2
@@ -95,6 +96,21 @@ object Dlp {
         b.putShort(22, 4)
         b.putShort(HEADER_SIZE, received.coerceIn(0, 0xFFFF).toShort())
         b.putShort(HEADER_SIZE + 2, lost.coerceIn(0, 0xFFFF).toShort())
+        return b.array()
+    }
+
+    /** Reclama al host los paquetes [indices] del frame [frameId] (como mucho 128). */
+    fun nack(frameId: Long, indices: IntArray, count: Int, timestampUs: Long): ByteArray {
+        val n = minOf(count, 128)
+        val b = ByteBuffer.allocate(HEADER_SIZE + 2 * n).order(ByteOrder.LITTLE_ENDIAN)
+        b.putShort(0, MAGIC.toShort())
+        b.put(2, VERSION.toByte())
+        b.put(3, TYPE_NACK.toByte())
+        b.putInt(6, frameId.toInt())
+        b.putShort(12, 1)
+        b.putLong(14, timestampUs)
+        b.putShort(22, (2 * n).toShort())
+        for (i in 0 until n) b.putShort(HEADER_SIZE + 2 * i, indices[i].toShort())
         return b.array()
     }
 
