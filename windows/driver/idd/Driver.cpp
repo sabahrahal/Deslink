@@ -378,13 +378,6 @@ NTSTATUS DeskLinkDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT device_init) {
   NTSTATUS status = IddCxDeviceInitConfig(device_init, &config);
   if (!NT_SUCCESS(status)) return status;
 
-  // Por defecto solo SYSTEM y administradores pueden abrir el dispositivo; el host corre con el
-  // usuario normal. Se da lectura y escritura a «Usuarios» (BU). Solo sirve para enchufar y quitar
-  // el monitor virtual, no expone nada más.
-  DECLARE_CONST_UNICODE_STRING(sddl, L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;BU)");
-  status = WdfDeviceInitAssignSDDLString(device_init, &sddl);
-  if (!NT_SUCCESS(status)) return status;
-
   WDF_OBJECT_ATTRIBUTES attr;
   WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attr, DeviceContextWrapper);
   attr.EvtCleanupCallback = [](WDFOBJECT object) {

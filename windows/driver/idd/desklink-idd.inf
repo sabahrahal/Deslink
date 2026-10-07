@@ -37,6 +37,9 @@ AddReg=DeskLink_HardwareDeviceSettings
 [DeskLink_HardwareDeviceSettings]
 HKR,,"UpperFilters",%REG_MULTI_SZ%,"IndirectKmd"
 HKR,"WUDF","DeviceGroupId",%REG_SZ%,"DeskLinkIddGroup"
+; Por defecto solo SYSTEM y administradores abren el dispositivo; el host corre con el usuario normal.
+; Se da lectura y escritura a «Usuarios» (BU): solo sirve para enchufar y quitar el monitor virtual.
+HKR,,Security,,"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;BU)"
 
 [DeskLink_Install.NT.Services]
 Include=WUDFRD.inf
