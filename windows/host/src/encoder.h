@@ -46,6 +46,8 @@ class MfEncoder {
     uint64_t timestamp_us = 0;
   };
 
+  bool SetupTransform(IMFActivate* activate, UINT bitrate_bps);
+  void ResetTransform();
   bool ConfigureTypes(VideoCodec codec);
   void ApplyLowLatencySettings(UINT bitrate_bps);
   void EventLoop();

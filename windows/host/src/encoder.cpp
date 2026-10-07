@@ -58,53 +58,102 @@ bool MfEncoder::Init(Gpu& gpu, VideoCodec codec, UINT width, UINT height, UINT f
                                                              : MFVideoFormat_H264};
   IMFActivate** activates = nullptr;
   UINT32 count = 0;
-  HRESULT hr = MFTEnumEx(MFT_CATEGORY_VIDEO_ENCODER,
-                         MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER, nullptr, &out_info,
-                         &activates, &count);
+
+  // Sólo los codificadores de la GPU que captura: un PC puede tener también el de otra
+  // GPU (por ejemplo la AMD integrada en el procesador) y ese no puede leer las texturas
+  // de esta.
+  HRESULT hr = E_FAIL;
+  ComPtr<IMFAttributes> enum_attrs;
+  if (SUCCEEDED(MFCreateAttributes(&enum_attrs, 1))) {
+    DXGI_ADAPTER_DESC1 ad{};
+    gpu.adapter->GetDesc1(&ad);
+    const UINT64 luid = (static_cast<UINT64>(static_cast<UINT32>(ad.AdapterLuid.HighPart)) << 32) |
+                        ad.AdapterLuid.LowPart;
+    enum_attrs->SetUINT64(MFT_ENUM_ADAPTER_LUID, luid);
+    hr = MFTEnum2(MFT_CATEGORY_VIDEO_ENCODER, MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER,
+                  nullptr, &out_info, enum_attrs.Get(), &activates, &count);
+  }
+  if (FAILED(hr) || count == 0) {
+    if (activates) CoTaskMemFree(activates);
+    activates = nullptr;
+    count = 0;
+    hr = MFTEnumEx(MFT_CATEGORY_VIDEO_ENCODER, MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER,
+                   nullptr, &out_info, &activates, &count);
+  }
   if (FAILED(hr) || count == 0) {
     std::fprintf(stderr, "No hay codificador por hardware para este códec\n");
     return false;
   }
-  {
+
+  // Se prueba cada candidato hasta que uno se configure bien.
+  bool ok = false;
+  for (UINT32 i = 0; i < count && !ok; ++i) {
     WCHAR* name = nullptr;
     UINT32 len = 0;
-    if (SUCCEEDED(activates[0]->GetAllocatedString(MFT_FRIENDLY_NAME_Attribute, &name, &len))) {
+    if (SUCCEEDED(activates[i]->GetAllocatedString(MFT_FRIENDLY_NAME_Attribute, &name, &len))) {
       std::wprintf(L"Codificador: %s\n", name);
       CoTaskMemFree(name);
     }
+    ok = SetupTransform(activates[i], bitrate_bps);
+    if (!ok) ResetTransform();
   }
-  hr = activates[0]->ActivateObject(IID_PPV_ARGS(&mft_));
   for (UINT32 i = 0; i < count; ++i) activates[i]->Release();
   CoTaskMemFree(activates);
-  if (FAILED(hr)) return false;
+  if (!ok) {
+    std::fprintf(stderr, "Ningún codificador por hardware funcionó con esta GPU\n");
+    return false;
+  }
+
+  thread_ = std::thread([this] { EventLoop(); });
+  return true;
+}
+
+void MfEncoder::ResetTransform() {
+  mft_.Reset();
+  events_.Reset();
+  codec_api_.Reset();
+  sequence_header_.clear();
+}
+
+bool MfEncoder::SetupTransform(IMFActivate* activate, UINT bitrate_bps) {
+  HRESULT hr = activate->ActivateObject(IID_PPV_ARGS(&mft_));
+  if (FAILED(hr)) {
+    std::fprintf(stderr, "  no se pudo activar el codificador: 0x%08lx\n", hr);
+    return false;
+  }
 
   ComPtr<IMFAttributes> attrs;
-  if (FAILED(mft_->GetAttributes(&attrs))) return false;
+  if (FAILED(mft_->GetAttributes(&attrs))) {
+    std::fprintf(stderr, "  el codificador no expone atributos\n");
+    return false;
+  }
   UINT32 is_async = 0;
   attrs->GetUINT32(MF_TRANSFORM_ASYNC, &is_async);
   if (!is_async) {
-    std::fprintf(stderr, "El codificador no es asíncrono: no soportado en la fase 1\n");
+    std::fprintf(stderr, "  el codificador no es asíncrono: no soportado en la fase 1\n");
     return false;
   }
   attrs->SetUINT32(MF_TRANSFORM_ASYNC_UNLOCK, TRUE);
   attrs->SetUINT32(MF_LOW_LATENCY, TRUE);
 
-  if (FAILED(mft_->ProcessMessage(MFT_MESSAGE_SET_D3D_MANAGER,
-                                  reinterpret_cast<ULONG_PTR>(device_manager_.Get())))) {
-    std::fprintf(stderr, "El codificador no acepta texturas D3D11\n");
+  hr = mft_->ProcessMessage(MFT_MESSAGE_SET_D3D_MANAGER,
+                            reinterpret_cast<ULONG_PTR>(device_manager_.Get()));
+  if (FAILED(hr)) {
+    std::fprintf(stderr, "  el codificador no acepta texturas D3D11: 0x%08lx\n", hr);
     return false;
   }
 
-  if (FAILED(mft_.As(&codec_api_)) || FAILED(mft_.As(&events_))) return false;
+  if (FAILED(mft_.As(&codec_api_)) || FAILED(mft_.As(&events_))) {
+    std::fprintf(stderr, "  el codificador no ofrece ICodecAPI o eventos\n");
+    return false;
+  }
   ApplyLowLatencySettings(bitrate_bps);
-  if (!ConfigureTypes(codec)) return false;
+  if (!ConfigureTypes(codec_)) return false;
   CaptureSequenceHeader();
 
   mft_->ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0);
   mft_->ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0);
   mft_->ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0);
-
-  thread_ = std::thread([this] { EventLoop(); });
   return true;
 }
 

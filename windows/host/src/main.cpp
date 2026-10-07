@@ -123,7 +123,10 @@ int Run(int argc, char** argv) {
       const uint64_t now = NowUs();
       if (now > ts_us) encode_latency_us += now - ts_us;
     };
-    if (!encoder.Init(gpu, opt.codec, w, h, opt.fps, opt.bitrate_mbps * 1'000'000u, on_encoded)) break;
+    if (!encoder.Init(gpu, opt.codec, w, h, opt.fps, opt.bitrate_mbps * 1'000'000u, on_encoded)) {
+      std::fprintf(stderr, "Error: no se pudo iniciar el codificador (arriba está el motivo).\n");
+      break;
+    }
 
     std::atomic<uint32_t> last_client_ip{0};
     auto on_packet = [&](const uint8_t* data, size_t size, const sockaddr_in& from) {
