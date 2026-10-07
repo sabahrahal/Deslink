@@ -44,8 +44,9 @@ class MainActivity : Activity() {
                 val found = try { Discovery.find() } catch (_: Exception) { null }
                 runOnUiThread {
                     if (found == null) {
-                        statusText.text = "No encontré el PC. Abre desklink-host.exe, comprueba el cortafuegos (UDP 47800) " +
-                            "o escribe la IP a mano."
+                        statusText.text = "No encontré el PC. Redes de la tablet: ${Discovery.describeNetworks()}. " +
+                            "Abre desklink-host.exe; por USB activa Ajustes → Anclaje USB; y permite UDP 47800 " +
+                            "en el cortafuegos de Windows (todos los perfiles de red)."
                     } else {
                         statusText.text = "PC encontrado: ${found.ip} por ${found.route?.transport?.label ?: "red"}"
                         prefs.edit().putString("host", found.ip).apply()

@@ -21,3 +21,13 @@ Con el campo de IP vacío, la app busca el PC sola (broadcast por todas las rede
 
 Los umbrales están en `Advisor.kt` y se ajustarán con mediciones reales. La velocidad real del puerto USB del PC
 (USB 2 vs 3) llega en una fase posterior, medida desde el host de Windows.
+
+## Si por USB no lo encuentra
+1. La tablet debe mostrar el anclaje USB activo (Ajustes → Conexiones → Punto de acceso y anclaje → Anclaje USB).
+2. Al fallar, la app lista las redes que ve la tablet; con el anclaje activo debe aparecer una `USB (rndis0 …)`.
+3. Windows suele clasificar el adaptador del anclaje como red **pública** y bloquea UDP entrante. En PowerShell como
+   administrador: `netsh advfirewall firewall add rule name="DeskLink" dir=in action=allow protocol=UDP localport=47800 profile=any`.
+
+## Desconexión
+El host olvida al cliente si pasan 5 s sin recibir nada de él y vuelve a «esperando cliente»; la tablet reenvía HELLO
+si deja de oír al host durante 3 s, así que un corte breve de red se recupera solo.

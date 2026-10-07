@@ -37,6 +37,14 @@ void UdpEndpoint::SetPeer(const sockaddr_in& peer) {
   std::lock_guard<std::mutex> lock(mutex_);
   peer_ = peer;
   has_peer_ = true;
+  last_rx_ = std::chrono::steady_clock::now();
+}
+
+bool UdpEndpoint::ExpirePeer(std::chrono::milliseconds timeout) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!has_peer_ || std::chrono::steady_clock::now() - last_rx_ < timeout) return false;
+  has_peer_ = false;
+  return true;
 }
 
 bool UdpEndpoint::has_peer() const {
@@ -66,7 +74,15 @@ void UdpEndpoint::ReceiveLoop() {
     int from_len = sizeof(from);
     int n = ::recvfrom(socket_, reinterpret_cast<char*>(buf.data()), static_cast<int>(buf.size()), 0,
                        reinterpret_cast<sockaddr*>(&from), &from_len);
-    if (n > 0) handler_(buf.data(), static_cast<size_t>(n), from);
+    if (n > 0) {
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (has_peer_ && from.sin_addr.s_addr == peer_.sin_addr.s_addr) {
+          last_rx_ = std::chrono::steady_clock::now();
+        }
+      }
+      handler_(buf.data(), static_cast<size_t>(n), from);
+    }
   }
 }
 

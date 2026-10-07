@@ -72,4 +72,20 @@ object Discovery {
         }
         return out
     }
+
+    /** Redes activas de la tablet en texto, para mostrar al usuario cuando la búsqueda falla. */
+    fun describeNetworks(): String {
+        val parts = ArrayList<String>()
+        try {
+            for (nif in NetworkInterface.getNetworkInterfaces()) {
+                if (!nif.isUp || nif.isLoopback) continue
+                for (ia in nif.interfaceAddresses) {
+                    val a = ia.address as? Inet4Address ?: continue
+                    parts += "${Transport.classify(nif.name).label} (${nif.name} ${a.hostAddress})"
+                }
+            }
+        } catch (_: Exception) {
+        }
+        return if (parts.isEmpty()) "ninguna" else parts.joinToString(", ")
+    }
 }

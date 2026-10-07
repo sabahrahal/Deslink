@@ -174,6 +174,11 @@ int Run(int argc, char** argv) {
         break;
       }
 
+      if (udp.ExpirePeer(std::chrono::seconds(5))) {
+        last_client_ip = 0;
+        std::printf("Cliente desconectado (sin respuesta durante 5 s). Esperando cliente.\n");
+      }
+
       const uint64_t now = NowUs();
       if (result == DesktopCapture::Result::kFrame && udp.has_peer() &&
           now - last_submit_us >= min_interval_us) {

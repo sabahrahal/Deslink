@@ -30,6 +30,7 @@ class StreamSession(
     @Volatile private var streamInfo: Dlp.StreamInfo? = null
     @Volatile private var rttUs = -1L
     @Volatile private var routeLabel = ""
+    @Volatile private var lastRxUs = 0L
 
     private var socket: DatagramSocket? = null
     private var receiveThread: Thread? = null
@@ -96,6 +97,7 @@ class StreamSession(
             }
             val length = packet.length
             val header = Dlp.parseHeader(buf, length) ?: continue
+            lastRxUs = nowUs()
             when (header.type) {
                 Dlp.TYPE_VIDEO -> onVideo(buf, length)
                 Dlp.TYPE_STREAM_INFO -> onStreamInfo(buf, header)
@@ -155,7 +157,9 @@ class StreamSession(
         var helloAttempts = 0
         while (running) {
             val info = streamInfo
-            send(Dlp.controlPacket(if (info == null) Dlp.TYPE_HELLO else Dlp.TYPE_PING, nowUs()))
+            // Si el host dejó de oírnos (p. ej. un corte de red) nos habrá olvidado: un HELLO lo reengancha.
+            val silent = info != null && nowUs() - lastRxUs > 3_000_000
+            send(Dlp.controlPacket(if (info == null || silent) Dlp.TYPE_HELLO else Dlp.TYPE_PING, nowUs()))
             try {
                 Thread.sleep(1000)
             } catch (_: InterruptedException) {
