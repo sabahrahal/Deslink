@@ -7,21 +7,49 @@ namespace {
 uint64_t NowMs() { return GetTickCount64(); }
 }  // namespace
 
-bool TouchInjector::Init(const RECT& rect) {
+bool TouchInjector::Init(const RECT& rect, bool mouse) {
   rect_ = rect;
+  mouse_ = mouse;
+  if (mouse_) {
+    ready_ = true;
+    return true;
+  }
   if (!InitializeTouchInjection(10, TOUCH_FEEDBACK_NONE)) {
-    std::fprintf(stderr, "aviso: no se pudo activar el táctil (error %lu); la tablet solo mostrará la imagen\n",
-                 GetLastError());
-    return false;
+    std::fprintf(stderr, "aviso: no se pudo activar el táctil (error %lu); se usará el ratón\n", GetLastError());
+    mouse_ = true;
   }
   ready_ = true;
   return true;
+}
+
+void TouchInjector::InjectMouse(const std::vector<Contact>& contacts) {
+  // MOUSEEVENTF_ABSOLUTE usa 0..65535 sobre el monitor principal: justo lo que manda la tablet.
+  INPUT in{};
+  in.type = INPUT_MOUSE;
+  if (!contacts.empty()) {
+    in.mi.dx = static_cast<LONG>(std::clamp(contacts[0].x, 0.0f, 1.0f) * 65535.0f);
+    in.mi.dy = static_cast<LONG>(std::clamp(contacts[0].y, 0.0f, 1.0f) * 65535.0f);
+    in.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE;
+    if (!mouse_down_) in.mi.dwFlags |= MOUSEEVENTF_LEFTDOWN;
+    mouse_down_ = true;
+  } else if (mouse_down_) {
+    in.mi.dwFlags = MOUSEEVENTF_LEFTUP;
+    mouse_down_ = false;
+  } else {
+    return;
+  }
+  SendInput(1, &in, sizeof(in));
 }
 
 void TouchInjector::Update(const std::vector<Contact>& contacts) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (!ready_) return;
   last_update_ms_ = NowMs();
+  if (mouse_) {
+    InjectMouse(contacts);
+    active_ = contacts;
+    return;
+  }
   // Dedos que estaban apoyados y ya no aparecen: suben.
   std::vector<uint8_t> released;
   for (const auto& a : active_) {
@@ -75,14 +103,20 @@ void TouchInjector::Inject(const std::vector<Contact>& contacts, const std::vect
     static bool warned = false;
     if (!warned) {
       warned = true;
-      std::fprintf(stderr, "aviso: Windows rechazó un toque (error %lu)\n", GetLastError());
+      std::fprintf(stderr, "aviso: Windows rechazó un toque (error %lu); se pasa al modo ratón\n", GetLastError());
     }
+    mouse_ = true;
   }
 }
 
 void TouchInjector::ExpireIfSilent(uint64_t now_ms, uint64_t timeout_ms) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (!ready_ || active_.empty() || now_ms - last_update_ms_ < timeout_ms) return;
+  if (mouse_) {
+    InjectMouse({});
+    active_.clear();
+    return;
+  }
   std::vector<uint8_t> released;
   for (const auto& a : active_) released.push_back(a.id);
   Inject({}, released);
@@ -92,6 +126,11 @@ void TouchInjector::ExpireIfSilent(uint64_t now_ms, uint64_t timeout_ms) {
 void TouchInjector::ReleaseAll() {
   std::lock_guard<std::mutex> lock(mutex_);
   if (!ready_ || active_.empty()) return;
+  if (mouse_) {
+    InjectMouse({});
+    active_.clear();
+    return;
+  }
   std::vector<uint8_t> released;
   for (const auto& a : active_) released.push_back(a.id);
   Inject({}, released);

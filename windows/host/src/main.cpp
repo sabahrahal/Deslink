@@ -68,6 +68,7 @@ struct Options {
   UINT fps = 60;
   UINT bitrate_mbps = 50;
   VideoCodec codec = VideoCodec::kHevc;
+  bool mouse = false;    // --mouse: el táctil mueve el ratón (más compatible, un solo dedo)
   bool touch = true;     // --no-touch desactiva el control táctil
   UINT pace_mbps = 100;  // reparte cada frame a esta tasa; 0 = de golpe (el anclaje USB pierde ráfagas)
 };
@@ -97,6 +98,8 @@ bool ParseArgs(int argc, char** argv, Options* o) {
     } else if (a == "--pace") {
       auto v = next("--pace"); if (!v) return false;
       o->pace_mbps = static_cast<UINT>(std::atoi(v));
+    } else if (a == "--mouse") {
+      o->mouse = true;
     } else if (a == "--no-touch") {
       o->touch = false;
     } else if (a == "--codec") {
@@ -105,7 +108,7 @@ bool ParseArgs(int argc, char** argv, Options* o) {
     } else {
       std::fprintf(stderr,
                    "Uso: desklink-host [--port 47800] [--output 0] [--fps 60] [--bitrate 50] "
-                   "[--codec hevc|h264] [--pace Mbps] [--no-touch]\n");
+                   "[--codec hevc|h264] [--pace Mbps] [--no-touch] [--mouse]\n");
       return false;
     }
   }
@@ -319,8 +322,8 @@ int Run(int argc, char** argv) {
     if (opt.touch) {
       // Los toques se asignan al monitor principal (el que se captura con --output 0).
       const RECT primary{0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)};
-      touch_ready = touch.Init(primary);
-      std::printf(touch_ready ? "Táctil activado (monitor principal %ldx%ld).\n" : "Táctil NO disponible.\n",
+      touch_ready = touch.Init(primary, opt.mouse);
+      std::printf(touch_ready ? (opt.mouse ? "Táctil en modo ratón (monitor principal %ldx%ld).\n" : "Táctil activado (monitor principal %ldx%ld).\n") : "Táctil NO disponible.\n",
                   primary.right, primary.bottom);
     }
     if (!udp.Bind(opt.port, on_packet)) break;
