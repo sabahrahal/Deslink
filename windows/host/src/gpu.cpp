@@ -3,6 +3,7 @@
 #include <d3d11_4.h>
 
 #include <cstdio>
+#include <cwchar>
 
 bool CreateGpuForOutput(int output_index, Gpu* gpu) {
   ComPtr<IDXGIFactory1> factory;
