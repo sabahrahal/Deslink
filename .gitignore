@@ -1,0 +1,39 @@
+# Visual Studio / C++
+.vs/
+*.user
+*.suo
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+ARM64/
+*.pdb
+*.ilk
+*.obj
+*.ipch
+build/
+out/
+CMakeUserPresets.json
+
+# Driver
+*.cer
+*.pfx
+
+# Android / Gradle
+.gradle/
+local.properties
+android/**/build/
+.cxx/
+*.apk
+*.aab
+*.keystore
+*.jks
+captures/
+
+# IDE / OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db

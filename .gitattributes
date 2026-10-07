@@ -1,0 +1,7 @@
+* text=auto eol=lf
+*.sln text eol=crlf
+*.vcxproj text eol=crlf
+*.inf text eol=crlf
+*.bat text eol=crlf
+*.png binary
+*.jpg binary
