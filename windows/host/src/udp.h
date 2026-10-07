@@ -11,20 +11,32 @@
 #include <thread>
 #include <vector>
 
-// Socket UDP del host. El destino de vídeo es el último cliente que envió HELLO.
+#include "usb.h"
+
+// Socket UDP del host y enlace USB (TCP por adb reverse, ver usb.h). El destino de vídeo es el último
+// cliente que envió HELLO, llegue por donde llegue: el cliente USB se identifica con UsbPeerAddress().
 class UdpEndpoint {
  public:
   using PacketHandler = std::function<void(const uint8_t* data, size_t size, const sockaddr_in& from)>;
 
   ~UdpEndpoint();
 
-  bool Bind(uint16_t port, PacketHandler handler);
+  // Dirección con la que se presenta al manejador el cliente que llega por USB (puerto 0: ningún
+  // cliente UDP lo usa).
+  static sockaddr_in UsbPeerAddress();
+  static bool IsUsb(const sockaddr_in& addr);
+
+  // usb: escucha también en TCP 127.0.0.1:port para el cable USB.
+  bool Bind(uint16_t port, PacketHandler handler, bool usb = true);
   void SetPeer(const sockaddr_in& peer);
   // Olvida al cliente si lleva más de timeout sin enviar nada (la tablet manda PING cada segundo).
   // Devuelve true si lo olvidó.
   bool ExpirePeer(std::chrono::milliseconds timeout);
   bool has_peer() const;
+  bool peer_is_usb() const;
   void SendToPeer(const std::vector<uint8_t>& packet);
+  // Un frame entero. Por USB va de una sola escritura (TCP ya regula el ritmo); por UDP, paquete a paquete.
+  void SendBatchToPeer(const std::vector<std::vector<uint8_t>>& packets);
   void SendTo(const sockaddr_in& to, const std::vector<uint8_t>& packet);
   void Stop();
   uint64_t send_errors() const { return send_errors_; }
@@ -34,6 +46,7 @@ class UdpEndpoint {
 
   SOCKET socket_ = INVALID_SOCKET;
   PacketHandler handler_;
+  std::mutex handler_mutex_;  // el manejador se llama desde el hilo UDP y desde el USB, nunca a la vez
   std::thread thread_;
   std::atomic<bool> stop_{false};
   mutable std::mutex mutex_;
@@ -41,4 +54,6 @@ class UdpEndpoint {
   bool has_peer_ = false;
   std::atomic<uint64_t> send_errors_{0};
   std::chrono::steady_clock::time_point last_rx_{};
+  bool peer_lost_ = false;  // el cable USB se cerró: se olvida al cliente sin esperar
+  UsbLink usb_;
 };

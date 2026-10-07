@@ -22,7 +22,8 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
         }
         val hint = TextView(this).apply {
-            text = "Deja la IP vacía para buscar el PC automáticamente (WiFi o cable USB con anclaje), o escríbela."
+            text = "Deja la IP vacía para buscar el PC automáticamente (primero por el cable USB, luego por WiFi), " +
+                "o escribe la IP del PC."
             gravity = Gravity.CENTER
         }
         val ip = EditText(this).apply {
@@ -39,16 +40,25 @@ class MainActivity : Activity() {
                 startActivity(Intent(this, target).putExtra(StreamActivity.EXTRA_HOST, typed))
                 return
             }
-            statusText.text = "Buscando el PC en la red y por USB…"
+            statusText.text = "Buscando el PC por el cable USB y en la red…"
             Thread {
-                val found = try { Discovery.find() } catch (_: Exception) { null }
+                // El cable primero: no depende del WiFi y tiene menos latencia.
+                val found = if (CableLink.probe()) {
+                    Found(Link.CABLE_HOST, Route("adb", java.net.InetAddress.getLoopbackAddress(), Transport.CABLE))
+                } else {
+                    try { Discovery.find() } catch (_: Exception) { null }
+                }
                 runOnUiThread {
                     if (found == null) {
                         statusText.text = "No encontré el PC. Redes de la tablet: ${Discovery.describeNetworks()}. " +
-                            "Abre desklink-host.exe; por USB activa Ajustes → Anclaje USB; y permite UDP 47800 " +
-                            "en el cortafuegos de Windows (todos los perfiles de red)."
+                            "Abre desklink-host.exe. Por cable USB: activa la depuración USB (Opciones de desarrollador) " +
+                            "y acepta el aviso del PC. Por WiFi: permite UDP 47800 en el cortafuegos de Windows."
                     } else {
-                        statusText.text = "PC encontrado: ${found.ip} por ${found.route?.transport?.label ?: "red"}"
+                        statusText.text = if (found.ip == Link.CABLE_HOST) {
+                            "PC encontrado por el cable USB"
+                        } else {
+                            "PC encontrado: ${found.ip} por ${found.route?.transport?.label ?: "red"}"
+                        }
                         prefs.edit().putString("host", found.ip).apply()
                         startActivity(Intent(this, target).putExtra(StreamActivity.EXTRA_HOST, found.ip))
                     }
