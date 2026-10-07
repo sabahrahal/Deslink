@@ -136,7 +136,7 @@ int Run(int argc, char** argv) {
   int exit_code = 1;
 
   std::atomic<uint32_t> next_frame_id{1};
-  std::atomic<uint64_t> bytes_sent{0}, frames_encoded{0}, encode_latency_us{0}, keyframes_sent{0}, retransmits{0};
+  std::atomic<uint64_t> bytes_sent{0}, frames_encoded{0}, encode_latency_us{0}, keyframes_sent{0}, retransmits{0}, touch_packets{0};
   PacketHistory history;
   TouchInjector touch;
   bool touch_ready = false;
@@ -265,6 +265,7 @@ int Run(int argc, char** argv) {
             tc.pressure = static_cast<uint16_t>(c[5] | (c[6] << 8));
             contacts.push_back(tc);
           }
+          if (touch_packets++ == 0) std::printf("Primer toque recibido de la tablet.\n");
           touch.Update(contacts);
           break;
         }
@@ -319,6 +320,8 @@ int Run(int argc, char** argv) {
       // Los toques se asignan al monitor principal (el que se captura con --output 0).
       const RECT primary{0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)};
       touch_ready = touch.Init(primary);
+      std::printf(touch_ready ? "Táctil activado (monitor principal %ldx%ld).\n" : "Táctil NO disponible.\n",
+                  primary.right, primary.bottom);
     }
     if (!udp.Bind(opt.port, on_packet)) break;
     std::printf("Escuchando en UDP %u. Abre DeskLink en el móvil e indica la IP de este PC.\n",
@@ -331,7 +334,7 @@ int Run(int argc, char** argv) {
     int flush_left = 0;      // repeticiones pendientes para vaciar el codificador
     uint64_t captured = 0, last_stats_us = NowUs();
     uint64_t convert_us = 0, last_convert = 0, last_fed = 0, last_mailbox = 0;
-    uint64_t last_bytes = 0, last_encoded = 0, last_latency = 0, last_captured = 0, last_keyframes = 0, last_retransmits = 0;
+    uint64_t last_bytes = 0, last_encoded = 0, last_latency = 0, last_captured = 0, last_keyframes = 0, last_retransmits = 0, last_touch = 0;
     bool failed = false;
 
     while (g_running) {
@@ -388,7 +391,7 @@ int Run(int argc, char** argv) {
         const double secs = (t - last_stats_us) / 1e6;
         const uint64_t enc = frames_encoded - last_encoded;
         const uint64_t lat = encode_latency_us - last_latency;
-        std::printf("capturados %.0f/s | codificados %.0f/s | %.1f Mbps | codificación %.1f ms | claves %llu | conv %.1f ms | buzón %.1f ms | errores de envío %llu | reenvíos %llu%s\n",
+        std::printf("capturados %.0f/s | codificados %.0f/s | %.1f Mbps | codificación %.1f ms | claves %llu | conv %.1f ms | buzón %.1f ms | errores de envío %llu | reenvíos %llu | toques %llu%s\n",
                     (captured - last_captured) / secs, enc / secs,
                     (bytes_sent - last_bytes) * 8 / secs / 1e6, enc ? lat / 1000.0 / enc : 0.0,
                     static_cast<unsigned long long>(keyframes_sent.load() - last_keyframes),
@@ -396,6 +399,7 @@ int Run(int argc, char** argv) {
                     encoder.fed_frames > last_fed ? (encoder.mailbox_wait_us - last_mailbox) / 1000.0 / (encoder.fed_frames - last_fed) : 0.0,
                     static_cast<unsigned long long>(udp.send_errors()),
                     static_cast<unsigned long long>(retransmits.load() - last_retransmits),
+                    static_cast<unsigned long long>(touch_packets.load() - last_touch),
                     udp.has_peer() ? "" : " | esperando cliente");
         last_stats_us = t;
         last_bytes = bytes_sent;
@@ -404,6 +408,7 @@ int Run(int argc, char** argv) {
         last_captured = captured;
         last_keyframes = keyframes_sent;
         last_retransmits = retransmits;
+        last_touch = touch_packets;
         last_convert = convert_us;
         last_fed = encoder.fed_frames;
         last_mailbox = encoder.mailbox_wait_us;
