@@ -3,6 +3,7 @@ package com.desklink
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.net.SocketTimeoutException
 
 /**
@@ -12,7 +13,9 @@ import java.net.SocketTimeoutException
 object LinkTester {
     fun run(host: String, count: Int = 100, onProgress: (Int) -> Unit = {}): LinkResult {
         val rtts = ArrayList<Double>()
-        DatagramSocket().use { sock ->
+        val route = Route.forHost(host)
+        val bound = if (route != null) DatagramSocket(InetSocketAddress(route.local, 0)) else DatagramSocket()
+        bound.use { sock ->
             sock.soTimeout = 20
             sock.connect(InetAddress.getByName(host), Dlp.DEFAULT_PORT)
             val buf = ByteArray(2048)
@@ -39,6 +42,6 @@ object LinkTester {
                 if (i % 10 == 9) onProgress(i + 1)
             }
         }
-        return Advisor.summarize(count, rtts)
+        return Advisor.summarize(count, rtts).copy(route = route)
     }
 }

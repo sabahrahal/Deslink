@@ -6,6 +6,7 @@ import java.io.IOException
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.net.SocketTimeoutException
 
 /**
@@ -28,6 +29,7 @@ class StreamSession(
     @Volatile private var decoder: VideoDecoder? = null
     @Volatile private var streamInfo: Dlp.StreamInfo? = null
     @Volatile private var rttUs = -1L
+    @Volatile private var routeLabel = ""
 
     private var socket: DatagramSocket? = null
     private var receiveThread: Thread? = null
@@ -68,7 +70,9 @@ class StreamSession(
         Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
         val sock: DatagramSocket
         try {
-            sock = DatagramSocket()
+            val route = Route.forHost(host)
+            routeLabel = route?.let { "[${it.transport.label}] " } ?: ""
+            sock = if (route != null) DatagramSocket(InetSocketAddress(route.local, 0)) else DatagramSocket()
             sock.receiveBufferSize = 1 shl 20
             sock.soTimeout = 200
             sock.connect(InetAddress.getByName(host), Dlp.DEFAULT_PORT)
@@ -161,7 +165,7 @@ class StreamSession(
                 helloAttempts++
                 listener.onStats(
                     if (helloAttempts < 5) {
-                        "Conectando con $host…"
+                        "${routeLabel}Conectando con $host…"
                     } else {
                         "Sin respuesta del PC en $host:${Dlp.DEFAULT_PORT}. Comprueba que desklink-host.exe " +
                             "está abierto, que el cortafuegos permite UDP ${Dlp.DEFAULT_PORT} y que el PC y " +
@@ -176,7 +180,7 @@ class StreamSession(
             val mbps = (bytesReceived - lastBytes) * 8 / secs / 1e6
             val rtt = rttUs
             listener.onStats(
-                "${info.width}x${info.height} · recibidos ${"%.0f".format((framesReceived - lastFrames) / secs)}/s" +
+                "$routeLabel${info.width}x${info.height} · recibidos ${"%.0f".format((framesReceived - lastFrames) / secs)}/s" +
                     " · decodificados ${"%.0f".format((decoded - lastDecoded) / secs)}/s" +
                     " · ${"%.1f".format(mbps)} Mbps" +
                     (if (rtt >= 0) " · RTT ${"%.1f".format(rtt / 1000.0)} ms" else "") +

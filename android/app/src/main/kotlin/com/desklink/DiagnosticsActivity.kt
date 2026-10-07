@@ -81,6 +81,13 @@ class DiagnosticsActivity : Activity() {
             results.addView(
                 TextView(this).apply {
                     setPadding(0, 32, 0, 0)
+                    textSize = 16f
+                    text = "Conexión usada: " + (it.route?.description ?: "no identificada (IP fuera de las redes de la tablet)")
+                },
+            )
+            results.addView(
+                TextView(this).apply {
+                    setPadding(0, 32, 0, 0)
                     textSize = 12f
                     text = "Detalle: ${it.received}/${it.sent} respuestas · mediana ${"%.1f".format(it.rttP50Ms)} ms · " +
                         "p95 ${"%.1f".format(it.rttP95Ms)} ms · variación ${"%.1f".format(it.jitterMs)} ms"

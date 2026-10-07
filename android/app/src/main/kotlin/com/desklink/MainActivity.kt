@@ -48,10 +48,10 @@ class MainActivity : Activity() {
                         statusText.text = "No encontré el PC. Abre desklink-host.exe, comprueba el cortafuegos (UDP 47800) " +
                             "o escribe la IP a mano."
                     } else {
-                        statusText.text = "PC encontrado: $found"
-                        ip.setText(found)
-                        prefs.edit().putString("host", found).apply()
-                        startActivity(Intent(this, target).putExtra(StreamActivity.EXTRA_HOST, found))
+                        statusText.text = "PC encontrado: ${found.ip} por ${found.route?.transport?.label ?: "red"}"
+                        ip.setText(found.ip)
+                        prefs.edit().putString("host", found.ip).apply()
+                        startActivity(Intent(this, target).putExtra(StreamActivity.EXTRA_HOST, found.ip))
                     }
                 }
             }.start()

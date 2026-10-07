@@ -3,7 +3,7 @@ package com.desklink
 import kotlin.math.max
 
 /** Resultado de la prueba de conexión: latencia de ida y vuelta (ms) y pérdida de paquetes. */
-data class LinkResult(val sent: Int, val received: Int, val rttP50Ms: Double, val rttP95Ms: Double, val jitterMs: Double) {
+data class LinkResult(val sent: Int, val received: Int, val rttP50Ms: Double, val rttP95Ms: Double, val jitterMs: Double, val route: Route? = null) {
     val lossPercent: Double get() = if (sent == 0) 0.0 else (sent - received) * 100.0 / sent
 }
 
@@ -25,7 +25,8 @@ object Advisor {
     fun advise(link: LinkResult?, net: NetworkInfo?, battery: BatteryInfo?, thermalStatus: Int?): List<Finding> {
         val out = ArrayList<Finding>()
         if (link != null) out += adviseLink(link, net)
-        if (net != null && net.isWifi) out += adviseWifi(net)
+        val wifiRoute = link?.route?.transport?.let { it == Transport.WIFI } ?: (net?.isWifi == true)
+        if (net != null && wifiRoute) out += adviseWifi(net)
         if (battery != null) out += adviseBattery(battery)
         if (thermalStatus != null && thermalStatus >= THERMAL_MODERATE) {
             out += Finding(
@@ -51,12 +52,14 @@ object Advisor {
             )
         }
         val out = ArrayList<Finding>()
-        val kind = if (net?.isWifi == true) "WiFi" else "cable/red"
+        val transport = link.route?.transport
+        val isWifi = transport?.let { it == Transport.WIFI } ?: (net?.isWifi == true)
+        val kind = transport?.label ?: if (isWifi) "WiFi" else "cable/red"
         when {
             link.lossPercent >= 2.0 -> out += Finding(
                 Severity.WARNING, "Se pierden paquetes ($kind)",
                 "Se perdió el ${"%.1f".format(link.lossPercent)} % de las pruebas; verás tirones o imagen rota. " +
-                    if (net?.isWifi == true) "Acércate al router o usa la banda de 5 GHz/6 GHz; si puedes, el cable USB va más estable."
+                    if (isWifi) "Acércate al router o usa la banda de 5 GHz/6 GHz; si puedes, el cable USB va más estable."
                     else "Prueba con otro cable o puerto.",
             )
             link.lossPercent > 0.0 -> out += Finding(Severity.INFO, "Pérdida baja", "Se perdió el ${"%.1f".format(link.lossPercent)} %. Es normal y no se nota.")
