@@ -28,6 +28,7 @@ Objetivo: menos de 35 ms de cristal a cristal por WiFi y menos de 25 ms por USB.
 
 - [Arquitectura](docs/architecture.md)
 - [Fase 1: prototipo y cómo probarlo](docs/fase-1.md)
+- [Fase 3: monitor virtual](docs/fase-3.md)
 - [Protocolo DLP](docs/protocol-dlp.md)
 - [Asesor de latencia](docs/latency-advisor.md)
 - [Panel de diagnóstico](docs/diagnostics-panel.md)
