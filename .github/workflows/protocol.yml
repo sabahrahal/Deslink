@@ -1,0 +1,19 @@
+name: protocol
+
+on:
+  push:
+    paths: ['protocol/**', '.github/workflows/protocol.yml']
+  pull_request:
+    paths: ['protocol/**', '.github/workflows/protocol.yml']
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configurar
+        run: cmake -S protocol -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Compilar
+        run: cmake --build build
+      - name: Pruebas
+        run: ctest --test-dir build --output-on-failure
