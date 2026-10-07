@@ -80,7 +80,12 @@ bool VirtualDisplay::Plug(UINT width, UINT height, UINT refresh_hz) {
   device_ = CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
                         OPEN_EXISTING, 0, nullptr);
   if (device_ == INVALID_HANDLE_VALUE) {
-    std::fprintf(stderr, "Error: no se pudo abrir el driver del monitor virtual (error %lu).\n", GetLastError());
+    const DWORD error = GetLastError();
+    std::fprintf(stderr, "Error: no se pudo abrir el driver del monitor virtual (error %lu).\n", error);
+    if (error == ERROR_ACCESS_DENIED) {
+      std::fprintf(stderr, "Es un problema de permisos: usa el driver de la última compilación (vuelve a ejecutar\n"
+                           "instalar-driver.bat) o abre la consola como administrador.\n");
+    }
     return false;
   }
 
