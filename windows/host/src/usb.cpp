@@ -255,6 +255,7 @@ bool AdbReverse::Run(const std::wstring& args, std::string* out, DWORD timeout_m
 void AdbReverse::Loop() {
   if (adb_.empty()) adb_ = FindAdb();
   if (adb_.empty()) {
+    missing_ = true;
     std::printf("USB por cable: no encontré adb.exe. Copia adb.exe, AdbWinApi.dll y AdbWinUsbApi.dll (de las "
                 "platform-tools de Android) junto a desklink-host.exe para conectar la tablet por USB sin anclaje.\n");
     return;
@@ -267,6 +268,7 @@ void AdbReverse::Loop() {
     std::string out;
     if (Run(L"devices", &out)) {
       std::set<std::string> present;
+      int unauthorized = 0;
       std::istringstream lines(out);
       std::string line;
       while (std::getline(lines, line)) {
@@ -288,9 +290,12 @@ void AdbReverse::Loop() {
             warned_.erase(serial);
             std::printf("Tablet %s conectada por USB (ADB). Abre DeskLink en ella y pulsa Conectar.\n", serial.c_str());
           }
-        } else if (state == "unauthorized" && warned_.insert(serial).second) {
-          std::printf("Tablet %s enchufada por USB: acepta «¿Permitir depuración USB?» en su pantalla "
-                      "(marca «Permitir siempre desde este ordenador»).\n", serial.c_str());
+        } else if (state == "unauthorized") {
+          ++unauthorized;
+          if (warned_.insert(serial).second) {
+            std::printf("Tablet %s enchufada por USB: acepta «¿Permitir depuración USB?» en su pantalla "
+                        "(marca «Permitir siempre desde este ordenador»).\n", serial.c_str());
+          }
         }
       }
       for (auto it = reversed_.begin(); it != reversed_.end();) {
@@ -301,6 +306,8 @@ void AdbReverse::Loop() {
           it = reversed_.erase(it);
         }
       }
+      ready_ = static_cast<int>(reversed_.size());
+      unauthorized_ = unauthorized;
     } else if (!server_warned && !stop_) {
       server_warned = true;
       std::printf("USB por cable: adb no responde (¿otro programa usa adb?). Lo sigo intentando.\n");
@@ -319,4 +326,5 @@ void AdbReverse::Stop() {
     Run(L"-s \"" + Widen(serial) + L"\" reverse --remove tcp:" + std::to_wstring(port_), nullptr, 2000);
   }
   reversed_.clear();
+  ready_ = 0;
 }
