@@ -11,10 +11,13 @@
 class Nv12Converter {
  public:
   bool Init(Gpu& gpu, UINT width, UINT height, size_t ring_size = 6);
-  // Devuelve la textura NV12 resultante (propiedad del conversor) o nullptr.
-  ID3D11Texture2D* Convert(ID3D11Texture2D* bgra);
-  // Vuelve a convertir la última imagen (para mover solo el cursor, sin imagen nueva).
-  ID3D11Texture2D* Refresh();
+  // Guarda una copia de la imagen del escritorio (solo una copia en la GPU, sin convertir): hay que
+  // hacerlo antes de soltar el frame de Desktop Duplication.
+  void Store(ID3D11Texture2D* bgra);
+  // Pinta el cursor sobre la última imagen guardada y la convierte a NV12. Es la parte cara: se llama
+  // solo cuando el frame va de verdad al codificador. Devuelve la textura (propiedad del conversor) o nullptr.
+  ID3D11Texture2D* Compose();
+  bool has_image() const { return have_clean_; }
   // Dibuja el cursor del sistema sobre la imagen (Desktop Duplication no lo incluye).
   void SetDrawCursor(bool on) { draw_cursor_ = on; }
   // Posición del monitor en el escritorio virtual (cambia si el usuario lo mueve en Configuración).
@@ -24,7 +27,6 @@ class Nv12Converter {
   }
 
  private:
-  ID3D11Texture2D* ComposeAndConvert();
   void DrawCursor();
 
   Gpu* gpu_ = nullptr;

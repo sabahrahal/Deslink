@@ -92,17 +92,11 @@ bool Nv12Converter::Init(Gpu& gpu, UINT width, UINT height, size_t ring_size) {
   return true;
 }
 
-ID3D11Texture2D* Nv12Converter::Convert(ID3D11Texture2D* bgra) {
+void Nv12Converter::Store(ID3D11Texture2D* bgra) {
   // La salida puede tener un píxel de más si su tamaño era impar: se copia sólo la parte par.
   const D3D11_BOX box{0, 0, 0, width_, height_, 1};
   gpu_->context->CopySubresourceRegion(clean_.Get(), 0, 0, 0, 0, bgra, 0, &box);
   have_clean_ = true;
-  return ComposeAndConvert();
-}
-
-ID3D11Texture2D* Nv12Converter::Refresh() {
-  if (!have_clean_ || !draw_cursor_ || !copy_surface_) return nullptr;
-  return ComposeAndConvert();
 }
 
 void Nv12Converter::DrawCursor() {
@@ -125,7 +119,8 @@ void Nv12Converter::DrawCursor() {
   copy_surface_->ReleaseDC(nullptr);
 }
 
-ID3D11Texture2D* Nv12Converter::ComposeAndConvert() {
+ID3D11Texture2D* Nv12Converter::Compose() {
+  if (!have_clean_) return nullptr;
   gpu_->context->CopyResource(bgra_copy_.Get(), clean_.Get());
   if (draw_cursor_ && copy_surface_) DrawCursor();
 

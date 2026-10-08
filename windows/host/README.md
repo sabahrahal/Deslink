@@ -25,6 +25,7 @@ build\host\Release\desklink-host.exe --fps 60 --bitrate 50 --codec hevc
 | `--codec` | hevc | `hevc` o `h264` |
 | `--virtual` | apagado | Monitor virtual en vez de `--output` (requiere el driver) |
 | `--size` | 2944x1840 | Resolución del monitor virtual |
+| `--refine` | 4 | Repeticiones lentas (cada 100 ms) al quedarse quieta la imagen, para que el codificador la afine; 0 las desactiva |
 
 Cada segundo imprime fps capturados, fps codificados, Mbps y la latencia de codificación media (desde que el frame llega al codificador hasta que sale el flujo).
 

@@ -55,6 +55,17 @@ class FrameReassemblerTest {
     }
 
     @Test
+    fun pendingOnlyWhileAFrameIsIncomplete() {
+        val r = FrameReassembler()
+        assertFalse(r.hasPending)
+        val packets = packetize(data(5_000, 4), 1, true, 0)
+        r.push(packets[0], packets[0].size)
+        assertTrue(r.hasPending)
+        assertNotNull(feed(r, packets.drop(1)))
+        assertFalse(r.hasPending)
+    }
+
+    @Test
     fun outOfOrderPackets() {
         val r = FrameReassembler()
         val d = data(20_000, 9)

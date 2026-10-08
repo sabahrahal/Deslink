@@ -24,6 +24,8 @@ class StreamSession(
         fun onStreamInfo(info: Dlp.StreamInfo)
         fun onStats(text: String)
         fun onError(message: String)
+        /** Interfaz por la que se llega al host (null si no se supo). */
+        fun onRoute(route: Route?) = Unit
     }
 
     @Volatile private var running = false
@@ -76,9 +78,10 @@ class StreamSession(
         try {
             val route = Route.forHost(host)
             routeLabel = route?.let { "[${it.transport.label}] " } ?: ""
+            listener.onRoute(route)
             sock = if (route != null) DatagramSocket(InetSocketAddress(route.local, 0)) else DatagramSocket()
             sock.receiveBufferSize = 1 shl 20
-            sock.soTimeout = 4  // despierta a menudo para reclamar paquetes perdidos y entregar frames
+            sock.soTimeout = BUSY_TIMEOUT_MS
             sock.connect(InetAddress.getByName(host), Dlp.DEFAULT_PORT)
             socket = sock
         } catch (e: IOException) {
@@ -88,7 +91,18 @@ class StreamSession(
 
         val buf = ByteArray(2048)
         val packet = DatagramPacket(buf, buf.size)
+        var timeoutMs = BUSY_TIMEOUT_MS
         while (running) {
+            // Con frames a medias se despierta a menudo para reclamar paquetes perdidos y entregar frames;
+            // con el escritorio quieto no llega nada y despertar 250 veces por segundo solo gasta batería.
+            val wanted = if (reassembler.hasPending) BUSY_TIMEOUT_MS else IDLE_TIMEOUT_MS
+            if (wanted != timeoutMs) {
+                timeoutMs = wanted
+                try {
+                    sock.soTimeout = wanted
+                } catch (_: IOException) {
+                }
+            }
             packet.length = buf.size
             try {
                 sock.receive(packet)
@@ -185,6 +199,11 @@ class StreamSession(
         if (now - lastKeyframeRequestUs < 500_000) return
         lastKeyframeRequestUs = now
         send(Dlp.controlPacket(Dlp.TYPE_KEYFRAME_REQUEST, now))
+    }
+
+    private companion object {
+        const val BUSY_TIMEOUT_MS = 4
+        const val IDLE_TIMEOUT_MS = 50
     }
 
     /** Cada segundo: HELLO hasta que el host responda, PING para medir RTT y estadísticas. */
