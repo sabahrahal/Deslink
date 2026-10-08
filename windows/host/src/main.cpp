@@ -15,6 +15,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "capture.h"
@@ -30,8 +31,52 @@
 namespace {
 
 std::atomic<bool> g_running{true};
+std::atomic<bool> g_replaced{false};  // otra ventana del host pidió el relevo: se sale sin «Pulsa Enter»
 
 void OnSignal(int) { g_running = false; }
+
+// Un solo host por sesión de Windows. Si ya hay otro abierto (otra consola, la app de bandeja, uno que quedó
+// minimizado), se le pide que se cierre y este ocupa su lugar: antes el segundo moría con «bind al puerto 47800
+// falló: 10048» y había que buscar y cerrar el primero a mano.
+class SingleInstance {
+ public:
+  SingleInstance() {
+    quit_ = CreateEventW(nullptr, TRUE, FALSE, L"Local\\DeskLinkHost.Quit");
+    mutex_ = CreateMutexW(nullptr, FALSE, L"Local\\DeskLinkHost");
+    if (!mutex_) return;
+    DWORD r = WaitForSingleObject(mutex_, 0);
+    if (r == WAIT_TIMEOUT) {
+      std::printf("Ya había otro DeskLink abierto en este PC: lo cierro y sigo con este.\n");
+      if (quit_) SetEvent(quit_);
+      r = WaitForSingleObject(mutex_, 15000);  // el otro quita el monitor virtual y el túnel de adb
+      if (r == WAIT_TIMEOUT) std::printf("El otro DeskLink no se cerró; lo intento igualmente.\n");
+    }
+    owned_ = r == WAIT_OBJECT_0 || r == WAIT_ABANDONED;
+    if (quit_) ResetEvent(quit_);
+    if (quit_) watcher_ = std::thread([this] {
+      while (g_running) {
+        if (WaitForSingleObject(quit_, 200) == WAIT_OBJECT_0) {
+          std::printf("Se abrió otro DeskLink: le dejo el sitio.\n");
+          g_replaced = true;
+          g_running = false;
+        }
+      }
+    });
+  }
+  ~SingleInstance() {
+    g_running = false;
+    if (watcher_.joinable()) watcher_.join();
+    if (owned_) ReleaseMutex(mutex_);
+    if (mutex_) CloseHandle(mutex_);
+    if (quit_) CloseHandle(quit_);
+  }
+
+ private:
+  HANDLE quit_ = nullptr;
+  HANDLE mutex_ = nullptr;
+  bool owned_ = false;
+  std::thread watcher_;
+};
 
 uint64_t NowUs() {
   using namespace std::chrono;
@@ -216,6 +261,8 @@ bool ParseArgs(int argc, char** argv, Options* o) {
 int Run(int argc, char** argv) {
   Options opt;
   if (!ParseArgs(argc, argv, &opt)) return 2;
+  SetConsoleOutputCP(CP_UTF8);  // los mensajes llevan tildes
+  SingleInstance instance;  // se destruye lo último: el siguiente host entra cuando este ya soltó todo
 
   std::signal(SIGINT, OnSignal);
   std::signal(SIGTERM, OnSignal);
@@ -225,7 +272,6 @@ int Run(int argc, char** argv) {
   CoInitializeEx(nullptr, COINIT_MULTITHREADED);
   MFStartup(MF_VERSION);
   timeBeginPeriod(1);  // temporizadores de 1 ms
-  SetConsoleOutputCP(CP_UTF8);  // los mensajes llevan tildes
   SetProcessDPIAware();  // coordenadas en píxeles reales, para que los toques caigan donde toca
 
   VirtualDisplay virtual_display;  // se declara antes que el resto: el monitor se quita lo último
@@ -484,7 +530,7 @@ int Run(int argc, char** argv) {
                   r.right - r.left, r.bottom - r.top, r.left, r.top);
     }
     if (!udp.Bind(opt.port, on_packet, opt.usb)) break;
-    std::printf("Escuchando en UDP %u. Abre DeskLink en el móvil e indica la IP de este PC.\n",
+    std::printf("Escuchando en UDP %u. Abre DeskLink en la tablet y pulsa Conectar (por cable USB no hace falta IP ni anclaje).\n",
                 opt.port);
     if (opt.usb) adb.Start(opt.port, opt.adb_path);
 
@@ -696,7 +742,7 @@ int main(int argc, char** argv) {
   const int code = Run(argc, argv);
   DWORD pids[2];
   const bool own_console = GetConsoleProcessList(pids, 2) == 1;
-  if (own_console || code != 0) {
+  if (!g_replaced && (own_console || code != 0)) {
     std::printf("\nPulsa Enter para salir.\n");
     std::getchar();
   }

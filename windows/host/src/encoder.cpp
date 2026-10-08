@@ -8,23 +8,26 @@
 #include <algorithm>
 #include <cstdio>
 #include <cwchar>
+#include <string>
 
 namespace {
 
-void SetBool(ICodecAPI* api, const char* name, const GUID& key, bool value) {
+// Los ajustes que el codificador no admite se apuntan en `unsupported` y se listan juntos en una línea: son
+// opcionales (cada fabricante admite unos u otros) y no impiden transmitir.
+void SetBool(ICodecAPI* api, const char* name, const GUID& key, bool value, std::string* unsupported) {
   VARIANT v;
   VariantInit(&v);
   v.vt = VT_BOOL;
   v.boolVal = value ? VARIANT_TRUE : VARIANT_FALSE;
-  if (FAILED(api->SetValue(&key, &v))) std::fprintf(stderr, "aviso: ajuste de códec no soportado (%s)\n", name);
+  if (FAILED(api->SetValue(&key, &v))) *unsupported += (unsupported->empty() ? "" : ", ") + std::string(name);
 }
 
-void SetU32(ICodecAPI* api, const char* name, const GUID& key, ULONG value) {
+void SetU32(ICodecAPI* api, const char* name, const GUID& key, ULONG value, std::string* unsupported) {
   VARIANT v;
   VariantInit(&v);
   v.vt = VT_UI4;
   v.ulVal = value;
-  if (FAILED(api->SetValue(&key, &v))) std::fprintf(stderr, "aviso: ajuste de códec no soportado (%s)\n", name);
+  if (FAILED(api->SetValue(&key, &v))) *unsupported += (unsupported->empty() ? "" : ", ") + std::string(name);
 }
 
 // El flujo HEVC debe empezar con el VPS (NAL tipo 32) en los frames clave.
@@ -82,10 +85,10 @@ bool MfEncoder::Init(Gpu& gpu, VideoCodec codec, UINT width, UINT height, UINT f
   // GPU (por ejemplo la AMD integrada en el procesador) y ese no puede leer las texturas
   // de esta.
   HRESULT hr = E_FAIL;
+  DXGI_ADAPTER_DESC1 ad{};
+  gpu.adapter->GetDesc1(&ad);
   ComPtr<IMFAttributes> enum_attrs;
   if (SUCCEEDED(MFCreateAttributes(&enum_attrs, 1))) {
-    DXGI_ADAPTER_DESC1 ad{};
-    gpu.adapter->GetDesc1(&ad);
     const UINT64 luid = (static_cast<UINT64>(static_cast<UINT32>(ad.AdapterLuid.HighPart)) << 32) |
                         ad.AdapterLuid.LowPart;
     enum_attrs->SetUINT64(MFT_ENUM_ADAPTER_LUID, luid);
@@ -104,9 +107,25 @@ bool MfEncoder::Init(Gpu& gpu, VideoCodec codec, UINT width, UINT height, UINT f
     return false;
   }
 
+  // Algunos codificadores (el de AMD, por ejemplo) se anuncian aunque se pida otra GPU y al activarlos fallan
+  // con E_OUTOFMEMORY. Si hay alguno del fabricante de la GPU que captura, los demás ni se prueban.
+  wchar_t vendor[16];
+  swprintf(vendor, 16, L"VEN_%04X", ad.VendorId);
+  auto same_vendor = [&](IMFActivate* a) {
+    WCHAR* v = nullptr;
+    UINT32 vlen = 0;
+    if (FAILED(a->GetAllocatedString(MFT_ENUM_HARDWARE_VENDOR_ID_Attribute, &v, &vlen))) return true;  // no lo dice
+    const bool same = _wcsicmp(v, vendor) == 0;
+    CoTaskMemFree(v);
+    return same;
+  };
+  bool any_same_vendor = false;
+  for (UINT32 i = 0; i < count; ++i) any_same_vendor = any_same_vendor || same_vendor(activates[i]);
+
   // Se prueba cada candidato hasta que uno se configure bien.
   bool ok = false;
   for (UINT32 i = 0; i < count && !ok; ++i) {
+    if (any_same_vendor && !same_vendor(activates[i])) continue;
     WCHAR* name = nullptr;
     UINT32 len = 0;
     if (SUCCEEDED(activates[i]->GetAllocatedString(MFT_FRIENDLY_NAME_Attribute, &name, &len))) {
@@ -177,12 +196,15 @@ bool MfEncoder::SetupTransform(IMFActivate* activate, UINT bitrate_bps) {
 }
 
 void MfEncoder::ApplyLowLatencySettings(UINT bitrate_bps) {
-  SetBool(codec_api_.Get(), "CODECAPI_AVLowLatencyMode", CODECAPI_AVLowLatencyMode, true);
-  SetBool(codec_api_.Get(), "CODECAPI_AVEncCommonRealTime", CODECAPI_AVEncCommonRealTime, true);
-  SetU32(codec_api_.Get(), "CODECAPI_AVEncCommonRateControlMode", CODECAPI_AVEncCommonRateControlMode, eAVEncCommonRateControlMode_CBR);
-  SetU32(codec_api_.Get(), "CODECAPI_AVEncCommonMeanBitRate", CODECAPI_AVEncCommonMeanBitRate, bitrate_bps);
-  SetU32(codec_api_.Get(), "CODECAPI_AVEncMPVDefaultBPictureCount", CODECAPI_AVEncMPVDefaultBPictureCount, 0);
-  SetU32(codec_api_.Get(), "CODECAPI_AVEncMPVGOPSize", CODECAPI_AVEncMPVGOPSize, 0x7FFFFFFF);  // sin keyframes periódicos
+  std::string unsupported;
+  ICodecAPI* api = codec_api_.Get();
+  SetBool(api, "LowLatencyMode", CODECAPI_AVLowLatencyMode, true, &unsupported);
+  SetBool(api, "CommonRealTime", CODECAPI_AVEncCommonRealTime, true, &unsupported);
+  SetU32(api, "RateControlMode", CODECAPI_AVEncCommonRateControlMode, eAVEncCommonRateControlMode_CBR, &unsupported);
+  SetU32(api, "MeanBitRate", CODECAPI_AVEncCommonMeanBitRate, bitrate_bps, &unsupported);
+  SetU32(api, "BPictureCount", CODECAPI_AVEncMPVDefaultBPictureCount, 0, &unsupported);
+  SetU32(api, "GOPSize", CODECAPI_AVEncMPVGOPSize, 0x7FFFFFFF, &unsupported);  // sin keyframes periódicos
+  if (!unsupported.empty()) std::printf("  ajustes opcionales que este codificador no admite: %s\n", unsupported.c_str());
 }
 
 bool MfEncoder::ConfigureTypes(VideoCodec codec) {
@@ -292,12 +314,14 @@ bool MfEncoder::FeedInput(const PendingFrame& frame) {
     if (now > frame.timestamp_us) mailbox_wait_us += now - frame.timestamp_us;
     ++fed_frames;
   }
+  std::string unsupported;
   if (const uint32_t bps = bitrate_request_.exchange(0)) {
-    SetU32(codec_api_.Get(), "CODECAPI_AVEncCommonMeanBitRate", CODECAPI_AVEncCommonMeanBitRate, bps);
+    SetU32(codec_api_.Get(), "MeanBitRate", CODECAPI_AVEncCommonMeanBitRate, bps, &unsupported);
   }
   if (keyframe_requested_.exchange(false)) {
-    SetU32(codec_api_.Get(), "CODECAPI_AVEncVideoForceKeyFrame", CODECAPI_AVEncVideoForceKeyFrame, 1);
+    SetU32(codec_api_.Get(), "ForceKeyFrame", CODECAPI_AVEncVideoForceKeyFrame, 1, &unsupported);
   }
+  if (!unsupported.empty()) std::fprintf(stderr, "aviso: el codificador rechazó %s\n", unsupported.c_str());
 
   ComPtr<IMFMediaBuffer> buffer;
   HRESULT hr = MFCreateDXGISurfaceBuffer(__uuidof(ID3D11Texture2D), frame.texture.Get(), 0, FALSE,

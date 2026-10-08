@@ -1,6 +1,49 @@
 #include "udp.h"
 
+#include <iphlpapi.h>
+#include <windows.h>
+
 #include <cstdio>
+#include <cstring>
+#include <string>
+#include <vector>
+
+namespace {
+
+std::string ProcessName(DWORD pid) {
+  std::string name = "PID " + std::to_string(pid);
+  HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+  if (!h) return name;
+  wchar_t path[MAX_PATH];
+  DWORD len = MAX_PATH;
+  if (QueryFullProcessImageNameW(h, 0, path, &len)) {
+    const std::wstring w(path, len);
+    const std::wstring base = w.substr(w.find_last_of(L'\\') + 1);
+    const int n = WideCharToMultiByte(CP_UTF8, 0, base.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    std::string s(n > 0 ? n - 1 : 0, '\0');
+    if (n > 1) WideCharToMultiByte(CP_UTF8, 0, base.c_str(), -1, s.data(), n, nullptr, nullptr);
+    name = s + " (PID " + std::to_string(pid) + ")";
+  }
+  CloseHandle(h);
+  return name;
+}
+
+}  // namespace
+
+DWORD UdpPortOwner(uint16_t port) {
+  ULONG size = 0;
+  GetExtendedUdpTable(nullptr, &size, FALSE, AF_INET, UDP_TABLE_OWNER_PID, 0);
+  std::vector<uint8_t> buf(size + 1024);
+  size = static_cast<ULONG>(buf.size());
+  if (GetExtendedUdpTable(buf.data(), &size, FALSE, AF_INET, UDP_TABLE_OWNER_PID, 0) != NO_ERROR) return 0;
+  const auto* table = reinterpret_cast<const MIB_UDPTABLE_OWNER_PID*>(buf.data());
+  for (DWORD i = 0; i < table->dwNumEntries; ++i) {
+    if (ntohs(static_cast<u_short>(table->table[i].dwLocalPort)) == port) return table->table[i].dwOwningPid;
+  }
+  return 0;
+}
+
+std::string DescribeProcess(DWORD pid) { return pid ? ProcessName(pid) : std::string("otro programa"); }
 
 UdpEndpoint::~UdpEndpoint() { Stop(); }
 
@@ -37,10 +80,7 @@ bool UdpEndpoint::Bind(uint16_t port, PacketHandler handler, bool usb) {
   addr.sin_family = AF_INET;
   addr.sin_addr.s_addr = htonl(INADDR_ANY);
   addr.sin_port = htons(port);
-  if (::bind(socket_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == SOCKET_ERROR) {
-    std::fprintf(stderr, "bind al puerto %u falló: %d\n", port, WSAGetLastError());
-    return false;
-  }
+  if (!BindWithRetry(addr, port)) return false;
   thread_ = std::thread([this] { ReceiveLoop(); });
   if (usb) {
     const sockaddr_in usb_addr = UsbPeerAddress();
@@ -60,6 +100,40 @@ bool UdpEndpoint::Bind(uint16_t port, PacketHandler handler, bool usb) {
         });
   }
   return true;
+}
+
+// Si el puerto está ocupado se reintenta unos segundos (un host que se está cerrando tarda en soltarlo). Si lo
+// tiene un desklink-host antiguo (sin el relevo automático de main.cpp), se cierra; si es otro programa, se dice cuál.
+bool UdpEndpoint::BindWithRetry(const sockaddr_in& addr, uint16_t port) {
+  bool killed = false;
+  for (int attempt = 0;; ++attempt) {
+    if (::bind(socket_, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) == 0) return true;
+    const int err = WSAGetLastError();
+    if (err != WSAEADDRINUSE) {
+      std::fprintf(stderr, "Error: no se pudo abrir el puerto UDP %u (error %d).\n", port, err);
+      return false;
+    }
+    const DWORD pid = UdpPortOwner(port);
+    const std::string owner = DescribeProcess(pid);
+    if (!killed && pid && pid != GetCurrentProcessId() && _strnicmp(owner.c_str(), "desklink-host.exe", 17) == 0) {
+      std::printf("Cierro una versión anterior de DeskLink que seguía abierta: %s.\n", owner.c_str());
+      if (HANDLE h = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, pid)) {
+        TerminateProcess(h, 0);
+        WaitForSingleObject(h, 5000);
+        CloseHandle(h);
+      }
+      killed = true;
+      continue;
+    }
+    if (attempt >= 10) {
+      std::fprintf(stderr,
+                   "Error: el puerto UDP %u, el de DeskLink, lo está usando %s. Cierra ese programa y vuelve a "
+                   "abrir DeskLink.\n",
+                   port, owner.c_str());
+      return false;
+    }
+    Sleep(300);
+  }
 }
 
 void UdpEndpoint::SetPeer(const sockaddr_in& peer) {
