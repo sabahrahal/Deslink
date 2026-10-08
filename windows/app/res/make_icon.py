@@ -1,4 +1,4 @@
-"""Genera desklink.ico (la tableta azul de DeskLink) con el mismo dibujo que CreateTabletIcon en system_info.cpp.
+"""Genera desklink.ico (la tableta de DeskLink, degradado cian a magenta) con el mismo dibujo que CreateTabletIcon en system_info.cpp.
 
 Uso: python3 make_icon.py  (escribe desklink.ico junto a este script). Solo hace falta si cambia el dibujo.
 """
@@ -7,7 +7,9 @@ import os
 import struct
 import zlib
 
-COLOR = (37, 99, 235)
+COLOR_FROM = (0, 229, 255)  # accent (docs/design.md)
+COLOR_TO = (255, 43, 214)   # accent-alt
+SCREEN = (10, 14, 23)       # background
 SIZES = [16, 20, 24, 32, 40, 48, 64, 256]
 
 
@@ -38,7 +40,9 @@ def render(size):
             if a == 0:
                 row += bytes(4)
                 continue
-            rgb = [round((c * body + 255 * screen) / (body + screen)) for c in COLOR]
+            t = (x + y + 1.0) / (2 * size)
+            body_rgb = [f + (e - f) * t for f, e in zip(COLOR_FROM, COLOR_TO)]
+            rgb = [round((c * body + k * screen) / (body + screen)) for c, k in zip(body_rgb, SCREEN)]
             row += bytes(rgb + [round(a * 255)])
         rows.append(bytes(row))
     raw = b"".join(rows)

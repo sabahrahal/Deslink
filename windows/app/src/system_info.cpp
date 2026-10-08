@@ -155,7 +155,7 @@ float RoundRectDistance(float x, float y, float x0, float y0, float x1, float y1
 
 }  // namespace
 
-HICON CreateTabletIcon(COLORREF color, int size) {
+HICON CreateTabletIcon(COLORREF from, COLORREF to, int size) {
   BITMAPV5HEADER bi{};
   bi.bV5Size = sizeof(bi);
   bi.bV5Width = size;
@@ -173,7 +173,8 @@ HICON CreateTabletIcon(COLORREF color, int size) {
   ReleaseDC(nullptr, dc);
   if (!color_bmp) return nullptr;
 
-  // Cuerpo de la tableta en el color del estado y pantalla blanca; 4x4 muestras por píxel para suavizar bordes.
+  // Cuerpo en degradado y pantalla oscura (el fondo de la app, docs/design.md); 4x4 muestras por píxel.
+  constexpr float kScreen[3] = {10, 14, 23};
   const float s = static_cast<float>(size);
   auto* px = static_cast<uint32_t*>(bits);
   for (int y = 0; y < size; ++y) {
@@ -196,12 +197,14 @@ HICON CreateTabletIcon(COLORREF color, int size) {
         px[y * size + x] = 0;
         continue;
       }
-      // Mezcla del color del cuerpo y el blanco de la pantalla, en alfa directo (sin premultiplicar).
-      const float r = (GetRValue(color) * body + 255 * screen) / a;
-      const float g = (GetGValue(color) * body + 255 * screen) / a;
-      const float b = (GetBValue(color) * body + 255 * screen) / a;
-      px[y * size + x] = (static_cast<uint32_t>(a * 255 + 0.5f) << 24) | (static_cast<uint32_t>(r + 0.5f) << 16) |
-                         (static_cast<uint32_t>(g + 0.5f) << 8) | static_cast<uint32_t>(b + 0.5f);
+      const float t = (x + y + 1.0f) / (2 * s);  // posición en el degradado diagonal
+      const float body_rgb[3] = {GetRValue(from) + (GetRValue(to) - GetRValue(from)) * t,
+                                 GetGValue(from) + (GetGValue(to) - GetGValue(from)) * t,
+                                 GetBValue(from) + (GetBValue(to) - GetBValue(from)) * t};
+      uint32_t c[3];
+      for (int k = 0; k < 3; ++k) c[k] = static_cast<uint32_t>((body_rgb[k] * body + kScreen[k] * screen) / a + 0.5f);
+      // Alfa directo (sin premultiplicar).
+      px[y * size + x] = (static_cast<uint32_t>(a * 255 + 0.5f) << 24) | (c[0] << 16) | (c[1] << 8) | c[2];
     }
   }
 

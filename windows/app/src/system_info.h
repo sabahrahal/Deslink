@@ -21,5 +21,6 @@ std::vector<std::wstring> LocalAddresses();
 bool StartsWithWindows();
 void SetStartWithWindows(bool on);
 
-// Icono de DeskLink (una tableta) en el color dado, dibujado con suavizado.
-HICON CreateTabletIcon(COLORREF color, int size);
+// Icono de DeskLink: una tableta con el cuerpo en degradado diagonal de `from` a `to` y la pantalla oscura,
+// dibujada con suavizado (mismo dibujo que res/make_icon.py). Para un solo color, from == to.
+HICON CreateTabletIcon(COLORREF from, COLORREF to, int size);

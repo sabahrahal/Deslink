@@ -4,14 +4,21 @@
 sin consola: lo arranca con los ajustes guardados, enseña el estado y explica los errores. Win32 nativo en C++
 (sin .NET ni WinUI): un solo .exe pequeño, sin instalar nada más.
 
+La ventana se dibuja entera con GDI+ con el estilo oscuro «gamer» de `docs/design.md` (los mismos colores que la app
+de Android, en `namespace color` de `src/main.cpp`): tarjeta de estado con halo, botón principal con el degradado
+cian-magenta, opciones en pastillas e interruptores. Barra de título y menús oscuros.
+
 ## Qué hace
 
 - **Iniciar / Detener** la transmisión, desde la ventana o desde el menú del icono (clic derecho).
 - **Estado**: conectado por cable USB o por WiFi (con la IP de la tablet), resolución, fps, Mbps, tiempo de
   codificación, RTT (si la tablet contesta el PING del host) y frames perdidos; si hay tablets enchufadas por USB con
   la depuración autorizada; y las IP de este PC, para escribirlas en la tablet si hiciera falta.
-- **Ajustes** (se guardan en `%APPDATA%\DeskLink\desklink.ini`): monitor virtual o duplicar un monitor, qué monitor,
-  resolución del monitor virtual, fps, Mbps, códec, táctil/ratón, puntero, cable USB.
+- **Ajustes** (se guardan en `%APPDATA%\DeskLink\desklink.ini`): pantalla extra (monitor virtual) o duplicar un
+  monitor, qué monitor, resolución de la pantalla extra (automática: la que pida la tablet o la última), fluidez (fps),
+  calidad (Ahorro 20, Equilibrada 50 o Máxima 100 Mbps; otro valor se pone en el `.ini`), códec, táctil/ratón,
+  puntero, cable USB. Para añadir uno nuevo: campo en `Settings`, opción en `HostArguments` y una fila en
+  `PaintSettingsCard` (hay un comentario donde van los de táctil directo, audio y perfiles de batería).
   Con la transmisión en marcha aparece **Aplicar cambios**, que reinicia el host con los ajustes nuevos.
 - **Abrir al iniciar Windows** (registro del usuario, `HKCU\...\Run`, sin permisos de administrador) y **empezar a
   transmitir al abrir**: con los dos, al encender el PC el monitor virtual y el túnel USB ya están listos.
@@ -45,5 +52,5 @@ Sale en `build/app/Release/desklink.exe`. Tiene que ir en la misma carpeta que `
 USB, `adb.exe`, `AdbWinApi.dll` y `AdbWinUsbApi.dll`). La CI (`windows-app`) publica las dos juntas en el artefacto
 `desklink-windows`.
 
-El icono (`res/desklink.ico`) sale de `res/make_icon.py`; la bandeja dibuja el mismo icono en gris (detenido),
-ámbar (esperando), verde (conectado) o rojo (error).
+El icono (`res/desklink.ico`, degradado cian-magenta) sale de `res/make_icon.py`; la bandeja dibuja la misma tableta
+en gris (detenido), ámbar (esperando), verde (conectado) o rojo (error).

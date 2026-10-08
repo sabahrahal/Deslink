@@ -19,7 +19,7 @@ add_executable(desklink WIN32
   res/desklink.rc)
 
 target_compile_definitions(desklink PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00)
-target_link_libraries(desklink PRIVATE comctl32 iphlpapi dxgi cfgmgr32 shell32 ole32 ws2_32 user32 gdi32 advapi32)
+target_link_libraries(desklink PRIVATE gdiplus dwmapi iphlpapi dxgi cfgmgr32 shell32 ole32 ws2_32 user32 gdi32 advapi32)
 
 if(MSVC)
   target_compile_options(desklink PRIVATE /W3 /utf-8)
