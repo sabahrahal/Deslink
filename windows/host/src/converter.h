@@ -7,10 +7,11 @@
 
 // Convierte BGRA a NV12 en la GPU con el procesador de vídeo de D3D11. Las
 // texturas NV12 salen de un anillo para que el codificador pueda seguir leyendo
-// una mientras se escribe la siguiente.
+// una mientras se escribe la siguiente. La salida puede ser más pequeña que la captura (perfiles de
+// batería): el mismo procesador escala, sin pasada extra.
 class Nv12Converter {
  public:
-  bool Init(Gpu& gpu, UINT width, UINT height, size_t ring_size = 6);
+  bool Init(Gpu& gpu, UINT width, UINT height, UINT out_width, UINT out_height, size_t ring_size = 6);
   // Guarda una copia de la imagen del escritorio (solo una copia en la GPU, sin convertir): hay que
   // hacerlo antes de soltar el frame de Desktop Duplication.
   void Store(ID3D11Texture2D* bgra);
@@ -48,4 +49,6 @@ class Nv12Converter {
   size_t next_ = 0;
   UINT width_ = 0;
   UINT height_ = 0;
+  UINT out_width_ = 0;
+  UINT out_height_ = 0;
 };

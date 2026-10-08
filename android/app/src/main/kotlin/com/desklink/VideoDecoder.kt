@@ -72,6 +72,15 @@ class VideoDecoder(
         codec.start()
     }
 
+    /** Ajusta el ritmo previsto (perfil de batería) sin rehacer el decodificador; si no lo admite, se ignora. */
+    fun setOperatingRate(fps: Int) {
+        if (fps <= 0) return
+        try {
+            codec.setParameters(android.os.Bundle().apply { putInt(MediaFormat.KEY_OPERATING_RATE, fps) })
+        } catch (_: IllegalStateException) {
+        }
+    }
+
     /** Devuelve false si no había buffer de entrada libre (el decodificador va retrasado). */
     fun queue(frame: Frame): Boolean {
         val index = synchronized(freeInputs) { if (freeInputs.isEmpty()) null else freeInputs.removeFirst() } ?: return false

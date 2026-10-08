@@ -37,6 +37,8 @@ object Dlp {
     const val AUDIO_CHANNELS = 2
     const val AUDIO_FRAME_SAMPLES = 480
 
+    const val TYPE_QUALITY_REQUEST = 16
+
     const val FLAG_KEYFRAME = 1
     const val FLAG_LAST_PACKET = 2
 
@@ -258,6 +260,25 @@ object Dlp {
             o += size
         }
         return frames
+    }
+
+    /**
+     * Límites del perfil de batería: fps máx. u16, Mbps máx. en unidades de 100 kbps u16, escala % u8, perfil u8.
+     * 0 = sin límite. El host los acota con sus opciones (ver docs/battery.md).
+     */
+    fun qualityRequest(profile: PowerProfile, timestampUs: Long): ByteArray {
+        val b = ByteBuffer.allocate(HEADER_SIZE + 6).order(ByteOrder.LITTLE_ENDIAN)
+        b.putShort(0, MAGIC.toShort())
+        b.put(2, VERSION.toByte())
+        b.put(3, TYPE_QUALITY_REQUEST.toByte())
+        b.putShort(12, 1)
+        b.putLong(14, timestampUs)
+        b.putShort(22, 6)
+        b.putShort(HEADER_SIZE, profile.maxFps.toShort())
+        b.putShort(HEADER_SIZE + 2, (profile.maxBitrateMbps * 10).toShort())
+        b.put(HEADER_SIZE + 4, profile.scalePercent.toByte())
+        b.put(HEADER_SIZE + 5, profile.wire.toByte())
+        return b.array()
     }
 
     fun parseStreamInfo(data: ByteArray, header: Header): StreamInfo? {

@@ -38,6 +38,7 @@ Tamaño máximo de paquete: 1200 bytes (1176 de payload), para no fragmentar en 
 | 14 | AUDIO | host a cliente | sonido del PC: Opus 48 kHz estéreo, 10 ms por trozo (RESTRICTED_LOWDELAY, 128 kbps por defecto). `frame_id` = número de trozo. Payload: u8 n (1 o 2) y n x {u16 tamaño, bytes}; la entrada i es el trozo `frame_id - i` (el anterior va repetido para cubrir pérdidas por WiFi). Si en el PC no suena nada, no se envía nada |
 | 15 | AUDIO_CONTROL | cliente a host | u8: 1 = quiero el sonido del PC, 0 = no. La tablet lo manda tras el HELLO y cada segundo; el host captura (WASAPI loopback de la salida predeterminada) solo mientras haya un cliente que lo pida y no se haya arrancado con `--no-audio` |
 | 8 | BURST_DATA | host a cliente | relleno; `packet_index`/`packet_count` numeran la ráfaga y el timestamp devuelve el nonce |
+| 16 | QUALITY_REQUEST | cliente a host | perfil de batería: fps máx. u16, Mbps máx. u16 en unidades de 100 kbps, escala de la resolución codificada u8 (50–100 %), perfil u8 (0 máxima, 1 equilibrado, 2 ahorro, 3 mínimo). 0 = sin límite. La tablet lo manda tras cada HELLO, al cambiar de perfil y cada 5 s. El host lo acota con `--fps`/`--bitrate`; si cambian los fps reenvía STREAM_INFO (la tablet no rehace el decodificador), si cambia la escala rehace la captura. Ver [batería](battery.md). Los tipos 12–15 quedan para audio y táctil |
 
 ## Configuración de la tablet (payload de HELLO)
 
