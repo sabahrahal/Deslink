@@ -1,6 +1,10 @@
 package com.desklink
 
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -58,5 +62,41 @@ class SettingsTest {
         assertEquals(listOf(0, 30, 60, 90), AppSettings.fpsOptions(90))
         assertEquals(listOf(0, 30, 60), AppSettings.fpsOptions(60))
         assertEquals(listOf(0, 30, 60, 90, 120, 144), AppSettings.fpsOptions(144))
+    }
+
+    /** fps y Mbps máximos (en unidades de 100 kbps) del QUALITY_REQUEST. */
+    private fun caps(packet: ByteArray): Pair<Int, Int> {
+        val b = ByteBuffer.wrap(packet).order(ByteOrder.LITTLE_ENDIAN)
+        return b.getShort(Dlp.HEADER_SIZE).toInt() to b.getShort(Dlp.HEADER_SIZE + 2).toInt()
+    }
+
+    @Test
+    fun withAutomaticValuesTheProfileDecides() {
+        val s = AppSettings(power = PowerChoice.SAVER)
+        assertFalse(s.hasAdvancedOverrides)
+        assertEquals(30 to 120, caps(s.qualityRequest(PowerProfile.AHORRO, 1)))
+    }
+
+    @Test
+    fun fixedAdvancedValuesWinOverTheChosenProfile() {
+        val s = AppSettings(power = PowerChoice.BALANCED, fps = 120, quality = Quality.ULTRA)
+        assertTrue(s.hasAdvancedOverrides)
+        assertEquals(0 to 0, caps(s.qualityRequest(PowerProfile.EQUILIBRADO, 1)))
+        // Solo la calidad fijada: el tope de fps del perfil sigue.
+        assertEquals(60 to 0, caps(AppSettings(power = PowerChoice.BALANCED, quality = Quality.ULTRA).qualityRequest(PowerProfile.EQUILIBRADO, 1)))
+    }
+
+    @Test
+    fun chargeAdaptationStillCapsFixedValues() {
+        // «Adaptar a la carga» bajó de Equilibrado a Ahorro: la batería va primero.
+        val s = AppSettings(power = PowerChoice.BALANCED, fps = 120, quality = Quality.ULTRA)
+        assertEquals(30 to 120, caps(s.qualityRequest(PowerProfile.AHORRO, 1)))
+    }
+
+    @Test
+    fun touchChoicesMapToTheHostModes() {
+        assertEquals(Dlp.INPUT_TOUCH, AppSettings().touch.wire)
+        assertEquals(Dlp.INPUT_MOUSE, TouchChoice.MOUSE.wire)
+        assertNull(TouchChoice.OFF.wire)
     }
 }

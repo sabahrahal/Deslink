@@ -10,9 +10,9 @@ enum class ResolutionScale(val percent: Int, val label: String, val hint: String
     LIGHT(50, "Ligera", "La que menos batería gasta"),
 }
 
-/** Calidad de imagen: tasa máxima de vídeo. 0 = la que diga el PC. */
+/** Calidad de imagen (Avanzado): tasa máxima de vídeo. 0 = la del perfil. */
 enum class Quality(val mbps: Int, val label: String, val hint: String) {
-    AUTO(0, "Automática", "La que tenga el PC"),
+    AUTO(0, "Automática", "La del perfil"),
     ULTRA(80, "Ultra", "80 Mbps · mejor por cable"),
     HIGH(50, "Alta", "50 Mbps"),
     BALANCED(30, "Equilibrada", "30 Mbps · buena por WiFi"),
@@ -27,19 +27,28 @@ enum class CodecChoice(val wire: Int, val label: String, val hint: String) {
 }
 
 /**
- * Perfil de batería. Lo aplica la sesión (hilo «Perfiles de batería», PowerProfile.kt); aquí solo se elige.
+ * Perfil: el ajuste principal. Decide fps, Mbps y lo que gasta la tablet (PowerProfile.kt); aquí solo se elige.
  * [id] es el valor guardado en la clave "power_profile".
  */
 enum class PowerChoice(val id: String, val label: String, val hint: String) {
-    SAVER("ahorro", "Ahorro", "Dura más la batería"),
-    BALANCED("equilibrado", "Equilibrado", "Buena imagen sin gastar de más"),
-    MAX("maxima", "Máxima", "La mejor imagen, gasta más"),
+    MAX("maxima", "Calidad", "La mejor imagen · gasta más"),
+    BALANCED("equilibrado", "Equilibrado", "Recomendado · no se nota el ahorro"),
+    SAVER("ahorro", "Ahorro", "Dura más la batería · 30 fps"),
+}
+
+/** Qué hace el toque en la tablet. [wire] es el modo que se pide al PC (INPUT_MODE); null = no se manda nada. */
+enum class TouchChoice(val wire: Int?, val label: String, val hint: String) {
+    DIRECT(Dlp.INPUT_TOUCH, "Táctil", "Tocar y arrastrar como en el móvil"),
+    MOUSE(Dlp.INPUT_MOUSE, "Ratón", "El dedo mueve el puntero"),
+    OFF(null, "Solo ver", "Los toques no llegan al PC"),
 }
 
 /**
- * Ajustes de la app. Los de imagen viajan al PC en el HELLO ([toHelloConfig]); el resto son de la tablet.
+ * Ajustes de DeskLink. La tablet es el único sitio donde se eligen: al conectar se mandan al PC (imagen en el
+ * HELLO con [toHelloConfig], perfil en QUALITY_REQUEST con [qualityRequest], sonido en AUDIO_CONTROL y táctil
+ * en INPUT_MODE); la app del PC solo pone lo que la tablet no puede saber (qué monitor, cable USB).
  * Para añadir un ajuste: un campo aquí con su valor por defecto, su clave en [SettingsStore] y una fila en
- * la sección que toque de SettingsScreen (Imagen, Pantalla, o una sección nueva como Táctil, Audio o Batería).
+ * SettingsScreen: arriba solo si casi todo el mundo lo va a tocar; si no, en «Avanzado».
  */
 data class AppSettings(
     val resolution: ResolutionScale = ResolutionScale.NATIVE,
@@ -55,7 +64,22 @@ data class AppSettings(
     val powerAdapt: Boolean = true,
     /** Sonido del PC en la tablet (por defecto apagado: el PC lo sigue oyendo por sus altavoces). */
     val audio: Boolean = false,
+    val touch: TouchChoice = TouchChoice.DIRECT,
 ) {
+    /** Hay algo fijado en «Avanzado» que manda sobre el perfil. */
+    val hasAdvancedOverrides: Boolean
+        get() = resolution != ResolutionScale.NATIVE || quality != Quality.AUTO || fps != 0 || codec != CodecChoice.AUTO
+
+    /**
+     * QUALITY_REQUEST para el perfil en uso [current]. Un fps o una calidad fijados en Avanzado mandan sobre
+     * el perfil elegido (se quita ese tope y vale lo del HELLO); pero si «adaptar a la carga» bajó a un perfil
+     * menor que el elegido, sus topes vuelven: no descargar la batería por cable va primero.
+     */
+    fun qualityRequest(current: PowerProfile, timestampUs: Long): ByteArray {
+        val adapted = current.ordinal > PowerProfile.fromId(power.id).ordinal
+        return Dlp.qualityRequest(current, timestampUs, liftFps = fps != 0 && !adapted, liftBitrate = quality != Quality.AUTO && !adapted)
+    }
+
     /**
      * Lo que se pide al PC para [display]. [hevcSupported]: si la tablet no decodifica HEVC, "Automático"
      * pide H.264 para no recibir un vídeo que no puede mostrar.
@@ -130,6 +154,7 @@ class SettingsStore(context: Context) {
             power = PowerChoice.entries.firstOrNull { it.id == prefs.getString(K_POWER, null) } ?: d.power,
             powerAdapt = prefs.getBoolean(K_POWER_ADAPT, d.powerAdapt),
             audio = prefs.getBoolean(K_AUDIO, d.audio),
+            touch = enumOr(prefs.getString(K_TOUCH, null), d.touch),
         )
     }
 
@@ -145,6 +170,7 @@ class SettingsStore(context: Context) {
             .putString(K_POWER, s.power.id)
             .putBoolean(K_POWER_ADAPT, s.powerAdapt)
             .putBoolean(K_AUDIO, s.audio)
+            .putString(K_TOUCH, s.touch.name)
             .apply()
     }
 
@@ -173,5 +199,6 @@ class SettingsStore(context: Context) {
         const val K_POWER = "power_profile" // las mismas que PowerProfile.PREF_KEY / PREF_ADAPT
         const val K_POWER_ADAPT = "power_adapt"
         const val K_AUDIO = "audio_enabled"
+        const val K_TOUCH = "touch_mode"
     }
 }

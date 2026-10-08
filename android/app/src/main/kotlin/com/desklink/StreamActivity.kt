@@ -222,6 +222,8 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
             statsView.visibility = if (statsVisible) View.VISIBLE else View.GONE
             return true
         }
+        // «Solo ver»: los toques se quedan en la tablet.
+        if (settings.touch == TouchChoice.OFF) return true
         // Cada muestra del táctil sale en cuanto llega, sin esperar a agruparlas con el refresco de pantalla
         // (Android las junta por vsync): unos ms menos de retraso al arrastrar.
         if (event.actionMasked == MotionEvent.ACTION_DOWN) surfaceView.requestUnbufferedDispatch(event)
@@ -316,7 +318,12 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         phase = StreamSession.Phase.CONNECTING
         phaseDetail = ""
         overlay.visibility = View.VISIBLE
-        session = StreamSession(host, s, this, helloConfig, settings.audio, profile).also { it.start() }
+        val current = settings
+        session = StreamSession(
+            host, s, this, helloConfig, current.audio, profile,
+            requestedInputMode = current.touch.wire,
+            qualityRequest = current::qualityRequest,
+        ).also { it.start() }
     }
 
     private fun stopSession() {
