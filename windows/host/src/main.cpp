@@ -159,6 +159,17 @@ void SaveSize(UINT w, UINT h) {
   }
 }
 
+// Nombre del PC en UTF-8, para que la tablet lo muestre en la lista de PCs encontrados.
+std::string ComputerNameUtf8() {
+  wchar_t name[MAX_COMPUTERNAME_LENGTH + 1] = {};
+  DWORD n = MAX_COMPUTERNAME_LENGTH + 1;
+  if (!GetComputerNameW(name, &n)) return {};
+  const int len = WideCharToMultiByte(CP_UTF8, 0, name, static_cast<int>(n), nullptr, 0, nullptr, nullptr);
+  std::string out(len > 0 ? len : 0, '\0');
+  if (len > 0) WideCharToMultiByte(CP_UTF8, 0, name, static_cast<int>(n), out.data(), len, nullptr, nullptr);
+  return out;
+}
+
 struct Options {
   uint16_t port = dlp::kDefaultPort;
   int output = 0;
@@ -275,6 +286,7 @@ int Run(int argc, char** argv) {
   if (!ParseArgs(argc, argv, &opt)) return 2;
   SetConsoleOutputCP(CP_UTF8);  // los mensajes llevan tildes
   SingleInstance instance;  // se destruye lo último: el siguiente host entra cuando este ya soltó todo
+  const Options cli = opt;  // lo que se pidió al arrancar; la tablet puede cambiarlo con su HELLO
 
   std::signal(SIGINT, OnSignal);
   std::signal(SIGTERM, OnSignal);
@@ -325,6 +337,17 @@ int Run(int argc, char** argv) {
   };
   std::mutex info_mutex;
   std::vector<uint8_t> info_payload;
+  const std::string host_name = ComputerNameUtf8();
+
+  // Configuración que pide la tablet en su HELLO (resolución, fps, tasa, códec). El hilo de recepción la deja
+  // aquí y el bucle principal la aplica rehaciendo el pipeline; mientras tanto no se responde a los HELLO
+  // para que la tablet no arranque con el tamaño viejo.
+  std::mutex config_mutex;
+  dlp::HelloConfig requested_config;
+  std::atomic<uint32_t> config_seq{0};
+  std::atomic<bool> reconfiguring{false};
+  std::atomic<uint32_t> max_bps_setting{opt.bitrate_mbps * 1'000'000u};
+  std::atomic<bool> rate_reset{false};
 
   auto on_encoded = [&](const uint8_t* data, size_t size, bool keyframe, uint64_t ts_us) {
     auto packets = dlp::PacketizeFrame(data, size, next_frame_id++, keyframe, ts_us);
@@ -372,6 +395,8 @@ int Run(int argc, char** argv) {
     info.height = static_cast<uint16_t>(p->h);
     info.fps = static_cast<uint16_t>(opt.fps);
     info.codec = opt.codec == VideoCodec::kHevc ? dlp::Codec::kHevc : dlp::Codec::kH264;
+    info.host_flags = dlp::kHostAcceptsHelloConfig;
+    info.host_name = host_name;
     {
       std::lock_guard<std::mutex> lock(info_mutex);
       info_payload = dlp::EncodeStreamInfo(info);
@@ -399,8 +424,9 @@ int Run(int argc, char** argv) {
     // Tasa adaptativa (AIMD): baja un 30 % ante pérdidas (informe de la tablet o petición de frame
     // clave) y recuerda un techo por debajo de la tasa que falló; sube un 10 % cada 2 s tras 8 s limpios y el
     // techo se relaja 1 Mbps cada 20 s limpios. Solo se toca desde el hilo de recepción.
-    const uint32_t max_bps = opt.bitrate_mbps * 1'000'000u;
-    const uint32_t min_bps = std::max<uint32_t>(max_bps / 10, 3'000'000u);
+    // El máximo puede cambiarlo la tablet (max_bps_setting); se relee en cada paquete.
+    uint32_t max_bps = max_bps_setting.load();
+    uint32_t min_bps = std::max<uint32_t>(max_bps / 10, 3'000'000u);
     uint32_t current_bps = max_bps;
     uint32_t ceiling_bps = max_bps;
     uint64_t last_decrease_us = 0;
@@ -421,8 +447,32 @@ int Run(int argc, char** argv) {
     auto on_packet = [&](const uint8_t* data, size_t size, const sockaddr_in& from) {
       auto header = dlp::ParseHeader(data, size);
       if (!header) return;
+      if (rate_reset.exchange(false)) {
+        // La tablet cambió la tasa máxima: se vuelve a empezar desde abajo con el máximo nuevo.
+        max_bps = max_bps_setting.load();
+        min_bps = std::max<uint32_t>(max_bps / 10, 3'000'000u);
+        current_bps = udp.peer_is_usb() ? max_bps : std::min(max_bps, kStartBps);
+        ceiling_bps = max_bps;
+        last_decrease_us = last_increase_us = NowUs();
+        enc_bitrate(current_bps);
+      }
       switch (header->type) {
+        case dlp::PacketType::kDiscover: {
+          // Búsqueda desde la tablet: se presenta (resolución, nombre) sin tomarla como destino del vídeo.
+          std::lock_guard<std::mutex> lock(info_mutex);
+          udp.SendTo(from, dlp::MakeControlPacket(dlp::PacketType::kStreamInfo, info_payload.data(),
+                                                  info_payload.size(), header->timestamp_us));
+          break;
+        }
         case dlp::PacketType::kHello:
+          if (auto config = dlp::DecodeHelloConfig(data + dlp::kHeaderSize, header->payload_size)) {
+            std::lock_guard<std::mutex> lock(config_mutex);
+            if (*config != requested_config) {
+              requested_config = *config;
+              reconfiguring = true;
+              ++config_seq;
+            }
+          }
           if (last_client_ip.exchange(from.sin_addr.s_addr) != from.sin_addr.s_addr) {
             const bool usb = UdpEndpoint::IsUsb(from);
             if (usb) {
@@ -439,7 +489,7 @@ int Run(int argc, char** argv) {
             enc_bitrate(current_bps);
           }
           udp.SetPeer(from);
-          {
+          if (!reconfiguring) {
             std::lock_guard<std::mutex> lock(info_mutex);
             udp.SendTo(from, dlp::MakeControlPacket(dlp::PacketType::kStreamInfo, info_payload.data(),
                                                     info_payload.size(), NowUs()));
@@ -580,8 +630,95 @@ int Run(int argc, char** argv) {
     uint64_t convert_us = 0, last_convert = 0, last_fed = 0, last_mailbox = 0;
     uint64_t last_bytes = 0, last_encoded = 0, last_latency = 0, last_captured = 0, last_keyframes = 0, last_retransmits = 0, last_touch = 0;
     bool failed = false;
+    uint32_t applied_seq = 0;
+
+    // Rehace el pipeline (y el monitor virtual si cambia su modo) con la configuración actual de opt.
+    // Si el monitor no acepta el modo nuevo se vuelve a fallback_w x fallback_h.
+    auto rebuild = [&](bool replug, UINT fallback_w, UINT fallback_h) -> bool {
+      {
+        std::lock_guard<std::mutex> lock(enc_mutex);
+        enc_ptr = nullptr;
+      }
+      pipe.reset();
+      if (replug) {
+        virtual_display.Unplug();
+        Sleep(500);
+        if (!virtual_display.Plug(opt.virtual_width, opt.virtual_height, opt.fps)) {
+          std::fprintf(stderr, "No se pudo poner el monitor virtual a %ux%u: vuelvo a %ux%u.\n", opt.virtual_width,
+                       opt.virtual_height, fallback_w, fallback_h);
+          opt.virtual_width = fallback_w;
+          opt.virtual_height = fallback_h;
+          virtual_display.Unplug();
+          Sleep(500);
+          if (!virtual_display.Plug(opt.virtual_width, opt.virtual_height, opt.fps)) return false;
+        }
+      }
+      pipe = build(50);
+      if (!pipe) return false;
+      {
+        std::lock_guard<std::mutex> lock(enc_mutex);
+        enc_ptr = pipe->encoder.get();
+      }
+      if (touch_ready) touch.SetRect(pipe->gpu.desktop_rect);
+      last_nv12 = nullptr;
+      dirty = false;
+      flush_left = 0;
+      refine_left = 0;
+      last_fed = last_mailbox = 0;
+      return true;
+    };
 
     while (g_running) {
+      if (config_seq.load() != applied_seq) {
+        // La tablet pidió otra resolución, fps, tasa o códec en su HELLO. 0 = lo que se dijo al arrancar.
+        dlp::HelloConfig want;
+        {
+          std::lock_guard<std::mutex> lock(config_mutex);
+          want = requested_config;
+          applied_seq = config_seq.load();
+        }
+        const Options before = opt;
+        opt.fps = want.fps > 0 && want.fps <= 240 ? want.fps : cli.fps;
+        opt.bitrate_mbps = want.bitrate_mbps > 0 && want.bitrate_mbps <= 1000 ? want.bitrate_mbps : cli.bitrate_mbps;
+        opt.codec = want.codec == 1 ? VideoCodec::kH264 : want.codec == 2 ? VideoCodec::kHevc : cli.codec;
+        // --size al arrancar manda sobre la tablet; si no, el monitor virtual toma la resolución de la tablet.
+        if (opt.virtual_display && !opt.size_given && want.width >= 640 && want.height >= 480 &&
+            want.width <= 7680 && want.height <= 4320) {
+          opt.virtual_width = want.width;
+          opt.virtual_height = want.height;
+        }
+        const bool replug = opt.virtual_display &&
+                            (opt.virtual_width != before.virtual_width || opt.virtual_height != before.virtual_height ||
+                             opt.fps != before.fps);
+        const bool rebuild_needed = replug || opt.fps != before.fps || opt.codec != before.codec;
+        if (opt.bitrate_mbps != before.bitrate_mbps) {
+          max_bps_setting = opt.bitrate_mbps * 1'000'000u;
+          rate_reset = true;
+        }
+        if (rebuild_needed) {
+          std::printf("La tablet pide %s%ux%u a %u fps, %u Mbps, %s.\n",
+                      opt.virtual_display ? "un monitor de " : "(captura de la pantalla actual) ",
+                      opt.virtual_display ? opt.virtual_width : pipe->w,
+                      opt.virtual_display ? opt.virtual_height : pipe->h, opt.fps, opt.bitrate_mbps,
+                      opt.codec == VideoCodec::kHevc ? "HEVC" : "H.264");
+          if (!rebuild(replug, before.virtual_width, before.virtual_height)) {
+            std::fprintf(stderr, "Error: no se pudo aplicar la configuración de la tablet.\n");
+            failed = true;
+            break;
+          }
+          if (opt.virtual_display) SaveSize(pipe->w, pipe->h);
+          if (opt.bitrate_mbps == before.bitrate_mbps) rate_reset = true;  // codificador nuevo: tasa desde abajo
+        }
+        if (config_seq.load() == applied_seq) reconfiguring = false;
+        if (udp.has_peer()) {
+          std::lock_guard<std::mutex> lock(info_mutex);
+          udp.SendToPeer(dlp::MakeControlPacket(dlp::PacketType::kStreamInfo, info_payload.data(),
+                                                info_payload.size(), NowUs()));
+        }
+        enc_keyframe();
+        continue;
+      }
+
       ID3D11Texture2D* frame = nullptr;
       // Sin nada pendiente se espera más a la siguiente imagen: sin cliente o con el escritorio quieto el
       // bucle apenas despierta. Con algo pendiente, justo hasta el siguiente hueco de envío.
@@ -617,28 +754,12 @@ int Run(int argc, char** argv) {
         }
         std::printf("La resolución cambió a %ux%u: reinicio la captura.\n", pipe->capture.width(),
                     pipe->capture.height());
-        {
-          std::lock_guard<std::mutex> lock(enc_mutex);
-          enc_ptr = nullptr;
-        }
-        pipe.reset();
-        pipe = build(50);
-        if (!pipe) {
+        if (!rebuild(false, opt.virtual_width, opt.virtual_height)) {
           std::fprintf(stderr, "Error: no se pudo reiniciar la captura con la nueva resolución.\n");
           failed = true;
           break;
         }
-        {
-          std::lock_guard<std::mutex> lock(enc_mutex);
-          enc_ptr = pipe->encoder.get();
-        }
         if (opt.virtual_display) SaveSize(pipe->w, pipe->h);
-        if (touch_ready) touch.SetRect(pipe->gpu.desktop_rect);
-        last_nv12 = nullptr;
-        dirty = false;
-        flush_left = 0;
-        refine_left = 0;
-        last_fed = last_mailbox = 0;
         if (udp.has_peer()) {
           std::lock_guard<std::mutex> lock(info_mutex);
           udp.SendToPeer(dlp::MakeControlPacket(dlp::PacketType::kStreamInfo, info_payload.data(),

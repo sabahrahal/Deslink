@@ -23,12 +23,18 @@ object Dlp {
     const val TYPE_RATE_REPORT = 9
     const val TYPE_NACK = 10
     const val TYPE_TOUCH = 11
+    const val TYPE_DISCOVER = 12
 
     const val FLAG_KEYFRAME = 1
     const val FLAG_LAST_PACKET = 2
 
     const val CODEC_H264 = 1
     const val CODEC_HEVC = 2
+
+    /** Bit de [StreamInfo.hostFlags]: el host aplica la [HelloConfig] que la tablet manda en HELLO. */
+    const val HOST_ACCEPTS_HELLO_CONFIG = 1
+    const val HELLO_CONFIG_SIZE = 14
+    const val MAX_HOST_NAME = 64
 
     class Header(
         val type: Int,
@@ -40,7 +46,44 @@ object Dlp {
         val payloadSize: Int,
     )
 
-    class StreamInfo(val width: Int, val height: Int, val fps: Int, val codec: Int)
+    /** [hostFlags] y [hostName] solo los mandan hosts nuevos; uno antiguo deja 0 y "". */
+    class StreamInfo(
+        val width: Int,
+        val height: Int,
+        val fps: Int,
+        val codec: Int,
+        val hostFlags: Int = 0,
+        val hostName: String = "",
+    ) {
+        val acceptsHelloConfig: Boolean get() = hostFlags and HOST_ACCEPTS_HELLO_CONFIG != 0
+    }
+
+    /**
+     * Lo que la tablet pide al host en el payload de HELLO (ver docs/protocol-dlp.md). 0 = lo que diga el host.
+     * Un host antiguo ignora el payload.
+     */
+    data class HelloConfig(
+        val width: Int = 0,
+        val height: Int = 0,
+        val fps: Int = 0,
+        val bitrateMbps: Int = 0,
+        val codec: Int = 0,
+        val densityDpi: Int = 0,
+        val refreshHz: Int = 0,
+    ) {
+        fun encode(): ByteArray {
+            val b = ByteBuffer.allocate(HELLO_CONFIG_SIZE).order(ByteOrder.LITTLE_ENDIAN)
+            b.putShort(0, width.toShort())
+            b.putShort(2, height.toShort())
+            b.putShort(4, fps.toShort())
+            b.putShort(6, bitrateMbps.toShort())
+            b.put(8, codec.toByte())
+            b.put(9, 0)
+            b.putShort(10, densityDpi.toShort())
+            b.putShort(12, refreshHz.toShort())
+            return b.array()
+        }
+    }
 
     /** Devuelve null si el paquete no es válido (corto, magic/versión distintos o payload que no cabe). */
     fun parseHeader(data: ByteArray, length: Int): Header? {
@@ -60,16 +103,23 @@ object Dlp {
         )
     }
 
-    /** Paquete de control sin payload (HELLO, KEYFRAME_REQUEST, PING). */
-    fun controlPacket(type: Int, timestampUs: Long): ByteArray {
-        val b = ByteBuffer.allocate(HEADER_SIZE).order(ByteOrder.LITTLE_ENDIAN)
+    /** Paquete de control (HELLO, KEYFRAME_REQUEST, PING, DISCOVER), sin payload salvo que se pase uno. */
+    fun controlPacket(type: Int, timestampUs: Long, payload: ByteArray? = null): ByteArray {
+        val size = payload?.size ?: 0
+        val b = ByteBuffer.allocate(HEADER_SIZE + size).order(ByteOrder.LITTLE_ENDIAN)
         b.putShort(0, MAGIC.toShort())
         b.put(2, VERSION.toByte())
         b.put(3, type.toByte())
         b.putShort(12, 1)
         b.putLong(14, timestampUs)
+        b.putShort(22, size.toShort())
+        if (payload != null) System.arraycopy(payload, 0, b.array(), HEADER_SIZE, size)
         return b.array()
     }
+
+    /** HELLO con la configuración que pide la tablet (o vacío si [config] es null). */
+    fun hello(config: HelloConfig?, timestampUs: Long): ByteArray =
+        controlPacket(TYPE_HELLO, timestampUs, config?.encode())
 
     /** Pide al host una ráfaga de [count] paquetes de [size] bytes; [paceMbps] > 0 limita su tasa. */
     fun burstRequest(count: Int, size: Int, paceMbps: Int, timestampUs: Long): ByteArray {
@@ -143,11 +193,20 @@ object Dlp {
     fun parseStreamInfo(data: ByteArray, header: Header): StreamInfo? {
         if (header.payloadSize < 7) return null
         val b = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
+        var flags = 0
+        var name = ""
+        if (header.payloadSize >= 9) {
+            flags = data[HEADER_SIZE + 7].toInt() and 0xFF
+            val len = minOf(data[HEADER_SIZE + 8].toInt() and 0xFF, MAX_HOST_NAME, header.payloadSize - 9)
+            name = String(data, HEADER_SIZE + 9, len, Charsets.UTF_8)
+        }
         return StreamInfo(
             width = b.getShort(HEADER_SIZE).toInt() and 0xFFFF,
             height = b.getShort(HEADER_SIZE + 2).toInt() and 0xFFFF,
             fps = b.getShort(HEADER_SIZE + 4).toInt() and 0xFFFF,
             codec = data[HEADER_SIZE + 6].toInt() and 0xFF,
+            hostFlags = flags,
+            hostName = name,
         )
     }
 }

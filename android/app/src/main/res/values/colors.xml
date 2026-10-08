@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="dl_background">#FF0A0E17</color>
+    <color name="dl_accent">#FF00E5FF</color>
+    <color name="dl_accent_alt">#FFFF2BD6</color>
+</resources>
