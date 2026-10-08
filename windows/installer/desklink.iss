@@ -34,7 +34,7 @@ DisableProgramGroupPage=yes
 DisableDirPage=auto
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
-ArchitecturesInstallIn64Mode=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 OutputBaseFilename=DeskLink-Setup
 Compression=lzma2
@@ -85,10 +85,11 @@ begin
     Result := '';
 end;
 
-// Hay un driver instalado por este instalador y es el mismo que trae esta versión.
+// Hay un driver instalado por este instalador y es el mismo que trae esta versión. (Sólo mira el registro: se usa
+// también en [Tasks], antes de que {app} esté disponible.)
 function DriverIsCurrent(): Boolean;
 begin
-  Result := (InstalledDriverId() = NewDriverId) and FileExists(ExpandConstant('{app}\driver\desklink-driver.exe'));
+  Result := InstalledDriverId() = NewDriverId;
 end;
 
 function DriverNeedsInstall(): Boolean;
