@@ -27,6 +27,7 @@ enum class PacketType : uint8_t {
   kRateReport = 9,       // cliente -> host: frames recibidos y perdidos en el último segundo (u16, u16)
   kNack = 10,            // cliente -> host: reenvía estos paquetes de un frame (frame_id en la cabecera; payload: u16 por índice)
   kTouch = 11,           // cliente -> host: estado táctil completo (u8 n, n x {u8 id, u16 x, u16 y, u16 presión}); x,y en 0..65535
+  kInputMode = 13,       // cliente -> host: u8 modo pedido (0 táctil, 1 ratón); host -> cliente: u8 pedido, u8 en uso
   kBurstData = 8,        // host -> cliente: paquete de relleno de la ráfaga (packet_index/packet_count)
   kDiscover = 12,        // cliente -> host: "¿hay alguien?"; el host responde STREAM_INFO sin empezar a enviar vídeo
 };
@@ -90,6 +91,9 @@ constexpr size_t kBurstRequestSize = 6;
 constexpr size_t kRateReportSize = 4;
 constexpr size_t kTouchContactSize = 7;
 constexpr size_t kMaxTouchContacts = 10;
+constexpr size_t kInputModeRequestSize = 1;  // cliente -> host
+constexpr size_t kInputModeStateSize = 2;    // host -> cliente
+enum class InputMode : uint8_t { kTouch = 0, kMouse = 1 };
 
 // Escribe la cabecera en kHeaderSize bytes.
 void WriteHeader(const Header& header, uint8_t* out);

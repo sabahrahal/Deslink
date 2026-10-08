@@ -21,6 +21,7 @@ add_executable(desklink-host
   src/converter.cpp
   src/encoder.cpp
   src/touch.cpp
+  src/touch_gestures.cpp
   src/udp.cpp
   src/usb.cpp
   src/virtual_display.cpp)
@@ -32,3 +33,11 @@ target_link_libraries(desklink-host PRIVATE dlp
 if(MSVC)
   target_compile_options(desklink-host PRIVATE /W3 /utf-8)
 endif()
+
+# Pruebas de lo que no depende de Windows (gestos del modo ratón).
+enable_testing()
+add_executable(test_touch_gestures tests/test_touch_gestures.cpp src/touch_gestures.cpp)
+if(MSVC)
+  target_compile_options(test_touch_gestures PRIVATE /W3 /utf-8)
+endif()
+add_test(NAME touch_gestures COMMAND test_touch_gestures)
