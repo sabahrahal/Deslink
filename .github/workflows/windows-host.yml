@@ -15,7 +15,19 @@ jobs:
         run: cmake -S windows/host -B build/host -A x64
       - name: Compilar
         run: cmake --build build/host --config Release
+      # adb va junto al .exe: sin él el host no puede abrir el túnel del cable USB y la tablet solo
+      # llega por WiFi o por anclaje de red.
+      - name: Añadir adb
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://dl.google.com/android/repository/platform-tools-latest-windows.zip -OutFile pt.zip
+          Expand-Archive pt.zip -DestinationPath pt
+          Copy-Item pt/platform-tools/adb.exe, pt/platform-tools/AdbWinApi.dll, pt/platform-tools/AdbWinUsbApi.dll build/host/Release/
       - uses: actions/upload-artifact@v4
         with:
           name: desklink-host-windows
-          path: build/host/Release/desklink-host.exe
+          path: |
+            build/host/Release/desklink-host.exe
+            build/host/Release/adb.exe
+            build/host/Release/AdbWinApi.dll
+            build/host/Release/AdbWinUsbApi.dll
