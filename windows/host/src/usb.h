@@ -52,6 +52,9 @@ class AdbReverse {
   // adb_path vacío: lo busca junto al .exe, en el PATH y en el SDK de Android.
   void Start(uint16_t port, std::wstring adb_path);
   void Stop();
+  // Tablets con el túnel puesto y tablets enchufadas sin autorizar; ready() es -1 si no hay adb.exe.
+  int ready() const { return missing_ ? -1 : ready_.load(); }
+  int unauthorized() const { return unauthorized_; }
 
  private:
   void Loop();
@@ -63,4 +66,7 @@ class AdbReverse {
   std::atomic<bool> stop_{false};
   std::set<std::string> reversed_;  // tablets con el túnel puesto
   std::set<std::string> warned_;    // tablets sin autorizar, ya avisadas
+  std::atomic<int> ready_{0};
+  std::atomic<int> unauthorized_{0};
+  std::atomic<bool> missing_{false};
 };

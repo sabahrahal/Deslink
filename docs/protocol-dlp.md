@@ -26,8 +26,8 @@ Tamaño máximo de paquete: 1200 bytes (1176 de payload), para no fragmentar en 
 | 1 | VIDEO | host a cliente | trozo del frame codificado (H.264 o HEVC, formato Annex B) |
 | 2 | HELLO | cliente a host | vacío. Registra al cliente como destino y pide frame clave |
 | 3 | KEYFRAME_REQUEST | cliente a host | vacío |
-| 4 | PING | cliente a host | vacío; el timestamp es el del cliente |
-| 5 | PONG | host a cliente | vacío; devuelve el timestamp del PING |
+| 4 | PING | los dos sentidos | vacío; el timestamp es el de quien lo envía |
+| 5 | PONG | los dos sentidos | vacío; devuelve el timestamp del PING |
 | 6 | STREAM_INFO | host a cliente | ancho u16, alto u16, fps u16, códec u8 (1 H.264, 2 HEVC) |
 | 7 | BURST_REQUEST | cliente a host | count u16, size u16, pace_mbps u16 (0 = de golpe). El timestamp sirve de nonce |
 | 9 | RATE_REPORT | cliente a host | frames recibidos u16, frames perdidos u16 en el último segundo. El host baja la tasa un 30 % si hay pérdidas (o si la tablet pide un frame clave), recuerda un techo por debajo de la tasa que falló y la sube un 5 % tras 8 s limpios (máximo `--bitrate`) |
@@ -42,6 +42,8 @@ Tamaño máximo de paquete: 1200 bytes (1176 de payload), para no fragmentar en 
 3. El cliente reensambla. Sin colas: al completarse un frame se descartan los anteriores incompletos.
 4. Si se pierde un frame (o hay un hueco en `frame_id`), el cliente pide KEYFRAME_REQUEST y no decodifica frames hasta recibir uno clave.
 5. El cliente envía PING cada segundo; el RTT es la diferencia entre el reloj local y el timestamp devuelto.
+   Con `--status` (la app de bandeja) el host también envía un PING por segundo al cliente para mostrar el RTT en el PC;
+   el cliente que lo conteste con PONG (mismo timestamp) lo hace visible. Un cliente que no lo conteste sigue funcionando.
 
 ## Pendiente (no está en la fase 1)
 
