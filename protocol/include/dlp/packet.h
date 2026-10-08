@@ -27,6 +27,8 @@ enum class PacketType : uint8_t {
   kNack = 10,            // cliente -> host: reenvía estos paquetes de un frame (frame_id en la cabecera; payload: u16 por índice)
   kTouch = 11,           // cliente -> host: estado táctil completo (u8 n, n x {u8 id, u16 x, u16 y, u16 presión}); x,y en 0..65535
   kBurstData = 8,        // host -> cliente: paquete de relleno de la ráfaga (packet_index/packet_count)
+  // 12-15 quedan libres para el audio y el táctil.
+  kQualityRequest = 16,  // cliente -> host: límites del perfil de batería (ver QualityRequest)
 };
 
 enum Flags : uint8_t {
@@ -58,6 +60,31 @@ constexpr size_t kBurstRequestSize = 6;
 constexpr size_t kRateReportSize = 4;
 constexpr size_t kTouchContactSize = 7;
 constexpr size_t kMaxTouchContacts = 10;
+constexpr size_t kQualityRequestSize = 6;
+
+// Perfiles de batería. La tablet elige uno (y lo baja o sube sola según la carga por USB) y manda sus
+// límites; el host los aplica como techo de sus propias opciones (--fps, --bitrate).
+enum class Profile : uint8_t { kMaxQuality = 0, kBalanced = 1, kSaver = 2, kMinimum = 3 };
+
+// Límites que pide la tablet. 0 en un campo = sin límite (lo que diga el host).
+struct QualityRequest {
+  uint16_t max_fps = 0;
+  uint32_t max_bitrate_bps = 0;  // en el cable va en unidades de 100 kbps (u16)
+  uint8_t scale_percent = 100;   // resolución de codificación respecto a la capturada (50-100)
+  Profile profile = Profile::kBalanced;
+};
+
+// Valores de cada perfil (los mismos que PowerProfile.kt en la app).
+QualityRequest ProfileDefaults(Profile profile);
+const char* ProfileName(Profile profile);
+
+std::vector<uint8_t> EncodeQualityRequest(const QualityRequest& request);
+// Valida y acota: fps 0 o 10-240, escala 50-100 (0 cuenta como 100), perfil desconocido = equilibrado.
+std::optional<QualityRequest> DecodeQualityRequest(const uint8_t* payload, size_t size);
+
+// Tamaño de codificación para una captura de width x height al percent %: redondeado a par (lo exigen
+// NV12 y los codificadores) y nunca por debajo de 640 de ancho (salvo que la captura sea menor).
+void ScaledSize(uint32_t width, uint32_t height, uint8_t percent, uint32_t* out_width, uint32_t* out_height);
 
 // Escribe la cabecera en kHeaderSize bytes.
 void WriteHeader(const Header& header, uint8_t* out);

@@ -14,6 +14,7 @@ class StreamSession(
     private val host: String,
     private val surface: Surface,
     private val listener: Listener,
+    initialProfile: PowerProfile = PowerProfile.DEFAULT,
 ) {
     interface Listener {
         fun onStreamInfo(info: Dlp.StreamInfo)
@@ -29,6 +30,8 @@ class StreamSession(
     @Volatile private var rttUs = -1L
     @Volatile private var routeLabel = ""
     @Volatile private var lastRxUs = 0L
+    /** Perfil de batería que se pide al host (lo cambia el modo «adaptar a la carga»). */
+    @Volatile private var profile = initialProfile
 
     @Volatile private var link: Link? = null
     private var receiveThread: Thread? = null
@@ -93,6 +96,7 @@ class StreamSession(
                 return
             }
             l.send(Dlp.controlPacket(Dlp.TYPE_HELLO, nowUs()))
+            l.send(Dlp.qualityRequest(profile, nowUs()))
             while (running) {
                 // Con frames a medias se despierta a menudo para reclamar paquetes perdidos y entregar frames;
                 // con el escritorio quieto no llega nada y despertar 250 veces por segundo solo gasta batería.
@@ -137,12 +141,30 @@ class StreamSession(
         return running
     }
 
+    /** Cambia el perfil de batería; se manda al host en el acto (y se repite cada pocos segundos). */
+    fun setProfile(p: PowerProfile) {
+        if (p == profile) return
+        profile = p
+        // Android no deja enviar por red desde el hilo de la interfaz.
+        try {
+            touchExecutor.execute { send(Dlp.qualityRequest(p, nowUs())) }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            // Sesión ya parada.
+        }
+    }
+
     private fun onStreamInfo(buf: ByteArray, header: Dlp.Header) {
         val info = Dlp.parseStreamInfo(buf, header) ?: return
         val current = streamInfo
         if (current != null && current.width == info.width && current.height == info.height &&
-            current.fps == info.fps && current.codec == info.codec
+            current.codec == info.codec
         ) {
+            // Solo cambian los fps (perfil de batería): el decodificador sigue, sin esperar a otro frame clave.
+            if (current.fps != info.fps) {
+                decoder?.setOperatingRate(info.fps)
+                streamInfo = info
+                listener.onStreamInfo(info)
+            }
             return
         }
         try {
@@ -228,11 +250,14 @@ class StreamSession(
         var lastLost = 0L
         var lastTime = nowUs()
         var helloAttempts = 0
+        var ticks = 0
         while (running) {
             val info = streamInfo
             // Si el host dejó de oírnos (p. ej. un corte de red) nos habrá olvidado: un HELLO lo reengancha.
             val silent = info != null && nowUs() - lastRxUs > 3_000_000
             send(Dlp.controlPacket(if (info == null || silent) Dlp.TYPE_HELLO else Dlp.TYPE_PING, nowUs()))
+            // El perfil se repite cada 5 s por si se perdió o el host se reinició.
+            if (info == null || silent || ticks++ % 5 == 0) send(Dlp.qualityRequest(profile, nowUs()))
             try {
                 Thread.sleep(1000)
             } catch (_: InterruptedException) {
