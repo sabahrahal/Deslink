@@ -142,6 +142,8 @@ class StreamSession(
                     Dlp.TYPE_VIDEO -> onVideo(buf, length)
                     Dlp.TYPE_STREAM_INFO -> onStreamInfo(buf, header)
                     Dlp.TYPE_PONG -> rttUs = nowUs() - header.timestampUs
+                    // El host también mide el retardo (bandeja de Windows): se le devuelve su marca de tiempo.
+                    Dlp.TYPE_PING -> send(Dlp.controlPacket(Dlp.TYPE_PONG, header.timestampUs))
                 }
             }
             l.close()
