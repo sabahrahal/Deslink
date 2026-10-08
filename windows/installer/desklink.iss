@@ -34,7 +34,7 @@ DisableProgramGroupPage=yes
 DisableDirPage=auto
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
-ArchitecturesInstallIn64ModeAllowed=x64compatible
+ArchitecturesInstallIn64Mode=x64compatible
 MinVersion=10.0
 OutputBaseFilename=DeskLink-Setup
 Compression=lzma2
@@ -100,15 +100,16 @@ end;
 function RunDriverTool(const Command: String; var Log: String): Integer;
 var
   Exe: String;
+  Code: Integer;
 begin
   Exe := ExpandConstant('{app}\driver\desklink-driver.exe');
   Log := ExpandConstant('{app}\driver\' + Command + '.log');
   Result := -1;
   if not FileExists(Exe) then
     Exit;
-  if not Exec(ExpandConstant('{cmd}'), '/c ""' + Exe + '" ' + Command + ' --sin-pausa > "' + Log + '" 2>&1"',
-              ExpandConstant('{app}\driver'), SW_HIDE, ewWaitUntilTerminated, Result) then
-    Result := -1;
+  if Exec(ExpandConstant('{cmd}'), '/c ""' + Exe + '" ' + Command + ' --sin-pausa > "' + Log + '" 2>&1"',
+          ExpandConstant('{app}\driver'), SW_HIDE, ewWaitUntilTerminated, Code) then
+    Result := Code;
 end;
 
 // Cierra el host (tiene abierto el monitor virtual) y el servidor de adb (bloquea adb.exe).
