@@ -1,91 +1,180 @@
 package com.desklink
 
-import android.app.Activity
-import android.content.Context
 import android.content.Intent
 import android.os.Bundle
-import android.text.InputType
-import android.view.Gravity
-import android.widget.Button
-import android.widget.EditText
-import android.widget.LinearLayout
-import android.widget.TextView
+import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import com.desklink.ui.DeskLinkTheme
+import com.desklink.ui.HomeScreen
+import com.desklink.ui.HomeState
+import com.desklink.ui.Palette
+import com.desklink.ui.SettingsScreen
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
-class MainActivity : Activity() {
+/**
+ * Pantalla de inicio: busca PCs solo (cable USB y red) mientras está visible, los lista y conecta con un toque.
+ * Los ajustes van en la misma actividad.
+ */
+class MainActivity : ComponentActivity() {
+    private lateinit var store: SettingsStore
+    private var resumed by mutableStateOf(false)
+    private var settings by mutableStateOf(AppSettings())
+    private var home by mutableStateOf(HomeState())
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        val prefs = getSharedPreferences("desklink", Context.MODE_PRIVATE)
+        store = SettingsStore(this)
+        settings = store.load()
+        home = home.copy(lastHost = store.lastHost, lastHostName = store.lastHostName)
+        val display = Device.display(this)
+        val version = try {
+            packageManager.getPackageInfo(packageName, 0).versionName ?: ""
+        } catch (_: Exception) {
+            ""
+        }
+        // Al abrir la app (no al volver de una sesión ni al girar la pantalla) puede conectarse sola al último PC.
+        val coldStart = savedInstanceState == null
 
-        val title = TextView(this).apply {
-            text = "DeskLink"
-            textSize = 28f
-            gravity = Gravity.CENTER
-        }
-        val hint = TextView(this).apply {
-            text = "Deja la IP vacía para buscar el PC automáticamente (primero por el cable USB, luego por WiFi), " +
-                "o escribe la IP del PC."
-            gravity = Gravity.CENTER
-        }
-        val ip = EditText(this).apply {
-            setHint(prefs.getString("host", null)?.let { "Última: $it (vacío = buscar solo)" } ?: "Vacío = buscar el PC solo")
-            inputType = InputType.TYPE_CLASS_PHONE
-            setSingleLine()
-        }
-        val statusText = TextView(this).apply { gravity = Gravity.CENTER }
-        // Si el campo está vacío, busca el PC automáticamente (WiFi o USB) y luego abre la pantalla.
-        fun launch(target: Class<*>) {
-            val typed = ip.text.toString().trim()
-            if (typed.isNotEmpty()) {
-                prefs.edit().putString("host", typed).apply()
-                startActivity(Intent(this, target).putExtra(StreamActivity.EXTRA_HOST, typed))
-                return
-            }
-            statusText.text = "Buscando el PC por el cable USB y en la red…"
-            Thread {
-                // El cable primero: no depende del WiFi y tiene menos latencia.
-                val found = if (CableLink.probe()) {
-                    Found(Link.CABLE_HOST, Route("adb", java.net.InetAddress.getLoopbackAddress(), Transport.CABLE))
-                } else {
-                    try { Discovery.find() } catch (_: Exception) { null }
-                }
-                runOnUiThread {
-                    if (found == null) {
-                        statusText.text = "No encontré el PC. Redes de la tablet: ${Discovery.describeNetworks()}. " +
-                            "Abre desklink-host.exe. Por cable USB: activa la depuración USB (Opciones de desarrollador) " +
-                            "y acepta el aviso del PC. Por WiFi: permite UDP 47800 en el cortafuegos de Windows."
-                    } else {
-                        statusText.text = if (found.ip == Link.CABLE_HOST) {
-                            "PC encontrado por el cable USB"
-                        } else {
-                            "PC encontrado: ${found.ip} por ${found.route?.transport?.label ?: "red"}"
+        setContent {
+            DeskLinkTheme {
+                var showSettings by rememberSaveable { mutableStateOf(false) }
+                var autoDone by rememberSaveable { mutableStateOf(!coldStart) }
+                BackHandler(enabled = showSettings) { showSettings = false }
+
+                // Búsqueda continua mientras la pantalla está a la vista. No corre durante una sesión: la prueba
+                // del cable abre una conexión USB nueva y el PC cortaría la de la sesión.
+                LaunchedEffect(resumed) {
+                    if (!resumed) return@LaunchedEffect
+                    val seen = LinkedHashMap<String, Pair<Found, Int>>()
+                    var scan = home.scans
+                    while (true) {
+                        home = home.copy(scanning = true)
+                        val results = scanOnce()
+                        scan++
+                        for (f in results) seen[f.ip] = f to scan
+                        // Un PC que falla una búsqueda no desaparece de golpe de la lista.
+                        seen.entries.removeAll { scan - it.value.second > 1 }
+                        val hosts = seen.values.map { it.first }.sortedByDescending { it.isCable }
+                        home = home.copy(
+                            hosts = hosts,
+                            scanning = false,
+                            scans = scan,
+                            networks = withContext(Dispatchers.IO) { Discovery.describeNetworks() },
+                        )
+                        if (!autoDone && settings.autoConnect && !showSettings && home.autoConnecting == null) {
+                            hosts.firstOrNull { it.ip == home.lastHost }?.let { home = home.copy(autoConnecting = it) }
                         }
-                        prefs.edit().putString("host", found.ip).apply()
-                        startActivity(Intent(this, target).putExtra(StreamActivity.EXTRA_HOST, found.ip))
+                        delay(if (hosts.isEmpty()) 1000 else 3000)
                     }
                 }
-            }.start()
-        }
-        val connect = Button(this).apply {
-            text = "Conectar (busca el PC solo)"
-            setOnClickListener { launch(StreamActivity::class.java) }
-        }
+                LaunchedEffect(home.autoConnecting) {
+                    val target = home.autoConnecting ?: return@LaunchedEffect
+                    delay(1500)
+                    autoDone = true
+                    home = home.copy(autoConnecting = null)
+                    connect(target)
+                }
 
-        val diagnostics = Button(this).apply {
-            text = "Diagnóstico y recomendaciones"
-            setOnClickListener { launch(DiagnosticsActivity::class.java) }
+                Box(Modifier.fillMaxSize().background(Palette.BackgroundGradient)) {
+                    AnimatedContent(showSettings, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "screen") { inSettings ->
+                        if (inSettings) {
+                            SettingsScreen(
+                                settings = settings,
+                                display = display,
+                                hevcSupported = Device.hevcSupported,
+                                versionName = version,
+                                onChange = {
+                                    settings = it
+                                    store.save(it)
+                                },
+                                onOpenDiagnostics = { openDiagnostics() },
+                                onBack = { showSettings = false },
+                            )
+                        } else {
+                            HomeScreen(
+                                state = home,
+                                onConnect = {
+                                    autoDone = true
+                                    connect(it)
+                                },
+                                onConnectAddress = {
+                                    autoDone = true
+                                    connect(Found(it, null))
+                                },
+                                onCancelAuto = {
+                                    autoDone = true
+                                    home = home.copy(autoConnecting = null)
+                                },
+                                onOpenSettings = {
+                                    autoDone = true
+                                    home = home.copy(autoConnecting = null)
+                                    showSettings = true
+                                },
+                            )
+                        }
+                    }
+                }
+            }
         }
+    }
 
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(64, 64, 64, 64)
-            addView(title)
-            addView(hint)
-            addView(ip, LinearLayout.LayoutParams(-1, -2))
-            addView(connect)
-            addView(diagnostics)
-            addView(statusText)
+    override fun onResume() {
+        super.onResume()
+        resumed = true
+    }
+
+    override fun onPause() {
+        super.onPause()
+        resumed = false
+    }
+
+    /** Una búsqueda: el cable USB y la red a la vez. */
+    private suspend fun scanOnce(): List<Found> = coroutineScope {
+        val cable = async(Dispatchers.IO) { CableLink.probe() }
+        val lan = async(Dispatchers.IO) { Discovery.findAll() }
+        listOfNotNull(cable.await()) + lan.await()
+    }
+
+    private fun connect(found: Found) {
+        // Sin nombre (IP escrita a mano o host antiguo) se conserva el que hubiera para esa misma dirección.
+        if (found.name.isNotBlank() || store.lastHost != found.ip) store.lastHostName = found.name
+        store.lastHost = found.ip
+        home = home.copy(lastHost = found.ip, lastHostName = store.lastHostName)
+        CableLink.sessionActive = true // que ninguna búsqueda en curso abra otra conexión por cable
+        startActivity(
+            Intent(this, StreamActivity::class.java)
+                .putExtra(StreamActivity.EXTRA_HOST, found.ip)
+                .putExtra(StreamActivity.EXTRA_HOST_NAME, found.title),
+        )
+    }
+
+    private fun openDiagnostics() {
+        val host = store.lastHost
+        if (host == null) {
+            Toast.makeText(this, "Conéctate primero a un PC", Toast.LENGTH_SHORT).show()
+            return
         }
-        setContentView(root)
+        startActivity(Intent(this, DiagnosticsActivity::class.java).putExtra(StreamActivity.EXTRA_HOST, host))
     }
 }

@@ -104,11 +104,15 @@ std::vector<uint8_t> MakeControlPacket(PacketType type, const uint8_t* payload,
 }
 
 std::vector<uint8_t> EncodeStreamInfo(const StreamInfo& info) {
-  std::vector<uint8_t> out(kStreamInfoSize);
+  const size_t name_len = std::min(info.host_name.size(), kMaxHostName);
+  std::vector<uint8_t> out(kStreamInfoSize + 2 + name_len);
   Put16(out.data() + 0, info.width);
   Put16(out.data() + 2, info.height);
   Put16(out.data() + 4, info.fps);
   out[6] = static_cast<uint8_t>(info.codec);
+  out[7] = info.host_flags;
+  out[8] = static_cast<uint8_t>(name_len);
+  if (name_len > 0) std::memcpy(out.data() + 9, info.host_name.data(), name_len);
   return out;
 }
 
@@ -119,7 +123,42 @@ std::optional<StreamInfo> DecodeStreamInfo(const uint8_t* payload, size_t size) 
   info.height = Get16(payload + 2);
   info.fps = Get16(payload + 4);
   info.codec = static_cast<Codec>(payload[6]);
+  if (size >= kStreamInfoSize + 2) {
+    info.host_flags = payload[7];
+    const size_t name_len = std::min<size_t>({payload[8], kMaxHostName, size - kStreamInfoSize - 2});
+    info.host_name.assign(reinterpret_cast<const char*>(payload + 9), name_len);
+  }
   return info;
+}
+
+std::vector<uint8_t> EncodeHelloConfig(const HelloConfig& c) {
+  std::vector<uint8_t> out(kHelloConfigSize);
+  Put16(out.data() + 0, c.width);
+  Put16(out.data() + 2, c.height);
+  Put16(out.data() + 4, c.fps);
+  Put16(out.data() + 6, c.bitrate_mbps);
+  out[8] = c.codec;
+  out[9] = c.reserved;
+  Put16(out.data() + 10, c.density_dpi);
+  Put16(out.data() + 12, c.refresh_hz);
+  return out;
+}
+
+std::optional<HelloConfig> DecodeHelloConfig(const uint8_t* payload, size_t size) {
+  if (size == 0) return std::nullopt;
+  // Lo que falte (un cliente con menos campos) cuenta como 0.
+  uint8_t b[kHelloConfigSize] = {};
+  std::memcpy(b, payload, std::min(size, kHelloConfigSize));
+  HelloConfig c;
+  c.width = Get16(b + 0);
+  c.height = Get16(b + 2);
+  c.fps = Get16(b + 4);
+  c.bitrate_mbps = Get16(b + 6);
+  c.codec = b[8];
+  c.reserved = b[9];
+  c.density_dpi = Get16(b + 10);
+  c.refresh_hz = Get16(b + 12);
+  return c;
 }
 
 }  // namespace dlp

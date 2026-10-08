@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace dlp {
@@ -27,6 +28,7 @@ enum class PacketType : uint8_t {
   kNack = 10,            // cliente -> host: reenvía estos paquetes de un frame (frame_id en la cabecera; payload: u16 por índice)
   kTouch = 11,           // cliente -> host: estado táctil completo (u8 n, n x {u8 id, u16 x, u16 y, u16 presión}); x,y en 0..65535
   kBurstData = 8,        // host -> cliente: paquete de relleno de la ráfaga (packet_index/packet_count)
+  kDiscover = 12,        // cliente -> host: "¿hay alguien?"; el host responde STREAM_INFO sin empezar a enviar vídeo
 };
 
 enum Flags : uint8_t {
@@ -46,14 +48,44 @@ struct Header {
   uint16_t payload_size = 0;
 };
 
+// Bits de StreamInfo::host_flags.
+enum HostFlags : uint8_t {
+  kHostAcceptsHelloConfig = 1 << 0,  // el host aplica la configuración que la tablet manda en HELLO
+};
+
 struct StreamInfo {
   uint16_t width = 0;
   uint16_t height = 0;
   uint16_t fps = 0;
   Codec codec = Codec::kHevc;
+  // Extensión opcional (los clientes antiguos solo leen los 7 primeros bytes).
+  uint8_t host_flags = 0;
+  std::string host_name;  // nombre del PC, UTF-8, como mucho kMaxHostName bytes
+};
+
+// Lo que la tablet pide en el payload de HELLO. 0 en un campo = "lo que diga el host".
+// Un HELLO vacío (clientes antiguos y búsqueda) no cambia nada. Campos nuevos se añaden al final:
+// el host ignora los bytes que no conoce y trata como 0 los que falten.
+struct HelloConfig {
+  uint16_t width = 0;         // tamaño pedido para el monitor virtual, en píxeles (horizontal)
+  uint16_t height = 0;
+  uint16_t fps = 0;
+  uint16_t bitrate_mbps = 0;
+  uint8_t codec = 0;          // 0 = el del host, 1 = H.264, 2 = HEVC
+  uint8_t reserved = 0;
+  uint16_t density_dpi = 0;   // informativo: densidad de la pantalla de la tablet
+  uint16_t refresh_hz = 0;    // informativo: frecuencia máxima de la pantalla de la tablet
+
+  bool operator==(const HelloConfig& o) const {
+    return width == o.width && height == o.height && fps == o.fps && bitrate_mbps == o.bitrate_mbps &&
+           codec == o.codec && density_dpi == o.density_dpi && refresh_hz == o.refresh_hz;
+  }
+  bool operator!=(const HelloConfig& o) const { return !(*this == o); }
 };
 
 constexpr size_t kStreamInfoSize = 7;
+constexpr size_t kMaxHostName = 64;
+constexpr size_t kHelloConfigSize = 14;
 constexpr size_t kBurstRequestSize = 6;
 constexpr size_t kRateReportSize = 4;
 constexpr size_t kTouchContactSize = 7;
@@ -77,5 +109,9 @@ std::vector<uint8_t> MakeControlPacket(PacketType type, const uint8_t* payload,
 
 std::vector<uint8_t> EncodeStreamInfo(const StreamInfo& info);
 std::optional<StreamInfo> DecodeStreamInfo(const uint8_t* payload, size_t size);
+
+std::vector<uint8_t> EncodeHelloConfig(const HelloConfig& config);
+// nullopt si el payload está vacío (HELLO antiguo o de búsqueda): no hay nada que aplicar.
+std::optional<HelloConfig> DecodeHelloConfig(const uint8_t* payload, size_t size);
 
 }  // namespace dlp

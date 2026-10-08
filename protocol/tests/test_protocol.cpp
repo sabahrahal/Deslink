@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <numeric>
 #include <random>
+#include <string>
 
 #include "dlp/packet.h"
 #include "dlp/reassembler.h"
@@ -144,6 +145,61 @@ static void TestStreamInfoAndControl() {
   CHECK(d && d->width == 2944 && d->height == 1840 && d->fps == 60 && d->codec == Codec::kHevc);
 }
 
+static void TestStreamInfoExtension() {
+  StreamInfo info;
+  info.width = 1920;
+  info.height = 1080;
+  info.fps = 120;
+  info.codec = Codec::kH264;
+  info.host_flags = kHostAcceptsHelloConfig;
+  info.host_name = "ESCRITORIO-SABAH";
+  auto payload = EncodeStreamInfo(info);
+  CHECK(payload.size() == kStreamInfoSize + 2 + 16);
+  auto d = DecodeStreamInfo(payload.data(), payload.size());
+  CHECK(d && d->host_flags == kHostAcceptsHelloConfig && d->host_name == "ESCRITORIO-SABAH");
+  // Un host antiguo manda solo 7 bytes: sin nombre ni banderas.
+  auto old = DecodeStreamInfo(payload.data(), kStreamInfoSize);
+  CHECK(old && old->width == 1920 && old->host_flags == 0 && old->host_name.empty());
+  // Un nombre declarado más largo que el payload se recorta.
+  payload[8] = 200;
+  auto cut = DecodeStreamInfo(payload.data(), payload.size());
+  CHECK(cut && cut->host_name == "ESCRITORIO-SABAH");
+  // Nombres demasiado largos se recortan a kMaxHostName.
+  info.host_name = std::string(100, 'x');
+  CHECK(EncodeStreamInfo(info).size() == kStreamInfoSize + 2 + kMaxHostName);
+}
+
+static void TestHelloConfig() {
+  HelloConfig c;
+  c.width = 2944;
+  c.height = 1840;
+  c.fps = 90;
+  c.bitrate_mbps = 30;
+  c.codec = 2;
+  c.density_dpi = 320;
+  c.refresh_hz = 90;
+  auto payload = EncodeHelloConfig(c);
+  // Mismos bytes que comprueba android/app/src/test/.../HelloConfigTest.kt.
+  const uint8_t golden[kHelloConfigSize] = {0x80, 0x0B, 0x30, 0x07, 0x5A, 0x00, 0x1E,
+                                             0x00, 0x02, 0x00, 0x40, 0x01, 0x5A, 0x00};
+  CHECK(payload.size() == kHelloConfigSize && std::equal(payload.begin(), payload.end(), golden));
+  auto pkt = MakeControlPacket(PacketType::kHello, payload.data(), payload.size(), 5);
+  auto h = ParseHeader(pkt.data(), pkt.size());
+  CHECK(h && h->type == PacketType::kHello);
+  auto d = DecodeHelloConfig(pkt.data() + kHeaderSize, h->payload_size);
+  CHECK(d && *d == c);
+  // HELLO vacío (cliente antiguo o búsqueda): nada que aplicar.
+  CHECK(!DecodeHelloConfig(pkt.data() + kHeaderSize, 0).has_value());
+  // Un cliente con menos campos: lo que falta es 0.
+  auto shortc = DecodeHelloConfig(payload.data(), 4);
+  CHECK(shortc && shortc->width == 2944 && shortc->height == 1840 && shortc->fps == 0 && shortc->codec == 0);
+  // Bytes de más (campos futuros) se ignoran.
+  payload.push_back(0xFF);
+  auto longc = DecodeHelloConfig(payload.data(), payload.size());
+  CHECK(longc && *longc == c);
+  CHECK(static_cast<uint8_t>(PacketType::kDiscover) == 12);
+}
+
 static void TestBurstTypes() {
   const uint8_t payload[kBurstRequestSize] = {0x90, 0x01, 0xB0, 0x04, 0x64, 0x00};
   auto pkt = MakeControlPacket(PacketType::kBurstRequest, payload, sizeof(payload), 42);
@@ -164,6 +220,8 @@ int main() {
   TestLossRequestsKeyframe();
   TestGapCountsAsLoss();
   TestStreamInfoAndControl();
+  TestStreamInfoExtension();
+  TestHelloConfig();
   std::puts("dlp_tests: OK");
   return 0;
 }
