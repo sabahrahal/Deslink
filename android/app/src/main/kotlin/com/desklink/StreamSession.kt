@@ -19,6 +19,8 @@ class StreamSession(
         fun onStreamInfo(info: Dlp.StreamInfo)
         fun onStats(text: String)
         fun onError(message: String)
+        /** Interfaz por la que se llega al host (null si no se supo). */
+        fun onRoute(route: Route?) = Unit
     }
 
     @Volatile private var running = false
@@ -73,6 +75,7 @@ class StreamSession(
             try {
                 l = Link.open(host)
                 routeLabel = l.route?.let { "[${it.transport.label}] " } ?: ""
+                listener.onRoute(l.route)
                 link = l
             } catch (e: IOException) {
                 if (!cable) {
@@ -90,10 +93,15 @@ class StreamSession(
                 return
             }
             l.send(Dlp.controlPacket(Dlp.TYPE_HELLO, nowUs()))
-            // Por UDP se despierta a menudo para reclamar paquetes perdidos y entregar frames retenidos;
-            // por cable no se pierde nada y basta con despertar de vez en cuando (menos CPU y batería).
-            val waitMs = if (l is CableLink) 100 else 4
             while (running) {
+                // Con frames a medias se despierta a menudo para reclamar paquetes perdidos y entregar frames;
+                // con el escritorio quieto no llega nada y despertar 250 veces por segundo solo gasta batería.
+                // Por cable no se pierde nada: basta con despertar de vez en cuando.
+                val waitMs = when {
+                    l is CableLink -> CABLE_TIMEOUT_MS
+                    reassembler.hasPending -> BUSY_TIMEOUT_MS
+                    else -> IDLE_TIMEOUT_MS
+                }
                 val length = try {
                     l.receive(buf, waitMs)
                 } catch (e: IOException) {
@@ -204,6 +212,12 @@ class StreamSession(
         if (now - lastKeyframeRequestUs < 500_000) return
         lastKeyframeRequestUs = now
         send(Dlp.controlPacket(Dlp.TYPE_KEYFRAME_REQUEST, now))
+    }
+
+    private companion object {
+        const val BUSY_TIMEOUT_MS = 4
+        const val IDLE_TIMEOUT_MS = 50
+        const val CABLE_TIMEOUT_MS = 100
     }
 
     /** Cada segundo: HELLO hasta que el host responda, PING para medir RTT y estadísticas. */
