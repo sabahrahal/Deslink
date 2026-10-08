@@ -89,6 +89,12 @@ jobs:
           cmake -S windows/host -B build/host -A x64
           cmake --build build/host --config Release
 
+      - name: Compilar la app de bandeja
+        if: hashFiles('windows/app/CMakeLists.txt') != ''
+        run: |
+          cmake -S windows/app -B build/app -A x64
+          cmake --build build/app --config Release
+
       - name: Preparar los archivos
         shell: pwsh
         run: |
@@ -97,6 +103,10 @@ jobs:
           New-Item -ItemType Directory -Force "$stage/host", "$stage/adb", "$stage/tools" | Out-Null
           # Todo lo que deje el host junto a su .exe (si un día trae DLL propias, van también).
           Get-ChildItem build/host/Release -File | Where-Object Extension -in '.exe', '.dll' | Copy-Item -Destination "$stage/host"
+          # La app de bandeja (desklink.exe), si existe: va en la misma carpeta que el host.
+          if (Test-Path build/app/Release) {
+            Get-ChildItem build/app/Release -File | Where-Object Extension -in '.exe', '.dll' | Copy-Item -Destination "$stage/host"
+          }
           Copy-Item tools/dev/actualizar.ps1, tools/dev/actualizar-tablet.bat, tools/dev/actualizar-pc.bat "$stage/tools"
 
           # adb oficial de Google (platform-tools). Sólo hacen falta estos tres archivos.

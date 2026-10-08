@@ -17,9 +17,16 @@
 #ifndef DriverId
   #error Falta /DDriverId (contenido de driver-id.txt)
 #endif
-; Ejecutable y argumentos del acceso directo. El host vive en la raíz de la carpeta de instalación.
+; Ejecutable y argumentos del acceso directo: la app de bandeja (windows/app, desklink.exe) si viene en el paquete;
+; si no, el host de consola. Los dos van en la raíz de la carpeta de instalación, junto a adb.
 #define HostExe "desklink-host.exe"
-#define HostArgs "--virtual"
+#ifexist Stage + "\host\desklink.exe"
+  #define MainExe "desklink.exe"
+  #define MainArgs ""
+#else
+  #define MainExe HostExe
+  #define MainArgs "--virtual"
+#endif
 
 [Setup]
 ; No cambiar AppId: es lo que hace que una versión nueva se instale encima de la anterior.
@@ -40,7 +47,7 @@ OutputBaseFilename=DeskLink-Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-UninstallDisplayIcon={app}\{#HostExe}
+UninstallDisplayIcon={app}\{#MainExe}
 UninstallDisplayName=DeskLink
 CloseApplications=yes
 RestartApplications=no
@@ -62,14 +69,14 @@ Source: "{#Stage}\tools\*"; DestDir: "{app}\tools"; Flags: ignoreversion
 Source: "{#Stage}\driver\*"; DestDir: "{app}\driver"; Flags: ignoreversion; Check: DriverNeedsInstall
 
 [Icons]
-Name: "{group}\DeskLink"; Filename: "{app}\{#HostExe}"; Parameters: "{#HostArgs}"; WorkingDir: "{app}"
+Name: "{group}\DeskLink"; Filename: "{app}\{#MainExe}"; Parameters: "{#MainArgs}"; WorkingDir: "{app}"
 Name: "{group}\Actualizar la tablet"; Filename: "{app}\tools\actualizar-tablet.bat"; WorkingDir: "{app}\tools"
 Name: "{group}\Actualizar DeskLink en el PC"; Filename: "{app}\tools\actualizar-pc.bat"; WorkingDir: "{app}\tools"
 Name: "{group}\Desinstalar DeskLink"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\DeskLink"; Filename: "{app}\{#HostExe}"; Parameters: "{#HostArgs}"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autodesktop}\DeskLink"; Filename: "{app}\{#MainExe}"; Parameters: "{#MainArgs}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#HostExe}"; Parameters: "{#HostArgs}"; WorkingDir: "{app}"; Description: "Abrir DeskLink"; Flags: postinstall nowait skipifsilent unchecked
+Filename: "{app}\{#MainExe}"; Parameters: "{#MainArgs}"; WorkingDir: "{app}"; Description: "Abrir DeskLink"; Flags: postinstall nowait skipifsilent unchecked
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\driver"
@@ -113,12 +120,12 @@ begin
     Result := Code;
 end;
 
-// Cierra el host (tiene abierto el monitor virtual) y el servidor de adb (bloquea adb.exe).
+// Cierra la app de bandeja y el host (tiene abierto el monitor virtual) y el servidor de adb (bloquea adb.exe).
 procedure StopDeskLink();
 var
   Code: Integer;
 begin
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM {#HostExe}', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM desklink.exe /IM {#HostExe}', '', SW_HIDE, ewWaitUntilTerminated, Code);
   if FileExists(ExpandConstant('{app}\adb.exe')) then
     Exec(ExpandConstant('{app}\adb.exe'), 'kill-server', '', SW_HIDE, ewWaitUntilTerminated, Code);
 end;
@@ -162,6 +169,9 @@ begin
     StopDeskLink();
     RunDriverTool('desinstalar', Log);
   end;
-  if CurUninstallStep = usPostUninstall then
+  if CurUninstallStep = usPostUninstall then begin
     RegDeleteKeyIncludingSubkeys(HKLM, RegKey);
+    // «Arrancar con Windows» de la app de bandeja.
+    RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'DeskLink');
+  end;
 end;
