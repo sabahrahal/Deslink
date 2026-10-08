@@ -23,6 +23,8 @@ jobs:
           Invoke-WebRequest https://dl.google.com/android/repository/platform-tools-latest-windows.zip -OutFile pt.zip
           Expand-Archive pt.zip -DestinationPath pt
           Copy-Item pt/platform-tools/adb.exe, pt/platform-tools/AdbWinApi.dll, pt/platform-tools/AdbWinUsbApi.dll build/host/Release/
+      - name: Pruebas
+        run: ctest --test-dir build/host -C Release --output-on-failure
       - uses: actions/upload-artifact@v4
         with:
           name: desklink-host-windows

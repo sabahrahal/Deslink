@@ -47,6 +47,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
     private var legacyWarned = false
     private var lastBackMs = 0L
     private val probe by lazy { DeviceProbe(this) }
+    private var touchFallbackShown = false
 
     // Estado que pinta la capa de Compose.
     private var phase by mutableStateOf(StreamSession.Phase.CONNECTING)
@@ -148,6 +149,9 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
             statsView.visibility = if (statsVisible) View.VISIBLE else View.GONE
             return true
         }
+        // Cada muestra del táctil sale en cuanto llega, sin esperar a agruparlas con el refresco de pantalla
+        // (Android las junta por vsync): unos ms menos de retraso al arrastrar.
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) surfaceView.requestUnbufferedDispatch(event)
         val w = surfaceView.width.coerceAtLeast(1).toFloat()
         val h = surfaceView.height.coerceAtLeast(1).toFloat()
         val up = event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL
@@ -312,6 +316,13 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         val watts = b.netMilliwatts?.let { " ${"%+.1f".format(it / 1000)} W" } ?: " (midiendo…)"
         val power = " · batería$level$watts"
         runOnUiThread { statsView.text = text + power }
+    }
+
+    override fun onInputMode(state: Dlp.InputModeState) {
+        if (state.requested == Dlp.INPUT_TOUCH && state.active == Dlp.INPUT_MOUSE && !touchFallbackShown) {
+            touchFallbackShown = true
+            onError("El PC no aceptó el táctil directo: los toques mueven el ratón")
+        }
     }
 
     override fun onError(message: String) {

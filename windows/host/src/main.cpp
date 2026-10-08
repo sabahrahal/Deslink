@@ -127,12 +127,15 @@ void SendPaced(const std::vector<std::vector<uint8_t>>& packets, uint32_t pace_m
   }
 }
 
-// Última resolución del monitor virtual (la que el usuario dejó en Windows), para la próxima vez.
-std::wstring SizeFilePath() {
+// Ajustes que se recuerdan entre sesiones, uno por fichero en %APPDATA%\DeskLink.
+std::wstring ConfigPath(const wchar_t* name) {
   wchar_t base[MAX_PATH];
   if (!GetEnvironmentVariableW(L"APPDATA", base, MAX_PATH)) return {};
-  return std::wstring(base) + L"\\DeskLink\\virtual-size.txt";
+  return std::wstring(base) + L"\\DeskLink\\" + name;
 }
+
+// Última resolución del monitor virtual (la que el usuario dejó en Windows), para la próxima vez.
+std::wstring SizeFilePath() { return ConfigPath(L"virtual-size.txt"); }
 
 bool LoadSavedSize(UINT* w, UINT* h) {
   const std::wstring path = SizeFilePath();
@@ -170,6 +173,41 @@ std::string ComputerNameUtf8() {
   return out;
 }
 
+// Modo del táctil: «touch» (toques reales de Windows, por defecto) o «mouse». Lo cambia la tablet en marcha
+// (paquete INPUT_MODE) o la app de escritorio escribiendo el fichero; --touch/--mouse lo fuerzan solo esa vez.
+std::wstring InputModePath() { return ConfigPath(L"input-mode.txt"); }
+
+TouchInjector::Mode LoadInputMode() {
+  const std::wstring path = InputModePath();
+  FILE* f = path.empty() ? nullptr : _wfopen(path.c_str(), L"r");
+  if (!f) return TouchInjector::Mode::kTouch;
+  char buf[16] = {};
+  const bool mouse = std::fscanf(f, "%15s", buf) == 1 && std::strcmp(buf, "mouse") == 0;
+  std::fclose(f);
+  return mouse ? TouchInjector::Mode::kMouse : TouchInjector::Mode::kTouch;
+}
+
+void SaveInputMode(TouchInjector::Mode mode) {
+  const std::wstring path = InputModePath();
+  if (path.empty()) return;
+  CreateDirectoryW(path.substr(0, path.find_last_of(L'\\')).c_str(), nullptr);
+  if (FILE* f = _wfopen(path.c_str(), L"w")) {
+    std::fprintf(f, "%s\n", mode == TouchInjector::Mode::kMouse ? "mouse" : "touch");
+    std::fclose(f);
+  }
+}
+
+// Coordenadas en píxeles reales en todos los monitores, aunque tengan escalas distintas (la tablet suele ir al
+// 150-200 %): si no, Windows escala las posiciones del monitor virtual y los toques y el cursor caen desplazados.
+void SetDpiAwareness() {
+  using SetContextFn = BOOL(WINAPI*)(HANDLE);
+  if (HMODULE user32 = GetModuleHandleW(L"user32.dll")) {
+    auto set = reinterpret_cast<SetContextFn>(GetProcAddress(user32, "SetProcessDpiAwarenessContext"));
+    if (set && set(reinterpret_cast<HANDLE>(static_cast<intptr_t>(-4)))) return;  // PER_MONITOR_AWARE_V2
+  }
+  SetProcessDPIAware();
+}
+
 struct Options {
   uint16_t port = dlp::kDefaultPort;
   int output = 0;
@@ -177,7 +215,7 @@ struct Options {
   UINT bitrate_mbps = 50;
   VideoCodec codec = VideoCodec::kHevc;
   bool cursor = true;    // --no-cursor: no dibuja el cursor en la imagen
-  bool mouse = false;    // --mouse: el táctil mueve el ratón (más compatible, un solo dedo)
+  int input_mode = -1;   // --touch (0) / --mouse (1) solo para esta vez; si no, el guardado (táctil por defecto)
   bool touch = true;     // --no-touch desactiva el control táctil
   UINT pace_mbps = 100;  // reparte cada frame a esta tasa; 0 = de golpe (el anclaje USB pierde ráfagas)
   bool virtual_display = false;  // --virtual: crea un monitor virtual (driver desklink-idd) y captura ese
@@ -262,7 +300,9 @@ bool ParseArgs(int argc, char** argv, Options* o) {
     } else if (a == "--no-cursor") {
       o->cursor = false;
     } else if (a == "--mouse") {
-      o->mouse = true;
+      o->input_mode = 1;
+    } else if (a == "--touch") {
+      o->input_mode = 0;
     } else if (a == "--no-touch") {
       o->touch = false;
     } else if (a == "--codec") {
@@ -271,7 +311,7 @@ bool ParseArgs(int argc, char** argv, Options* o) {
     } else {
       std::fprintf(stderr,
                    "Uso: desklink-host [--port 47800] [--output 0] [--fps 60] [--bitrate 50] "
-                   "[--codec hevc|h264] [--pace Mbps] [--refine 4] [--no-touch] [--mouse] [--no-cursor] "
+                   "[--codec hevc|h264] [--pace Mbps] [--refine 4] [--no-touch] [--touch|--mouse] [--no-cursor] "
                    "[--virtual [--size 2944x1840]] [--no-usb] [--adb ruta\\adb.exe] [--status] [--stop-event nombre]\n");
       return false;
     }
@@ -306,7 +346,7 @@ int Run(int argc, char** argv) {
   CoInitializeEx(nullptr, COINIT_MULTITHREADED);
   MFStartup(MF_VERSION);
   timeBeginPeriod(1);  // temporizadores de 1 ms
-  SetProcessDPIAware();  // coordenadas en píxeles reales, para que los toques caigan donde toca
+  SetDpiAwareness();  // coordenadas en píxeles reales, para que los toques caigan donde toca
 
   VirtualDisplay virtual_display;  // se declara antes que el resto: el monitor se quita lo último
   std::unique_ptr<Pipeline> pipe;
@@ -444,6 +484,18 @@ int Run(int argc, char** argv) {
       enc_bitrate(current_bps);
       std::printf("Tasa adaptada a %.1f Mbps (%s)\n", current_bps / 1e6, why);
     };
+    // Dice a la tablet qué modo de táctil se pidió y cuál se usa (distintos si Windows no aceptó los toques).
+    auto send_input_mode = [&](const sockaddr_in* to) {
+      if (!touch_ready) return;
+      const uint8_t p[dlp::kInputModeStateSize] = {static_cast<uint8_t>(touch.requested()),
+                                                  static_cast<uint8_t>(touch.active())};
+      const auto pkt = dlp::MakeControlPacket(dlp::PacketType::kInputMode, p, sizeof(p), NowUs());
+      if (to) {
+        udp.SendTo(*to, pkt);
+      } else {
+        udp.SendToPeer(pkt);
+      }
+    };
     auto on_packet = [&](const uint8_t* data, size_t size, const sockaddr_in& from) {
       auto header = dlp::ParseHeader(data, size);
       if (!header) return;
@@ -494,9 +546,23 @@ int Run(int argc, char** argv) {
             udp.SendTo(from, dlp::MakeControlPacket(dlp::PacketType::kStreamInfo, info_payload.data(),
                                                     info_payload.size(), NowUs()));
           }
+          send_input_mode(&from);
           last_keyframe_us = NowUs();
           enc_keyframe();
           break;
+        case dlp::PacketType::kInputMode: {
+          if (!touch_ready || header->payload_size < dlp::kInputModeRequestSize) break;
+          const auto mode = data[dlp::kHeaderSize] == static_cast<uint8_t>(dlp::InputMode::kMouse)
+                                ? TouchInjector::Mode::kMouse
+                                : TouchInjector::Mode::kTouch;
+          if (mode != touch.requested()) {
+            touch.SetMode(mode);
+            SaveInputMode(mode);
+            std::printf("La tablet cambió el táctil a %s.\n", touch.active_name());
+          }
+          send_input_mode(&from);
+          break;
+        }
         case dlp::PacketType::kKeyframeRequest: {
           // Un frame clave es varias veces más grande que uno normal: si la red pierde paquetes y
           // se piden uno tras otro, la propia petición mantiene la imagen congelada. Se limita a 1/s.
@@ -606,11 +672,14 @@ int Run(int argc, char** argv) {
     if (opt.touch) {
       // Los toques caen sobre el monitor que se captura (el virtual con --virtual).
       const RECT r = pipe->gpu.desktop_rect;
-      touch_ready = touch.Init(r, opt.mouse);
-      std::printf(touch_ready ? (opt.mouse ? "Táctil en modo ratón (pantalla de %ldx%ld en %ld,%ld).\n"
-                                           : "Táctil activado (pantalla de %ldx%ld en %ld,%ld).\n")
-                              : "Táctil NO disponible.\n",
-                  r.right - r.left, r.bottom - r.top, r.left, r.top);
+      const auto mode = opt.input_mode >= 0 ? static_cast<TouchInjector::Mode>(opt.input_mode) : LoadInputMode();
+      touch_ready = touch.Init(r, mode);
+      if (touch_ready) {
+        std::printf("Táctil: %s (pantalla de %ldx%ld en %ld,%ld).\n", touch.active_name(), r.right - r.left,
+                    r.bottom - r.top, r.left, r.top);
+      } else {
+        std::printf("Táctil NO disponible.\n");
+      }
     }
     if (!udp.Bind(opt.port, on_packet, opt.usb)) break;
     std::printf("Escuchando en UDP %u. Abre DeskLink en la tablet y pulsa Conectar (por cable USB no hace falta IP ni anclaje).\n",
@@ -628,6 +697,7 @@ int Run(int argc, char** argv) {
     UINT refine_left = 0;    // repeticiones lentas pendientes para afinar la calidad de la imagen quieta
     uint64_t captured = 0, composed = 0, last_composed = 0, last_stats_us = NowUs();
     uint64_t convert_us = 0, last_convert = 0, last_fed = 0, last_mailbox = 0;
+    TouchInjector::Mode last_input_mode = touch.active();
     uint64_t last_bytes = 0, last_encoded = 0, last_latency = 0, last_captured = 0, last_keyframes = 0, last_retransmits = 0, last_touch = 0;
     bool failed = false;
     uint32_t applied_seq = 0;
@@ -846,6 +916,11 @@ int Run(int argc, char** argv) {
 
       const uint64_t t = NowUs();
       if (t - last_stats_us >= 1'000'000) {
+        // Si Windows rechazó los toques y se pasó a ratón, la tablet lo sabe (y puede avisar).
+        if (touch_ready && touch.active() != last_input_mode) {
+          last_input_mode = touch.active();
+          if (udp.has_peer()) send_input_mode(nullptr);
+        }
         const double secs = (t - last_stats_us) / 1e6;
         const uint64_t enc = frames_encoded - last_encoded;
         const uint64_t lat = encode_latency_us - last_latency;
