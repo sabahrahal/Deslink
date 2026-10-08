@@ -3,6 +3,8 @@
 //   desklink-driver instalar      (como administrador)
 //   desklink-driver desinstalar   (como administrador)
 //
+// Con --sin-pausa no espera a Enter al terminar (lo usa el instalador de DeskLink, que lo lanza sin ventana).
+//
 // Instalar hace tres cosas: confía en el certificado con el que se firmó el driver (desklink-idd.cer,
 // en los almacenes «Entidades de certificación raíz de confianza» y «Editores de confianza» del equipo),
 // crea el dispositivo Root\DeskLinkIdd y le instala el driver. Desinstalar lo deshace todo.
@@ -211,8 +213,9 @@ int Run(int argc, wchar_t** argv) {
 int wmain(int argc, wchar_t** argv) {
   SetConsoleOutputCP(CP_UTF8);
   const int code = Run(argc, argv);
+  const bool no_pause = argc > 2 && _wcsicmp(argv[2], L"--sin-pausa") == 0;
   DWORD pids[2];
-  if (GetConsoleProcessList(pids, 2) == 1) {
+  if (!no_pause && GetConsoleProcessList(pids, 2) == 1) {
     std::printf("\nPulsa Enter para salir.\n");
     std::getchar();
   }

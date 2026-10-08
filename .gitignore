@@ -37,3 +37,6 @@ captures/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Clave de firma de desarrollo de la APK: puede ir en el repo (ver android/keystore/README.md).
+!android/keystore/desklink-dev.jks
