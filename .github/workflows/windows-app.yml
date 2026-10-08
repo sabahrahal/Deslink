@@ -1,0 +1,32 @@
+name: windows-app
+
+on:
+  push:
+    paths: ['windows/app/**', 'windows/host/**', 'windows/driver/include/**', 'protocol/**', '.github/workflows/windows-app.yml']
+  pull_request:
+    paths: ['windows/app/**', 'windows/host/**', 'windows/driver/include/**', 'protocol/**', '.github/workflows/windows-app.yml']
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compilar la app de bandeja
+        run: |
+          cmake -S windows/app -B build/app -A x64
+          cmake --build build/app --config Release
+      - name: Compilar el host
+        run: |
+          cmake -S windows/host -B build/host -A x64
+          cmake --build build/host --config Release
+      - name: Juntar
+        shell: pwsh
+        run: |
+          $pkg = New-Item -ItemType Directory -Force pkg
+          Copy-Item build/app/Release/desklink.exe $pkg
+          Copy-Item build/host/Release/desklink-host.exe $pkg
+          Get-ChildItem $pkg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desklink-windows
+          path: pkg/

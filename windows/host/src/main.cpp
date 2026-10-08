@@ -176,7 +176,16 @@ struct Options {
   bool usb = true;               // --no-usb: sin cable USB (TCP por adb reverse)
   std::wstring adb_path;         // --adb: ruta de adb.exe (si no, se busca)
   UINT refine = 4;               // --refine: repeticiones extra al quedarse quieta la imagen para afinar la calidad
+  bool status = false;           // --status: líneas «@...» para la app de bandeja (desklink.exe) en vez de las estadísticas
+  std::wstring stop_event;       // --stop-event: evento con nombre que, al activarse, cierra el host limpiamente
 };
+
+std::wstring Widen(const char* v) {
+  const int n = MultiByteToWideChar(CP_ACP, 0, v, -1, nullptr, 0);
+  std::wstring w(n > 0 ? n - 1 : 0, L'\0');
+  if (n > 1) MultiByteToWideChar(CP_ACP, 0, v, -1, w.data(), n);
+  return w;
+}
 
 // Todo lo que depende de la resolución y de la GPU de la salida capturada. Cuando Windows cambia la
 // resolución se tira entero y se vuelve a crear. El orden de los miembros importa: el codificador se destruye
@@ -230,9 +239,12 @@ bool ParseArgs(int argc, char** argv, Options* o) {
       o->usb = false;
     } else if (a == "--adb") {
       auto v = next("--adb"); if (!v) return false;
-      const int n = MultiByteToWideChar(CP_ACP, 0, v, -1, nullptr, 0);
-      o->adb_path.resize(n > 0 ? n - 1 : 0);
-      if (n > 1) MultiByteToWideChar(CP_ACP, 0, v, -1, o->adb_path.data(), n);
+      o->adb_path = Widen(v);
+    } else if (a == "--status") {
+      o->status = true;
+    } else if (a == "--stop-event") {
+      auto v = next("--stop-event"); if (!v) return false;
+      o->stop_event = Widen(v);
     } else if (a == "--refine") {
       auto v = next("--refine"); if (!v) return false;
       o->refine = static_cast<UINT>(std::atoi(v));
@@ -249,7 +261,7 @@ bool ParseArgs(int argc, char** argv, Options* o) {
       std::fprintf(stderr,
                    "Uso: desklink-host [--port 47800] [--output 0] [--fps 60] [--bitrate 50] "
                    "[--codec hevc|h264] [--pace Mbps] [--refine 4] [--no-touch] [--mouse] [--no-cursor] "
-                   "[--virtual [--size 2944x1840]] [--no-usb] [--adb ruta\\adb.exe]\n");
+                   "[--virtual [--size 2944x1840]] [--no-usb] [--adb ruta\\adb.exe] [--status] [--stop-event nombre]\n");
       return false;
     }
   }
@@ -266,6 +278,16 @@ int Run(int argc, char** argv) {
 
   std::signal(SIGINT, OnSignal);
   std::signal(SIGTERM, OnSignal);
+  // La app de bandeja lee la salida por una tubería: sin búfer, cada línea le llega en cuanto se escribe.
+  if (opt.status) std::setvbuf(stdout, nullptr, _IONBF, 0);
+  if (!opt.stop_event.empty()) {
+    if (HANDLE ev = OpenEventW(SYNCHRONIZE, FALSE, opt.stop_event.c_str())) {
+      std::thread([ev] {
+        WaitForSingleObject(ev, INFINITE);
+        g_running = false;
+      }).detach();
+    }
+  }
 
   WSADATA wsa;
   WSAStartup(MAKEWORD(2, 2), &wsa);
@@ -282,6 +304,9 @@ int Run(int argc, char** argv) {
 
   std::atomic<uint32_t> next_frame_id{1};
   std::atomic<uint64_t> bytes_sent{0}, frames_encoded{0}, encode_latency_us{0}, keyframes_sent{0}, retransmits{0}, touch_packets{0};
+  // Para --status: último informe de la tablet y RTT medido con PING del host (0 = la tablet no contesta).
+  std::atomic<uint32_t> tablet_received{0}, tablet_lost{0};
+  std::atomic<uint64_t> rtt_us{0};
   PacketHistory history;
   TouchInjector touch;
   bool touch_ready = false;
@@ -437,6 +462,8 @@ int Run(int argc, char** argv) {
           if (header->payload_size < dlp::kRateReportSize) break;
           const uint8_t* q = data + dlp::kHeaderSize;
           const uint32_t lost = q[2] | (q[3] << 8);
+          tablet_received = q[0] | (q[1] << 8);
+          tablet_lost = lost;
           const uint64_t now = NowUs();
           if (lost > 0) {
             decrease_rate(now, "la tablet pierde frames");
@@ -516,6 +543,12 @@ int Run(int argc, char** argv) {
           udp.SendTo(from, dlp::MakeControlPacket(dlp::PacketType::kPong, nullptr, 0,
                                                   header->timestamp_us));
           break;
+        case dlp::PacketType::kPong: {
+          // Respuesta a un PING del host (con --status): lleva de vuelta nuestro propio timestamp.
+          const uint64_t now = NowUs();
+          if (header->timestamp_us > 0 && header->timestamp_us <= now) rtt_us = now - header->timestamp_us;
+          break;
+        }
         default:
           break;
       }
@@ -533,6 +566,7 @@ int Run(int argc, char** argv) {
     std::printf("Escuchando en UDP %u. Abre DeskLink en la tablet y pulsa Conectar (por cable USB no hace falta IP ni anclaje).\n",
                 opt.port);
     if (opt.usb) adb.Start(opt.port, opt.adb_path);
+    if (opt.status) std::printf("@listo puerto=%u\n", opt.port);
 
     const uint64_t min_interval_us = 1'000'000ull / opt.fps;
     constexpr uint64_t kRefineIntervalUs = 100'000;  // separación de las repeticiones de afinado
@@ -622,6 +656,8 @@ int Run(int argc, char** argv) {
       if (udp.ExpirePeer(std::chrono::seconds(5))) {
         touch.ReleaseAll();
         last_client_ip = 0;
+        rtt_us = 0;
+        tablet_received = tablet_lost = 0;
         std::printf("Cliente desconectado (sin respuesta durante 5 s). Esperando cliente.\n");
       }
 
@@ -692,16 +728,36 @@ int Run(int argc, char** argv) {
         const double secs = (t - last_stats_us) / 1e6;
         const uint64_t enc = frames_encoded - last_encoded;
         const uint64_t lat = encode_latency_us - last_latency;
-        std::printf("capturados %.0f/s | codificados %.0f/s | %.1f Mbps | codificación %.1f ms | claves %llu | conv %.1f ms | buzón %.1f ms | errores de envío %llu | reenvíos %llu | toques %llu%s\n",
-                    (captured - last_captured) / secs, enc / secs,
-                    (bytes_sent - last_bytes) * 8 / secs / 1e6, enc ? lat / 1000.0 / enc : 0.0,
-                    static_cast<unsigned long long>(keyframes_sent.load() - last_keyframes),
-                    composed > last_composed ? (convert_us - last_convert) / 1000.0 / (composed - last_composed) : 0.0,
-                    pipe->encoder->fed_frames > last_fed ? (pipe->encoder->mailbox_wait_us - last_mailbox) / 1000.0 / (pipe->encoder->fed_frames - last_fed) : 0.0,
-                    static_cast<unsigned long long>(udp.send_errors()),
-                    static_cast<unsigned long long>(retransmits.load() - last_retransmits),
-                    static_cast<unsigned long long>(touch_packets.load() - last_touch),
-                    udp.has_peer() ? "" : " | esperando cliente");
+        if (opt.status) {
+          // Una línea por segundo para la app de bandeja: clave=valor separados por espacios.
+          const bool peer = udp.has_peer();
+          char ip[INET_ADDRSTRLEN] = "-";
+          if (peer && !udp.peer_is_usb()) {
+            in_addr a{};
+            a.s_addr = last_client_ip.load();
+            inet_ntop(AF_INET, &a, ip, sizeof(ip));
+          }
+          // PING del host: la tablet que lo conteste con PONG da el RTT visto desde el PC.
+          if (peer) udp.SendToPeer(dlp::MakeControlPacket(dlp::PacketType::kPing, nullptr, 0, NowUs()));
+          std::printf("@estado enlace=%s ip=%s capturados=%.1f codificados=%.1f mbps=%.1f cod_ms=%.1f rtt_ms=%.1f "
+                      "recibidos=%u perdidos=%u reenvios=%llu size=%ux%u fps_max=%u adb=%d adb_pendientes=%d\n",
+                      !peer ? "ninguno" : udp.peer_is_usb() ? "usb" : "wifi", ip,
+                      (captured - last_captured) / secs, enc / secs, (bytes_sent - last_bytes) * 8 / secs / 1e6,
+                      enc ? lat / 1000.0 / enc : 0.0, rtt_us.load() / 1000.0, tablet_received.load(),
+                      tablet_lost.load(), static_cast<unsigned long long>(retransmits.load() - last_retransmits),
+                      pipe->w, pipe->h, opt.fps, opt.usb ? adb.ready() : -1, opt.usb ? adb.unauthorized() : 0);
+        } else {
+          std::printf("capturados %.0f/s | codificados %.0f/s | %.1f Mbps | codificación %.1f ms | claves %llu | conv %.1f ms | buzón %.1f ms | errores de envío %llu | reenvíos %llu | toques %llu%s\n",
+                      (captured - last_captured) / secs, enc / secs,
+                      (bytes_sent - last_bytes) * 8 / secs / 1e6, enc ? lat / 1000.0 / enc : 0.0,
+                      static_cast<unsigned long long>(keyframes_sent.load() - last_keyframes),
+                      composed > last_composed ? (convert_us - last_convert) / 1000.0 / (composed - last_composed) : 0.0,
+                      pipe->encoder->fed_frames > last_fed ? (pipe->encoder->mailbox_wait_us - last_mailbox) / 1000.0 / (pipe->encoder->fed_frames - last_fed) : 0.0,
+                      static_cast<unsigned long long>(udp.send_errors()),
+                      static_cast<unsigned long long>(retransmits.load() - last_retransmits),
+                      static_cast<unsigned long long>(touch_packets.load() - last_touch),
+                      udp.has_peer() ? "" : " | esperando cliente");
+        }
         last_stats_us = t;
         last_bytes = bytes_sent;
         last_encoded = frames_encoded;
@@ -740,6 +796,10 @@ int Run(int argc, char** argv) {
 // para poder leer el resultado o el error.
 int main(int argc, char** argv) {
   const int code = Run(argc, argv);
+  // Lanzado por la app de bandeja: nadie va a pulsar Enter.
+  for (int i = 1; i < argc; ++i) {
+    if (std::strcmp(argv[i], "--status") == 0) return code;
+  }
   DWORD pids[2];
   const bool own_console = GetConsoleProcessList(pids, 2) == 1;
   if (!g_replaced && (own_console || code != 0)) {

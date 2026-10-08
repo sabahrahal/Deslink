@@ -29,6 +29,10 @@ build\host\Release\desklink-host.exe --fps 60 --bitrate 50 --codec hevc
 | `--no-usb` | apagado | No escucha en TCP 127.0.0.1 ni pone `adb reverse` (cable USB, ver `docs/usb.md`) |
 | `--adb` | se busca | Ruta de `adb.exe` (por defecto: junto al .exe, PATH o SDK de Android) |
 | `--refine` | 4 | Repeticiones lentas (cada 100 ms) al quedarse quieta la imagen, para que el codificador la afine; 0 las desactiva |
+| `--status` | apagado | Líneas `@listo` y `@estado …` (una por segundo) para la app de bandeja en vez de las estadísticas; envía PING a la tablet para medir el RTT |
+| `--stop-event` | ninguno | Nombre de un evento de Windows; al activarse, el host para limpiamente (lo usa la app de bandeja) |
+
+Lo normal es abrirlo con `desklink.exe` (la app de bandeja, `windows/app/`); desde una consola sigue funcionando igual.
 
 Cada segundo imprime fps capturados, fps codificados, Mbps y la latencia de codificación media (desde que el frame llega al codificador hasta que sale el flujo).
 
