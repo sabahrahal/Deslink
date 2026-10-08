@@ -33,6 +33,8 @@ build\host\Release\desklink-host.exe --fps 60 --bitrate 50 --codec hevc
 | `--no-touch` | apagado | Ignora los toques de la tablet |
 | `--status` | apagado | Líneas `@listo` y `@estado …` (una por segundo) para la app de bandeja en vez de las estadísticas; envía PING a la tablet para medir el RTT |
 | `--stop-event` | ninguno | Nombre de un evento de Windows; al activarse, el host para limpiamente (lo usa la app de bandeja) |
+| `--no-audio` | apagado | No envía nunca el sonido del PC, aunque la tablet lo pida |
+| `--audio-bitrate` | 128 | kbps de Opus para el sonido (32–256) |
 
 Lo normal es abrirlo con `desklink.exe` (la app de bandeja, `windows/app/`); desde una consola sigue funcionando igual.
 
@@ -48,3 +50,7 @@ Cada segundo imprime fps capturados, fps codificados, Mbps y la latencia de codi
 El modo se guarda en `%APPDATA%\DeskLink\input-mode.txt` (`touch` o `mouse`). Lo cambia la tablet en marcha (paquete `INPUT_MODE`, ver `docs/protocol-dlp.md`) o cualquier app escribiendo ese fichero antes de arrancar el host. Las ventanas de administrador (p. ej. el Administrador de tareas) no aceptan toques de un host sin elevar.
 
 El cortafuegos de Windows pedirá permiso la primera vez: hay que permitir redes privadas. El cable USB no pasa por el cortafuegos.
+
+## Sonido
+
+Si en la app de la tablet está activado «Sonido del PC en la tablet», el host captura lo que suena en la salida de audio predeterminada de Windows (WASAPI loopback), lo codifica en Opus (trozos de 10 ms) y lo manda por el mismo camino que el vídeo (WiFi o cable USB). Si cambias de altavoces o auriculares en Windows, sigue a la nueva salida. El PC lo sigue oyendo también por sus altavoces: bájales el volumen o silencia el PC desde los altavoces físicos si solo quieres oírlo en la tablet. En la tablet, el volumen es el de multimedia (botones de volumen).

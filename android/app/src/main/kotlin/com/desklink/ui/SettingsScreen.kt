@@ -99,6 +99,12 @@ fun SettingsScreen(
                 if (!hevcSupported) Hint("Esta tablet no decodifica HEVC: se usa H.264.")
             }
 
+            SettingsSection("Sonido") {
+                SwitchRow("Sonido del PC en la tablet", "Lo que suena en el PC se oye aquí. Apagado, sigue sonando en el PC.", settings.audio) {
+                    onChange(settings.copy(audio = it))
+                }
+            }
+
             SettingsSection("Batería") {
                 ChoiceGroup("Perfil") {
                     for (p in PowerChoice.entries) {

@@ -53,6 +53,8 @@ data class AppSettings(
     val power: PowerChoice = PowerChoice.BALANCED,
     /** Por cable USB, no gastar más de lo que entra por el cable. */
     val powerAdapt: Boolean = true,
+    /** Sonido del PC en la tablet (por defecto apagado: el PC lo sigue oyendo por sus altavoces). */
+    val audio: Boolean = false,
 ) {
     /**
      * Lo que se pide al PC para [display]. [hevcSupported]: si la tablet no decodifica HEVC, "Automático"
@@ -127,6 +129,7 @@ class SettingsStore(context: Context) {
             autoConnect = prefs.getBoolean(K_AUTO, d.autoConnect),
             power = PowerChoice.entries.firstOrNull { it.id == prefs.getString(K_POWER, null) } ?: d.power,
             powerAdapt = prefs.getBoolean(K_POWER_ADAPT, d.powerAdapt),
+            audio = prefs.getBoolean(K_AUDIO, d.audio),
         )
     }
 
@@ -141,6 +144,7 @@ class SettingsStore(context: Context) {
             .putBoolean(K_AUTO, s.autoConnect)
             .putString(K_POWER, s.power.id)
             .putBoolean(K_POWER_ADAPT, s.powerAdapt)
+            .putBoolean(K_AUDIO, s.audio)
             .apply()
     }
 
@@ -168,5 +172,6 @@ class SettingsStore(context: Context) {
         const val K_AUTO = "auto_connect"
         const val K_POWER = "power_profile" // las mismas que PowerProfile.PREF_KEY / PREF_ADAPT
         const val K_POWER_ADAPT = "power_adapt"
+        const val K_AUDIO = "audio_enabled"
     }
 }
