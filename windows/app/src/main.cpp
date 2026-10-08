@@ -772,8 +772,8 @@ void PaintHeader(gp::Graphics& gr) {
   gp::LinearGradientBrush text_brush(gp::RectF(F(72), F(20), F(170), F(30)), C(color::kAccent), C(color::kAccentAlt),
                                      gp::LinearGradientModeHorizontal);
   SpacedText(gr, L"DESKLINK", F(72), F(21), 24, 4, text_brush, true);
-  auto small = MakeFont(12, false);
-  Text(gr, L"Tu tablet como segunda pantalla", gp::RectF(F(74), F(50), F(260), F(16)), *small, color::kTextMuted);
+  auto small_font = MakeFont(12, false);
+  Text(gr, L"Tu tablet como segunda pantalla", gp::RectF(F(74), F(50), F(260), F(16)), *small_font, color::kTextMuted);
 }
 
 void PaintStatusCard(gp::Graphics& gr, const gp::RectF& card) {
@@ -898,11 +898,11 @@ void PaintStatusCard(gp::Graphics& gr, const gp::RectF& card) {
   } else {
     usb = L"Cable USB: se activa al iniciar.";
   }
-  auto small = MakeFont(12, false);
-  Text(gr, usb, gp::RectF(x, y, w, F(18)), *small, usb_color);
+  auto small_font = MakeFont(12, false);
+  Text(gr, usb, gp::RectF(x, y, w, F(18)), *small_font, usb_color);
   y += F(20);
   Text(gr, L"IP de este PC: " + (g.addresses.empty() ? std::wstring(L"sin red") : g.addresses),
-       gp::RectF(x, y, w, F(18)), *small, color::kTextMuted);
+       gp::RectF(x, y, w, F(18)), *small_font, color::kTextMuted);
 }
 
 void PaintSettingsCard(gp::Graphics& gr, float card_x, float card_y, float card_w, float* bottom) {
