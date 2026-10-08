@@ -71,13 +71,6 @@ constexpr COLORREF kOnAccent = RGB(0x05, 0x07, 0x0C);
 
 gp::Color C(COLORREF c, BYTE alpha = 255) { return gp::Color(alpha, GetRValue(c), GetGValue(c), GetBValue(c)); }
 
-// Resoluciones que ofrece el desplegable del monitor virtual.
-const wchar_t* const kSizePresets[] = {L"2944x1840", L"2560x1600", L"2000x1200", L"1920x1200", L"1920x1080",
-                                       L"1280x800"};
-const int kFpsChoices[] = {30, 60, 90, 120, 144};
-const int kQualityMbps[] = {20, 50, 100};
-const wchar_t* const kQualityNames[] = {L"Ahorro", L"Equilibrada", L"Máxima"};
-
 constexpr int kClientW = 760;  // tamaño del área cliente a 96 ppp; el alto sale del contenido
 
 struct Hit {
@@ -122,6 +115,8 @@ struct App {
   std::wstring link = L"ninguno";
   std::deque<std::wstring> log;
   bool dirty = false;               // ajustes cambiados con el host en marcha
+  bool advanced_open = false;       // sección «Avanzado» desplegada
+  std::wstring tablet_profile;      // lo último que pidió la tablet («Equilibrado · 60 fps · 30.0 Mbps · 100 %»)
   bool tray_hint_shown = false;
   bool driver_installed = false;
   bool autostart = false;
@@ -176,10 +171,8 @@ std::wstring FriendlyError(const std::wstring& line) {
                   g.settings.port);
   }
   if (has(L"codificador")) {
-    return g.settings.hevc ? L"La tarjeta gráfica no pudo iniciar el codificador HEVC. Elige H.264 en Códec o "
-                             L"actualiza el driver de la GPU."
-                           : L"La tarjeta gráfica no pudo iniciar el codificador de vídeo. Actualiza el driver de "
-                             L"la GPU.";
+    return L"La tarjeta gráfica no pudo iniciar el codificador de vídeo. En la tablet, prueba H.264 en Ajustes > "
+           L"Avanzado > Códec, o actualiza el driver de la GPU.";
   }
   if (has(L"No existe la salida")) return L"Ese monitor ya no está conectado. Elige otro en «Monitor».";
   if (has(L"DuplicateOutput falló") || has(L"no se pudo recuperar la captura")) {
@@ -394,6 +387,7 @@ void StartHost() {
   g.error_mapped = false;
   g.stats.clear();
   g.link = L"ninguno";
+  g.tablet_profile.clear();
   g.dirty = false;
   g.driver_installed = VirtualDriverInstalled();
   unsigned w, h;
@@ -481,6 +475,12 @@ void OnHostLine(bool from_stderr, const std::wstring& line) {
     return;
   }
   AddLog(line);
+  constexpr wchar_t kProfilePrefix[] = L"Perfil de la tablet: ";
+  if (line.rfind(kProfilePrefix, 0) == 0) {
+    g.tablet_profile = line.substr(std::size(kProfilePrefix) - 1);
+    Redraw();
+    return;
+  }
   const std::wstring friendly = FriendlyError(line);
   if (!friendly.empty()) {
     g.error = friendly;
@@ -908,12 +908,15 @@ void PaintStatusCard(gp::Graphics& gr, const gp::RectF& card) {
 void PaintSettingsCard(gp::Graphics& gr, float card_x, float card_y, float card_w, float* bottom) {
   // El alto de la tarjeta depende de las filas: primero se dibuja el contenido en una capa y luego el fondo
   // debajo. Para simplificar, el fondo se pinta con el alto calculado en la pasada anterior (ver Paint).
+  // La calidad, los fps, el códec, la resolución, el sonido y el táctil se eligen en la tablet (llegan al
+  // conectar); aquí solo queda, plegado en «Avanzado», lo que la tablet no puede saber.
   Settings& s = g.settings;
   const float x = card_x + F(20);
   const float w = card_w - F(40);
   float y = card_y + F(20);
   auto label_font = MakeFont(13, false);
   auto hint_font = MakeFont(12, false);
+  auto bold_font = MakeFont(14, true);
 
   auto row_label = [&](const std::wstring& text, const std::wstring& hint = L"",
                        COLORREF hint_color = color::kTextMuted) {
@@ -922,114 +925,99 @@ void PaintSettingsCard(gp::Graphics& gr, float card_x, float card_y, float card_
     y += F(22);
   };
 
-  SectionTitle(gr, L"PANTALLA", x, y);
+  SectionTitle(gr, L"AJUSTES", x, y);
   y += F(28);
 
-  row_label(L"Modo", g.driver_installed ? L"" : L"falta el driver de la pantalla extra", color::kWarning);
-  Segmented(gr, gp::RectF(x, y, w, F(36)), {L"Pantalla extra", L"Duplicar un monitor"}, s.virtual_display ? 0 : 1,
-            [](int i) { SetMode(i == 0, false); });
-  y += F(48);
-
-  if (s.virtual_display) {
-    row_label(L"Resolución", L"la tablet puede pedir la suya");
-    const std::wstring text = s.size.empty() ? L"Automática (la de la tablet o la última)" : s.size;
-    gp::RectF r(x, y, w, F(36));
-    Dropdown(gr, r, text, [r] {
-      std::vector<std::wstring> items = {L"Automática (la de la tablet o la última)"};
-      int checked = g.settings.size.empty() ? 0 : -1;
-      bool found = g.settings.size.empty();
-      for (const wchar_t* p : kSizePresets) {
-        if (g.settings.size == p) {
-          checked = static_cast<int>(items.size());
-          found = true;
-        }
-        items.push_back(p);
-      }
-      if (!found) {  // una resolución puesta a mano en el .ini
-        checked = static_cast<int>(items.size());
-        items.push_back(g.settings.size);
-      }
-      const int pick = PickFromMenu(r, items, checked);
-      if (pick < 0 || pick == checked) return;
-      g.settings.size = pick == 0 ? L"" : items[pick];
-      SettingsChanged();
-    });
-  } else {
-    row_label(L"Monitor que se duplica");
-    const int out = s.output;
-    const std::wstring text =
-        out < static_cast<int>(g.monitors.size()) ? g.monitors[out] : std::to_wstring(out + 1) + L": (no conectado)";
-    gp::RectF r(x, y, w, F(36));
-    Dropdown(gr, r, text, [r] {
-      g.monitors = MonitorNames();
-      const int pick = PickFromMenu(r, g.monitors, g.settings.output);
-      if (pick < 0 || pick == g.settings.output) return;
-      g.settings.output = pick;
-      SettingsChanged();
-    });
-  }
-  y += F(48);
-
-  row_label(L"Fluidez", L"fotogramas por segundo");
   {
-    std::vector<std::wstring> labels;
-    int selected = -1;
-    for (size_t i = 0; i < std::size(kFpsChoices); ++i) {
-      labels.push_back(std::to_wstring(kFpsChoices[i]));
-      if (kFpsChoices[i] == s.fps) selected = static_cast<int>(i);
+    const gp::RectF box(x, y, w, F(84));
+    gp::SolidBrush fill(C(color::kAccent, 16));
+    FillRound(gr, box, F(14), fill);
+    gp::Pen pen(C(color::kAccent, 90), F(1));
+    StrokeRound(gr, box, F(14), pen);
+    Text(gr, L"Se eligen en la tablet", gp::RectF(box.X + F(14), box.Y + F(10), box.Width - F(28), F(20)), *bold_font,
+         color::kText);
+    Text(gr,
+         L"Perfil (Calidad, Equilibrado o Ahorro), sonido y táctil: en la app DeskLink de la tablet, botón Ajustes. "
+         L"Se aplican al conectar.",
+         gp::RectF(box.X + F(14), box.Y + F(34), box.Width - F(28), F(44)), *hint_font, color::kTextMuted,
+         Align::kLeft, true);
+    y += F(96);
+  }
+
+  if (g.state == State::kConnected && !g.tablet_profile.empty()) {
+    row_label(L"La tablet pide", g.tablet_profile, color::kAccent);
+    y += F(4);
+  }
+  std::wstring overrides;
+  if (HasPcOverrides(s, &overrides)) {
+    Text(gr, L"Fijado en desklink.ini (manda sobre la tablet): " + overrides, gp::RectF(x, y, w, F(36)), *hint_font,
+         color::kWarning, Align::kLeft, true);
+    y += F(40);
+  }
+
+  // Cabecera plegable de «Avanzado».
+  {
+    const gp::RectF head(x - F(8), y, w + F(16), F(40));
+    const int hit = AddHit(head, [] {
+      g.advanced_open = !g.advanced_open;
+      Redraw();
+    });
+    if (Hovered(hit)) {
+      gp::SolidBrush fill(C(color::kSurfaceRaised));
+      FillRound(gr, head, F(10), fill);
     }
-    Segmented(gr, gp::RectF(x, y, w, F(36)), labels, selected, [](int i) {
-      g.settings.fps = kFpsChoices[i];
+    SectionTitle(gr, L"AVANZADO", x, y + F(13));
+    Text(gr, L"pantalla, puntero, cable USB", gp::RectF(x, y, w - F(26), F(40)), *hint_font, color::kTextMuted,
+         Align::kRight);
+    const float cx = x + w - F(8), cy = y + F(20);
+    gp::Pen arrow(C(color::kAccent), F(1.8f));
+    arrow.SetLineJoin(gp::LineJoinRound);
+    arrow.SetStartCap(gp::LineCapRound);
+    arrow.SetEndCap(gp::LineCapRound);
+    if (g.advanced_open) {
+      const gp::PointF pts[3] = {{cx - F(5), cy + F(2.5f)}, {cx, cy - F(2.5f)}, {cx + F(5), cy + F(2.5f)}};
+      gr.DrawLines(&arrow, pts, 3);
+    } else {
+      const gp::PointF pts[3] = {{cx - F(5), cy - F(2.5f)}, {cx, cy + F(2.5f)}, {cx + F(5), cy - F(2.5f)}};
+      gr.DrawLines(&arrow, pts, 3);
+    }
+    y += F(48);
+  }
+
+  if (g.advanced_open) {
+    row_label(L"Modo", g.driver_installed ? L"" : L"falta el driver de la pantalla extra", color::kWarning);
+    Segmented(gr, gp::RectF(x, y, w, F(36)), {L"Pantalla extra", L"Duplicar un monitor"}, s.virtual_display ? 0 : 1,
+              [](int i) { SetMode(i == 0, false); });
+    y += F(48);
+
+    if (!s.virtual_display) {
+      row_label(L"Monitor que se duplica");
+      const int out = s.output;
+      const std::wstring text =
+          out < static_cast<int>(g.monitors.size()) ? g.monitors[out] : std::to_wstring(out + 1) + L": (no conectado)";
+      gp::RectF r(x, y, w, F(36));
+      Dropdown(gr, r, text, [r] {
+        g.monitors = MonitorNames();
+        const int pick = PickFromMenu(r, g.monitors, g.settings.output);
+        if (pick < 0 || pick == g.settings.output) return;
+        g.settings.output = pick;
+        SettingsChanged();
+      });
+      y += F(48);
+    }
+
+    Toggle(gr, gp::RectF(x, y, w, F(32)), L"Dibujar el puntero del ratón", s.cursor, [] {
+      g.settings.cursor = !g.settings.cursor;
       SettingsChanged();
     });
+    y += F(36);
+    Toggle(gr, gp::RectF(x, y, w, F(32)), L"Conexión por cable USB (adb)", s.usb, [] {
+      g.settings.usb = !g.settings.usb;
+      SettingsChanged();
+    });
+    y += F(40);
+    row_label(L"Puerto", Format(L"UDP %d · se cambia en desklink.ini", s.port));
   }
-  y += F(48);
-
-  row_label(L"Calidad", Format(L"hasta %d Mbps, baja sola si hace falta", s.bitrate));
-  {
-    int selected = -1;
-    for (size_t i = 0; i < std::size(kQualityMbps); ++i) {
-      if (kQualityMbps[i] == s.bitrate) selected = static_cast<int>(i);
-    }
-    Segmented(gr, gp::RectF(x, y, w, F(36)), {kQualityNames[0], kQualityNames[1], kQualityNames[2]}, selected,
-              [](int i) {
-                g.settings.bitrate = kQualityMbps[i];
-                SettingsChanged();
-              });
-  }
-  y += F(48);
-
-  row_label(L"Códec");
-  Segmented(gr, gp::RectF(x, y, w, F(36)), {L"HEVC · mejor imagen", L"H.264 · más compatible"}, s.hevc ? 0 : 1,
-            [](int i) {
-              g.settings.hevc = i == 0;
-              SettingsChanged();
-            });
-  y += F(52);
-
-  SectionTitle(gr, L"CONTROL", x, y);
-  y += F(28);
-  row_label(L"Toque en la tablet");
-  Segmented(gr, gp::RectF(x, y, w, F(36)), {L"Táctil", L"Ratón", L"Apagado"}, s.touch, [](int i) {
-    g.settings.touch = i;
-    SettingsChanged();
-  });
-  y += F(46);
-  Toggle(gr, gp::RectF(x, y, w, F(32)), L"Dibujar el puntero del ratón", s.cursor, [] {
-    g.settings.cursor = !g.settings.cursor;
-    SettingsChanged();
-  });
-  y += F(36);
-  Toggle(gr, gp::RectF(x, y, w, F(32)), L"Conexión por cable USB (adb)", s.usb, [] {
-    g.settings.usb = !g.settings.usb;
-    SettingsChanged();
-  });
-  y += F(36);
-
-  // Ajustes que llegarán con otros cambios («Táctil directo», «Audio del PC en la tablet», «Perfiles de
-  // batería»): cada uno añade su campo en Settings (settings.h/.cpp), su opción en HostArguments y aquí una fila
-  // (Toggle o Segmented) en la sección que le toque, por ejemplo una sección «AUDIO» o «BATERÍA» con SectionTitle.
-  // La ventana crece sola con el contenido.
 
   *bottom = y + F(8);
 }

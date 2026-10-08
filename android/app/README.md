@@ -14,7 +14,9 @@ La APK queda en `app/build/outputs/apk/debug/app-debug.apk`. Requiere JDK 17 y e
 - **Inicio** (`MainActivity`, `ui/HomeScreen.kt`): busca PCs solo mientras está a la vista (cable USB y red, con
   DISCOVER), los lista con su nombre y conecta con un toque. Recuerda el último PC y, al abrir la app, se conecta
   solo a él si lo encuentra (se puede cancelar o desactivar en Ajustes).
-- **Ajustes** (`ui/SettingsScreen.kt`): resolución del monitor, calidad, fluidez, códec, estadísticas, pantalla
-  encendida y conexión automática. Se guardan en `SettingsStore`; los de imagen viajan al PC en el HELLO.
+- **Ajustes** (`ui/SettingsScreen.kt`): el único sitio donde se configura DeskLink (ver [ajustes](../../docs/ajustes.md)).
+  A la vista: perfil (Calidad, Equilibrado, Ahorro), sonido del PC y táctil (directo, ratón o solo ver). Plegado en
+  «Avanzado»: resolución, calidad, fluidez, códec, adaptar a la carga, estadísticas, pantalla encendida y conexión
+  automática. Se guardan en `SettingsStore` y se mandan al PC al conectar.
 - **Sesión** (`StreamActivity`): vídeo a pantalla completa (también bajo la cámara), capa de estado con
   reintentar/volver, atrás dos veces para desconectar, cuatro dedos para ver u ocultar las estadísticas.

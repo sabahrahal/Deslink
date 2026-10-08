@@ -19,6 +19,10 @@ class StreamSession(
     /** Pide al host el sonido del PC y lo reproduce (ver [AudioPlayer]). */
     private val audioEnabled: Boolean = false,
     initialProfile: PowerProfile = PowerProfile.DEFAULT,
+    /** Modo del táctil que se pide al PC al conectar ([Dlp.INPUT_TOUCH] o [Dlp.INPUT_MOUSE]); null = no se pide. */
+    private val requestedInputMode: Int? = null,
+    /** QUALITY_REQUEST para un perfil (ver [AppSettings.qualityRequest]: lo fijado en Avanzado quita topes). */
+    private val qualityRequest: (PowerProfile, Long) -> ByteArray = { p, t -> Dlp.qualityRequest(p, t) },
 ) {
     /** En qué punto está la conexión, para la pantalla de estado. */
     enum class Phase { CONNECTING, NO_ANSWER, STREAMING, RECONNECTING, FAILED }
@@ -129,7 +133,8 @@ class StreamSession(
             reported = false
             l.send(hello())
             l.send(Dlp.audioControl(audioEnabled, nowUs()))
-            l.send(Dlp.qualityRequest(profile, nowUs()))
+            l.send(qualityRequest(profile, nowUs()))
+            requestedInputMode?.let { l.send(Dlp.inputMode(it, nowUs())) }
             while (running) {
                 // Con frames a medias se despierta a menudo para reclamar paquetes perdidos y entregar frames;
                 // con el escritorio quieto no llega nada y despertar 250 veces por segundo solo gasta batería.
@@ -188,7 +193,7 @@ class StreamSession(
         profile = p
         // Android no deja enviar por red desde el hilo de la interfaz.
         try {
-            touchExecutor.execute { send(Dlp.qualityRequest(p, nowUs())) }
+            touchExecutor.execute { send(qualityRequest(p, nowUs())) }
         } catch (_: java.util.concurrent.RejectedExecutionException) {
             // Sesión ya parada.
         }
@@ -215,7 +220,7 @@ class StreamSession(
             listener.onStreamInfo(info)
             setPhase(Phase.STREAMING)
         } catch (e: Exception) {
-            setPhase(Phase.FAILED, "Esta tablet no pudo abrir el vídeo (${e.message}). Prueba con el códec H.264 en Ajustes.")
+            setPhase(Phase.FAILED, "Esta tablet no pudo abrir el vídeo (${e.message}). Prueba con el códec H.264 en Ajustes > Avanzado.")
         }
     }
 
@@ -315,8 +320,11 @@ class StreamSession(
             send(if (info == null || silent) hello() else Dlp.controlPacket(Dlp.TYPE_PING, nowUs()))
             // Se repite cada segundo: por UDP se puede perder, y un host reiniciado no lo sabría.
             send(Dlp.audioControl(audioEnabled, nowUs()))
-            // El perfil se repite cada 5 s por si se perdió o el host se reinició.
-            if (info == null || silent || ticks++ % 5 == 0) send(Dlp.qualityRequest(profile, nowUs()))
+            // El perfil y el táctil se repiten cada 5 s por si se perdieron o el host se reinició.
+            if (info == null || silent || ticks++ % 5 == 0) {
+                send(qualityRequest(profile, nowUs()))
+                requestedInputMode?.let { send(Dlp.inputMode(it, nowUs())) }
+            }
             if (silent && phase == Phase.STREAMING) {
                 setPhase(Phase.RECONNECTING, "El PC no responde. Reintentando…")
             }

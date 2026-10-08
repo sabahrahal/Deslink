@@ -266,7 +266,11 @@ object Dlp {
      * Límites del perfil de batería: fps máx. u16, Mbps máx. en unidades de 100 kbps u16, escala % u8, perfil u8.
      * 0 = sin límite. El host los acota con sus opciones (ver docs/battery.md).
      */
-    fun qualityRequest(profile: PowerProfile, timestampUs: Long): ByteArray {
+    /**
+     * Topes del perfil para el host. [liftFps]/[liftBitrate] mandan 0 (sin tope) en ese campo: el usuario fijó
+     * ese valor en Ajustes > Avanzado y va en el HELLO (ver [AppSettings.qualityRequest]).
+     */
+    fun qualityRequest(profile: PowerProfile, timestampUs: Long, liftFps: Boolean = false, liftBitrate: Boolean = false): ByteArray {
         val b = ByteBuffer.allocate(HEADER_SIZE + 6).order(ByteOrder.LITTLE_ENDIAN)
         b.putShort(0, MAGIC.toShort())
         b.put(2, VERSION.toByte())
@@ -274,8 +278,8 @@ object Dlp {
         b.putShort(12, 1)
         b.putLong(14, timestampUs)
         b.putShort(22, 6)
-        b.putShort(HEADER_SIZE, profile.maxFps.toShort())
-        b.putShort(HEADER_SIZE + 2, (profile.maxBitrateMbps * 10).toShort())
+        b.putShort(HEADER_SIZE, (if (liftFps) 0 else profile.maxFps).toShort())
+        b.putShort(HEADER_SIZE + 2, (if (liftBitrate) 0 else profile.maxBitrateMbps * 10).toShort())
         b.put(HEADER_SIZE + 4, profile.scalePercent.toByte())
         b.put(HEADER_SIZE + 5, profile.wire.toByte())
         return b.array()

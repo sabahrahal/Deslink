@@ -14,12 +14,11 @@ cian-magenta, opciones en pastillas e interruptores. Barra de título y menús o
 - **Estado**: conectado por cable USB o por WiFi (con la IP de la tablet), resolución, fps, Mbps, tiempo de
   codificación, RTT (si la tablet contesta el PING del host) y frames perdidos; si hay tablets enchufadas por USB con
   la depuración autorizada; y las IP de este PC, para escribirlas en la tablet si hiciera falta.
-- **Ajustes** (se guardan en `%APPDATA%\DeskLink\desklink.ini`): pantalla extra (monitor virtual) o duplicar un
-  monitor, qué monitor, resolución de la pantalla extra (automática: la que pida la tablet o la última), fluidez (fps),
-  calidad (Ahorro 20, Equilibrada 50 o Máxima 100 Mbps; otro valor se pone en el `.ini`), códec, táctil/ratón,
-  puntero, cable USB. Para añadir uno nuevo: campo en `Settings`, opción en `HostArguments` y una fila en
-  `PaintSettingsCard` (hay un comentario donde van los de táctil directo, audio y perfiles de batería).
-  Con la transmisión en marcha aparece **Aplicar cambios**, que reinicia el host con los ajustes nuevos.
+- **Ajustes**: la calidad, los fps, el códec, la resolución, el sonido y el táctil se eligen en la tablet y llegan
+  al conectar (ver [ajustes](../../docs/ajustes.md)); la ventana lo dice y, conectada, enseña lo que pide la tablet.
+  Plegado en **Avanzado** queda lo que la tablet no puede saber: pantalla extra (monitor virtual) o duplicar un
+  monitor, qué monitor, dibujar el puntero, cable USB y el puerto (solo lectura). Se guardan en
+  `%APPDATA%\DeskLink\desklink.ini`. Con la transmisión en marcha aparece **Aplicar cambios**, que reinicia el host.
 - **Abrir al iniciar Windows** (registro del usuario, `HKCU\...\Run`, sin permisos de administrador) y **empezar a
   transmitir al abrir**: con los dos, al encender el PC el monitor virtual y el túnel USB ya están listos.
 - **Errores en claro**: falta el driver, puerto ocupado, la GPU no puede codificar, el monitor ya no existe…
@@ -27,8 +26,11 @@ cian-magenta, opciones en pastillas e interruptores. Barra de título y menús o
 - Si el host se cae después de funcionar un rato, se vuelve a arrancar solo. Al cerrar la ventana la app sigue en la
   bandeja; para cerrarla del todo: clic derecho en el icono > **Salir** (quita el monitor virtual y el túnel de adb).
 
-Opciones que solo están en el `.ini`: `port`, `adb` (ruta de adb.exe) y `extra` (opciones más para el host, p. ej.
-`--refine 0 --pace 80`).
+Opciones que solo están en el `.ini`: `port`, `adb` (ruta de adb.exe), `extra` (opciones más para el host, p. ej.
+`--refine 0 --pace 80`) y, para fijar algo desde el PC por encima de la tablet, `fps`, `bitrate` (Mbps), `codec`
+(`hevc` o `h264`) y `size` (`2560x1600`); vacíos o 0 = lo decide la tablet, y si están puestos la ventana lo avisa.
+Los `.ini` de versiones anteriores (sin `config=2`) guardaban fps, calidad, códec, resolución y táctil desde la
+ventana: al abrir la app se borran para que mande la tablet.
 
 ## Cómo se habla con el host
 

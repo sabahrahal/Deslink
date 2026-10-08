@@ -36,6 +36,7 @@ Objetivo: menos de 35 ms de cristal a cristal por WiFi y menos de 25 ms por USB.
 - [Asesor de latencia](docs/latency-advisor.md)
 - [Panel de diagnóstico](docs/diagnostics-panel.md)
 - [Batería: perfiles y adaptar a la carga](docs/battery.md)
+- [Ajustes: dónde se elige cada cosa](docs/ajustes.md)
 
 ## Hardware de referencia (pruebas de desarrollo)
 
