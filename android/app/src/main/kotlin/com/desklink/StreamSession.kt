@@ -333,7 +333,7 @@ class StreamSession(
                         Dlp.INPUT_TOUCH -> " · táctil directo"
                         Dlp.INPUT_MOUSE -> " · táctil como ratón"
                         else -> ""
-                    },
+                    } +
                     (audio?.let { " · ${it.statsText()}" } ?: ""),
             )
             val lost = reassembler.framesDropped + decoderDrops
