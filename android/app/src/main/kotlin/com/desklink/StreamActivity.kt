@@ -28,6 +28,7 @@ class StreamActivity : Activity(), SurfaceHolder.Callback, StreamSession.Listene
     private var started = false
     private lateinit var host: String
     private val probe by lazy { DeviceProbe(this) }
+    private var touchFallbackShown = false
 
     // Estado táctil: [id, x, y, presión] por dedo apoyado. Se reenvía cada 100 ms mientras haya dedos
     // para que el PC no suelte un toque si se pierde algún paquete, y se repite el "sin dedos" final.
@@ -81,6 +82,9 @@ class StreamActivity : Activity(), SurfaceHolder.Callback, StreamSession.Listene
             statsView.visibility = if (statsVisible) View.VISIBLE else View.GONE
             return true
         }
+        // Cada muestra del táctil sale en cuanto llega, sin esperar a agruparlas con el refresco de pantalla
+        // (Android las junta por vsync): unos ms menos de retraso al arrastrar.
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) surfaceView.requestUnbufferedDispatch(event)
         val w = surfaceView.width.coerceAtLeast(1).toFloat()
         val h = surfaceView.height.coerceAtLeast(1).toFloat()
         val up = event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL
@@ -180,6 +184,13 @@ class StreamActivity : Activity(), SurfaceHolder.Callback, StreamSession.Listene
         val watts = b.netMilliwatts?.let { " ${"%+.1f".format(it / 1000)} W" } ?: " (midiendo…)"
         val power = " · batería$level$watts"
         runOnUiThread { statsView.text = text + power }
+    }
+
+    override fun onInputMode(state: Dlp.InputModeState) {
+        if (state.requested == Dlp.INPUT_TOUCH && state.active == Dlp.INPUT_MOUSE && !touchFallbackShown) {
+            touchFallbackShown = true
+            onError("El PC no aceptó el táctil directo: los toques mueven el ratón")
+        }
     }
 
     override fun onError(message: String) {

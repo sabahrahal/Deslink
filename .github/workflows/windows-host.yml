@@ -15,6 +15,8 @@ jobs:
         run: cmake -S windows/host -B build/host -A x64
       - name: Compilar
         run: cmake --build build/host --config Release
+      - name: Pruebas
+        run: ctest --test-dir build/host -C Release --output-on-failure
       - uses: actions/upload-artifact@v4
         with:
           name: desklink-host-windows

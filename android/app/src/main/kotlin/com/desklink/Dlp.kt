@@ -23,6 +23,11 @@ object Dlp {
     const val TYPE_RATE_REPORT = 9
     const val TYPE_NACK = 10
     const val TYPE_TOUCH = 11
+    const val TYPE_INPUT_MODE = 12
+
+    /** Modos del táctil en el PC: toques reales de Windows (sin mover el cursor) o ratón. */
+    const val INPUT_TOUCH = 0
+    const val INPUT_MOUSE = 1
 
     const val FLAG_KEYFRAME = 1
     const val FLAG_LAST_PACKET = 2
@@ -138,6 +143,27 @@ object Dlp {
             b.putShort(o + 5, (state[4 * i + 3].coerceIn(0f, 1f) * 1024f).toInt().toShort())
         }
         return b.array()
+    }
+
+    /** Pide al host un modo de táctil ([INPUT_TOUCH] o [INPUT_MOUSE]); el host lo recuerda. */
+    fun inputMode(mode: Int, timestampUs: Long): ByteArray {
+        val b = ByteBuffer.allocate(HEADER_SIZE + 1).order(ByteOrder.LITTLE_ENDIAN)
+        b.putShort(0, MAGIC.toShort())
+        b.put(2, VERSION.toByte())
+        b.put(3, TYPE_INPUT_MODE.toByte())
+        b.putShort(12, 1)
+        b.putLong(14, timestampUs)
+        b.putShort(22, 1)
+        b.put(HEADER_SIZE, mode.toByte())
+        return b.array()
+    }
+
+    /** Modo de táctil que respondió el host: el pedido y el que usa (ratón si Windows no aceptó los toques). */
+    class InputModeState(val requested: Int, val active: Int)
+
+    fun parseInputMode(data: ByteArray, header: Header): InputModeState? {
+        if (header.type != TYPE_INPUT_MODE || header.payloadSize < 2) return null
+        return InputModeState(data[HEADER_SIZE].toInt() and 0xFF, data[HEADER_SIZE + 1].toInt() and 0xFF)
     }
 
     fun parseStreamInfo(data: ByteArray, header: Header): StreamInfo? {

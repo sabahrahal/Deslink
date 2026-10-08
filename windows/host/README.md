@@ -29,7 +29,16 @@ build\host\Release\desklink-host.exe --fps 60 --bitrate 50 --codec hevc
 | `--no-usb` | apagado | No escucha en TCP 127.0.0.1 ni pone `adb reverse` (cable USB, ver `docs/usb.md`) |
 | `--adb` | se busca | Ruta de `adb.exe` (por defecto: junto al .exe, PATH o SDK de Android) |
 | `--refine` | 4 | Repeticiones lentas (cada 100 ms) al quedarse quieta la imagen, para que el codificador la afine; 0 las desactiva |
+| `--touch` / `--mouse` | lo guardado (táctil) | Fuerza el modo del táctil solo para esta vez (ver abajo) |
+| `--no-touch` | apagado | Ignora los toques de la tablet |
 
 Cada segundo imprime fps capturados, fps codificados, Mbps y la latencia de codificación media (desde que el frame llega al codificador hasta que sale el flujo).
+
+## Táctil
+
+- **Táctil directo** (por defecto): los dedos de la tablet son toques reales de Windows, con multitáctil y presión, y el cursor no se mueve. Tocar, arrastrar, pellizcar para hacer zoom, desplazar con dos dedos y mantener pulsado para el clic derecho los interpreta Windows como en cualquier pantalla táctil. Usa los punteros sintéticos de Windows 10 1809 o posterior (`InjectTouchInput` en anteriores). Si Windows rechaza los toques, el host lo explica en la consola, pasa a modo ratón y se lo dice a la tablet.
+- **Ratón**: para apps que no entienden el táctil. Un toque es un clic (dos seguidos, doble clic), un dedo que se mueve arrastra, un dedo quieto medio segundo es clic derecho, dos dedos desplazan (rueda), pellizcar es Ctrl + rueda y tocar con dos dedos es clic derecho.
+
+El modo se guarda en `%APPDATA%\DeskLink\input-mode.txt` (`touch` o `mouse`). Lo cambia la tablet en marcha (paquete `INPUT_MODE`, ver `docs/protocol-dlp.md`) o cualquier app escribiendo ese fichero antes de arrancar el host. Las ventanas de administrador (p. ej. el Administrador de tareas) no aceptan toques de un host sin elevar.
 
 El cortafuegos de Windows pedirá permiso la primera vez: hay que permitir redes privadas. El cable USB no pasa por el cortafuegos.

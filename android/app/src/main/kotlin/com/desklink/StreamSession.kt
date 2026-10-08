@@ -21,6 +21,8 @@ class StreamSession(
         fun onError(message: String)
         /** Interfaz por la que se llega al host (null si no se supo). */
         fun onRoute(route: Route?) = Unit
+        /** Modo del táctil en el PC (ver [Dlp.InputModeState]); llega al conectar y cada vez que cambia. */
+        fun onInputMode(state: Dlp.InputModeState) = Unit
     }
 
     @Volatile private var running = false
@@ -29,6 +31,8 @@ class StreamSession(
     @Volatile private var rttUs = -1L
     @Volatile private var routeLabel = ""
     @Volatile private var lastRxUs = 0L
+    @Volatile var inputMode: Dlp.InputModeState? = null
+        private set
 
     @Volatile private var link: Link? = null
     private var receiveThread: Thread? = null
@@ -118,6 +122,10 @@ class StreamSession(
                     Dlp.TYPE_VIDEO -> onVideo(buf, length)
                     Dlp.TYPE_STREAM_INFO -> onStreamInfo(buf, header)
                     Dlp.TYPE_PONG -> rttUs = nowUs() - header.timestampUs
+                    Dlp.TYPE_INPUT_MODE -> Dlp.parseInputMode(buf, header)?.let {
+                        inputMode = it
+                        listener.onInputMode(it)
+                    }
                 }
             }
             l.close()
@@ -207,6 +215,12 @@ class StreamSession(
         touchExecutor.execute { send(packet) }
     }
 
+    /** Cambia el táctil del PC entre toques reales ([Dlp.INPUT_TOUCH]) y ratón ([Dlp.INPUT_MOUSE]). */
+    fun setInputMode(mode: Int) {
+        val packet = Dlp.inputMode(mode, nowUs())
+        touchExecutor.execute { send(packet) }
+    }
+
     private fun requestKeyframe() {
         val now = nowUs()
         if (now - lastKeyframeRequestUs < 500_000) return
@@ -267,7 +281,12 @@ class StreamSession(
                     " · ${"%.1f".format(mbps)} Mbps" +
                     (if (rtt >= 0) " · RTT ${"%.1f".format(rtt / 1000.0)} ms" else "") +
                     " · perdidos ${reassembler.framesDropped + decoderDrops}" +
-                    " · reclamados ${reassembler.packetsRequested}",
+                    " · reclamados ${reassembler.packetsRequested}" +
+                    when (inputMode?.active) {
+                        Dlp.INPUT_TOUCH -> " · táctil directo"
+                        Dlp.INPUT_MOUSE -> " · táctil como ratón"
+                        else -> ""
+                    },
             )
             val lost = reassembler.framesDropped + decoderDrops
             send(Dlp.rateReport((framesReceived - lastFrames).toInt(), (lost - lastLost).toInt(), now))
