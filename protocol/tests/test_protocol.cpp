@@ -155,7 +155,41 @@ static void TestBurstTypes() {
   CHECK(static_cast<uint8_t>(PacketType::kTouch) == 11);
 }
 
+static void TestAudioPacket() {
+  CHECK(static_cast<uint8_t>(PacketType::kAudio) == 12);
+  CHECK(static_cast<uint8_t>(PacketType::kAudioControl) == 13);
+  auto cur = MakeData(160, 1);
+  auto prev = MakeData(150, 2);
+  auto pkt = MakeAudioPacket(1000, 55, cur.data(), cur.size(), prev.data(), prev.size());
+  auto h = ParseHeader(pkt.data(), pkt.size());
+  CHECK(h && h->type == PacketType::kAudio && h->frame_id == 1000 && h->timestamp_us == 55);
+  auto frames = ParseAudioPacket(*h, pkt.data() + kHeaderSize);
+  CHECK(frames.size() == 2);
+  CHECK(frames[0].seq == 1000 && frames[0].size == cur.size() &&
+        std::equal(cur.begin(), cur.end(), frames[0].data));
+  CHECK(frames[1].seq == 999 && frames[1].size == prev.size() &&
+        std::equal(prev.begin(), prev.end(), frames[1].data));
+
+  // Sin el anterior, o si no caben los dos, va solo el actual.
+  pkt = MakeAudioPacket(0, 1, cur.data(), cur.size(), nullptr, 0);
+  h = ParseHeader(pkt.data(), pkt.size());
+  frames = ParseAudioPacket(*h, pkt.data() + kHeaderSize);
+  CHECK(frames.size() == 1 && frames[0].seq == 0);
+  auto big = MakeData(kMaxPayload - 3, 3);
+  pkt = MakeAudioPacket(5, 1, big.data(), big.size(), prev.data(), prev.size());
+  h = ParseHeader(pkt.data(), pkt.size());
+  CHECK(h && ParseAudioPacket(*h, pkt.data() + kHeaderSize).size() == 1);
+  CHECK(MakeAudioPacket(5, 1, big.data(), big.size() + 1, nullptr, 0).empty());
+
+  // Un tamaño que se sale del payload invalida el paquete entero.
+  pkt = MakeAudioPacket(7, 1, cur.data(), cur.size(), prev.data(), prev.size());
+  h = ParseHeader(pkt.data(), pkt.size());
+  pkt[kHeaderSize + 1 + 2 + cur.size()] = 0xFF;
+  CHECK(ParseAudioPacket(*h, pkt.data() + kHeaderSize).empty());
+}
+
 int main() {
+  TestAudioPacket();
   TestBurstTypes();
   TestHeaderRoundtrip();
   TestHeaderRejects();

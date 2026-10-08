@@ -3,6 +3,7 @@ package com.desklink
 import android.app.Activity
 import android.content.Context
 import android.graphics.Color
+import android.media.AudioManager
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
@@ -53,6 +54,8 @@ class StreamActivity : Activity(), SurfaceHolder.Callback, StreamSession.Listene
         }
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // Los botones de volumen controlan el sonido del PC (multimedia), no el del timbre.
+        volumeControlStream = AudioManager.STREAM_MUSIC
         // Evita que la CPU/GPU bajen de frecuencia a mitad de sesión.
         window.setSustainedPerformanceMode(true)
         hideSystemBars()
@@ -152,7 +155,7 @@ class StreamActivity : Activity(), SurfaceHolder.Callback, StreamSession.Listene
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
-        session = StreamSession(host, holder.surface, this).also { it.start() }
+        session = StreamSession(host, holder.surface, this, Settings.audioEnabled(this)).also { it.start() }
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) = Unit

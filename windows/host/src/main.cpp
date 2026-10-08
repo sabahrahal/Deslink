@@ -17,6 +17,7 @@
 #include <string>
 #include <vector>
 
+#include "audio.h"
 #include "capture.h"
 #include "converter.h"
 #include "dlp/packet.h"
@@ -131,6 +132,8 @@ struct Options {
   bool usb = true;               // --no-usb: sin cable USB (TCP por adb reverse)
   std::wstring adb_path;         // --adb: ruta de adb.exe (si no, se busca)
   UINT refine = 4;               // --refine: repeticiones extra al quedarse quieta la imagen para afinar la calidad
+  bool audio = true;             // --no-audio: nunca envía el sonido del PC (aunque la tablet lo pida)
+  UINT audio_kbps = 128;         // --audio-bitrate: kbps de Opus
 };
 
 // Todo lo que depende de la resolución y de la GPU de la salida capturada. Cuando Windows cambia la
@@ -197,18 +200,24 @@ bool ParseArgs(int argc, char** argv, Options* o) {
       o->mouse = true;
     } else if (a == "--no-touch") {
       o->touch = false;
+    } else if (a == "--no-audio") {
+      o->audio = false;
+    } else if (a == "--audio-bitrate") {
+      auto v = next("--audio-bitrate"); if (!v) return false;
+      o->audio_kbps = static_cast<UINT>(std::atoi(v));
     } else if (a == "--codec") {
       auto v = next("--codec"); if (!v) return false;
       o->codec = std::string(v) == "h264" ? VideoCodec::kH264 : VideoCodec::kHevc;
     } else {
       std::fprintf(stderr,
                    "Uso: desklink-host [--port 47800] [--output 0] [--fps 60] [--bitrate 50] "
-                   "[--codec hevc|h264] [--pace Mbps] [--refine 4] [--no-touch] [--mouse] [--no-cursor] "
+                   "[--codec hevc|h264] [--pace Mbps] [--refine 4] [--no-touch] [--mouse] [--no-cursor] [--no-audio] [--audio-bitrate 128] "
                    "[--virtual [--size 2944x1840]] [--no-usb] [--adb ruta\\adb.exe]\n");
       return false;
     }
   }
-  return o->fps > 0 && o->fps <= 240 && o->bitrate_mbps > 0 && o->refine <= 30;
+  return o->fps > 0 && o->fps <= 240 && o->bitrate_mbps > 0 && o->refine <= 30 && o->audio_kbps >= 32 &&
+         o->audio_kbps <= 256;
 }
 
 }  // namespace
@@ -232,6 +241,7 @@ int Run(int argc, char** argv) {
   std::unique_ptr<Pipeline> pipe;
   UdpEndpoint udp;
   AdbReverse adb;
+  AudioCapture audio;  // después de udp: se destruye antes (envía por él)
   int exit_code = 1;
 
   std::atomic<uint32_t> next_frame_id{1};
@@ -324,6 +334,7 @@ int Run(int argc, char** argv) {
     if (opt.virtual_display) SaveSize(pipe->w, pipe->h);
 
     std::atomic<uint32_t> last_client_ip{0};
+    std::atomic<bool> audio_requested{false};  // la tablet tiene activado «sonido del PC» (AUDIO_CONTROL)
     std::atomic<uint64_t> last_keyframe_us{0};
     // Tasa adaptativa (AIMD): baja un 30 % ante pérdidas (informe de la tablet o petición de frame
     // clave) y recuerda un techo por debajo de la tasa que falló; sube un 10 % cada 2 s tras 8 s limpios y el
@@ -361,6 +372,7 @@ int Run(int argc, char** argv) {
               inet_ntop(AF_INET, &from.sin_addr, ip, sizeof(ip));
               std::printf("Cliente conectado: %s:%u\n", ip, ntohs(from.sin_port));
             }
+            audio_requested = false;  // cliente nuevo: hasta que diga si quiere sonido
             // Por cable no se pierden paquetes: se empieza ya a la tasa máxima.
             current_bps = usb ? max_bps : std::min(max_bps, kStartBps);
             ceiling_bps = max_bps;
@@ -427,6 +439,11 @@ int Run(int argc, char** argv) {
           touch.Update(contacts);
           break;
         }
+        case dlp::PacketType::kAudioControl:
+          if (header->payload_size >= dlp::kAudioControlSize) {
+            audio_requested = data[dlp::kHeaderSize] != 0;
+          }
+          break;
         case dlp::PacketType::kNack: {
           // La tablet reclama paquetes concretos de un frame: se reenvían (rápido y sin esperar a un frame clave).
           const uint8_t* q = data + dlp::kHeaderSize;
@@ -487,6 +504,26 @@ int Run(int argc, char** argv) {
     std::printf("Escuchando en UDP %u. Abre DeskLink en el móvil e indica la IP de este PC.\n",
                 opt.port);
     if (opt.usb) adb.Start(opt.port, opt.adb_path);
+
+    // Cada trozo Opus sale en su propio paquete, con el trozo anterior repetido: por WiFi, si se pierde
+    // un paquete, el siguiente lo trae. Son ~2 x 128 kbps, nada al lado del vídeo.
+    uint32_t audio_seq = 0;
+    std::vector<uint8_t> audio_prev;
+    auto on_audio = [&](const uint8_t* frame, size_t size, uint64_t ts_us) {
+      udp.SendToPeer(dlp::MakeAudioPacket(audio_seq++, ts_us, frame, size, audio_prev.data(), audio_prev.size()));
+      audio_prev.assign(frame, frame + size);
+    };
+    auto update_audio = [&]() {
+      const bool want = opt.audio && udp.has_peer() && audio_requested;
+      if (want == audio.running()) return;
+      if (want) {
+        audio_prev.clear();
+        audio.Start(on_audio, opt.audio_kbps * 1000u);
+      } else {
+        audio.Stop();
+        std::printf("Sonido: detenido.\n");
+      }
+    };
 
     const uint64_t min_interval_us = 1'000'000ull / opt.fps;
     constexpr uint64_t kRefineIntervalUs = 100'000;  // separación de las repeticiones de afinado
@@ -573,9 +610,11 @@ int Run(int argc, char** argv) {
       }
 
       touch.ExpireIfSilent(GetTickCount64(), 700);
+      update_audio();
       if (udp.ExpirePeer(std::chrono::seconds(5))) {
         touch.ReleaseAll();
         last_client_ip = 0;
+        audio_requested = false;
         std::printf("Cliente desconectado (sin respuesta durante 5 s). Esperando cliente.\n");
       }
 
@@ -676,6 +715,7 @@ int Run(int argc, char** argv) {
       enc_ptr = nullptr;
     }
     if (pipe && pipe->encoder) pipe->encoder->Stop();
+    audio.Stop();
     adb.Stop();
     udp.Stop();
     exit_code = failed ? 1 : 0;

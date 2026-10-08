@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -70,6 +71,12 @@ class MainActivity : Activity() {
             setOnClickListener { launch(StreamActivity::class.java) }
         }
 
+        val audio = CheckBox(this).apply {
+            text = "Sonido del PC en la tablet"
+            isChecked = Settings.audioEnabled(this@MainActivity)
+            setOnCheckedChangeListener { _, checked -> Settings.setAudioEnabled(this@MainActivity, checked) }
+        }
+
         val diagnostics = Button(this).apply {
             text = "Diagnóstico y recomendaciones"
             setOnClickListener { launch(DiagnosticsActivity::class.java) }
@@ -83,6 +90,7 @@ class MainActivity : Activity() {
             addView(hint)
             addView(ip, LinearLayout.LayoutParams(-1, -2))
             addView(connect)
+            addView(audio)
             addView(diagnostics)
             addView(statusText)
         }

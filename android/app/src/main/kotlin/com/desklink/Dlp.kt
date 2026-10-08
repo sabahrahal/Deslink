@@ -23,6 +23,13 @@ object Dlp {
     const val TYPE_RATE_REPORT = 9
     const val TYPE_NACK = 10
     const val TYPE_TOUCH = 11
+    const val TYPE_AUDIO = 12
+    const val TYPE_AUDIO_CONTROL = 13
+
+    /** Sonido: Opus a 48 kHz estéreo, un trozo cada 10 ms. */
+    const val AUDIO_SAMPLE_RATE = 48000
+    const val AUDIO_CHANNELS = 2
+    const val AUDIO_FRAME_SAMPLES = 480
 
     const val FLAG_KEYFRAME = 1
     const val FLAG_LAST_PACKET = 2
@@ -41,6 +48,9 @@ object Dlp {
     )
 
     class StreamInfo(val width: Int, val height: Int, val fps: Int, val codec: Int)
+
+    /** Un trozo Opus de 10 ms; [seq] cuenta trozos desde que el host empezó a enviar sonido. */
+    class AudioFrame(val seq: Long, val data: ByteArray)
 
     /** Devuelve null si el paquete no es válido (corto, magic/versión distintos o payload que no cabe). */
     fun parseHeader(data: ByteArray, length: Int): Header? {
@@ -138,6 +148,40 @@ object Dlp {
             b.putShort(o + 5, (state[4 * i + 3].coerceIn(0f, 1f) * 1024f).toInt().toShort())
         }
         return b.array()
+    }
+
+    /** Dice al host si queremos el sonido del PC. Se repite cada segundo (UDP puede perderlo). */
+    fun audioControl(enabled: Boolean, timestampUs: Long): ByteArray {
+        val b = ByteBuffer.allocate(HEADER_SIZE + 1).order(ByteOrder.LITTLE_ENDIAN)
+        b.putShort(0, MAGIC.toShort())
+        b.put(2, VERSION.toByte())
+        b.put(3, TYPE_AUDIO_CONTROL.toByte())
+        b.putShort(12, 1)
+        b.putLong(14, timestampUs)
+        b.putShort(22, 1)
+        b.put(HEADER_SIZE, if (enabled) 1 else 0)
+        return b.array()
+    }
+
+    /**
+     * Trozos de un paquete AUDIO: u8 n y n x {u16 tamaño, bytes}; la entrada i es el trozo frameId - i (el host
+     * repite el anterior por si se perdió). Vacío si el payload no es válido.
+     */
+    fun parseAudio(data: ByteArray, header: Header): List<AudioFrame> {
+        if (header.payloadSize < 1) return emptyList()
+        val end = HEADER_SIZE + header.payloadSize
+        val n = data[HEADER_SIZE].toInt() and 0xFF
+        var o = HEADER_SIZE + 1
+        val frames = ArrayList<AudioFrame>(n)
+        for (i in 0 until n) {
+            if (o + 2 > end) return emptyList()
+            val size = (data[o].toInt() and 0xFF) or ((data[o + 1].toInt() and 0xFF) shl 8)
+            o += 2
+            if (size == 0 || o + size > end) return emptyList()
+            frames.add(AudioFrame(header.frameId - i, data.copyOfRange(o, o + size)))
+            o += size
+        }
+        return frames
     }
 
     fun parseStreamInfo(data: ByteArray, header: Header): StreamInfo? {

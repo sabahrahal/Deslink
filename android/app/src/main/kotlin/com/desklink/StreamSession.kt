@@ -14,6 +14,8 @@ class StreamSession(
     private val host: String,
     private val surface: Surface,
     private val listener: Listener,
+    /** Pide al host el sonido del PC y lo reproduce (ver [AudioPlayer]). */
+    private val audioEnabled: Boolean = false,
 ) {
     interface Listener {
         fun onStreamInfo(info: Dlp.StreamInfo)
@@ -31,6 +33,7 @@ class StreamSession(
     @Volatile private var lastRxUs = 0L
 
     @Volatile private var link: Link? = null
+    @Volatile private var audio: AudioPlayer? = null
     private var receiveThread: Thread? = null
     private var controlThread: Thread? = null
     private val reassembler = FrameReassembler()
@@ -57,6 +60,8 @@ class StreamSession(
         controlThread?.join(500)
         decoder?.release()
         decoder = null
+        audio?.stop()
+        audio = null
     }
 
     private fun nowUs() = System.nanoTime() / 1000
@@ -93,6 +98,7 @@ class StreamSession(
                 return
             }
             l.send(Dlp.controlPacket(Dlp.TYPE_HELLO, nowUs()))
+            l.send(Dlp.audioControl(audioEnabled, nowUs()))
             while (running) {
                 // Con frames a medias se despierta a menudo para reclamar paquetes perdidos y entregar frames;
                 // con el escritorio quieto no llega nada y despertar 250 veces por segundo solo gasta batería.
@@ -118,6 +124,7 @@ class StreamSession(
                     Dlp.TYPE_VIDEO -> onVideo(buf, length)
                     Dlp.TYPE_STREAM_INFO -> onStreamInfo(buf, header)
                     Dlp.TYPE_PONG -> rttUs = nowUs() - header.timestampUs
+                    Dlp.TYPE_AUDIO -> onAudio(buf, header, cable)
                 }
             }
             l.close()
@@ -153,6 +160,15 @@ class StreamSession(
         } catch (e: Exception) {
             listener.onError("No se pudo iniciar el decodificador: ${e.message}")
         }
+    }
+
+    private fun onAudio(buf: ByteArray, header: Dlp.Header, cable: Boolean) {
+        if (!audioEnabled || !running) return
+        val player = audio ?: AudioPlayer(cable).also {
+            it.start()
+            audio = it
+        }
+        for (frame in Dlp.parseAudio(buf, header)) player.push(frame)
     }
 
     private fun onVideo(buf: ByteArray, length: Int) {
@@ -233,6 +249,8 @@ class StreamSession(
             // Si el host dejó de oírnos (p. ej. un corte de red) nos habrá olvidado: un HELLO lo reengancha.
             val silent = info != null && nowUs() - lastRxUs > 3_000_000
             send(Dlp.controlPacket(if (info == null || silent) Dlp.TYPE_HELLO else Dlp.TYPE_PING, nowUs()))
+            // Se repite cada segundo: por UDP se puede perder, y un host reiniciado no lo sabría.
+            send(Dlp.audioControl(audioEnabled, nowUs()))
             try {
                 Thread.sleep(1000)
             } catch (_: InterruptedException) {
@@ -267,7 +285,8 @@ class StreamSession(
                     " · ${"%.1f".format(mbps)} Mbps" +
                     (if (rtt >= 0) " · RTT ${"%.1f".format(rtt / 1000.0)} ms" else "") +
                     " · perdidos ${reassembler.framesDropped + decoderDrops}" +
-                    " · reclamados ${reassembler.packetsRequested}",
+                    " · reclamados ${reassembler.packetsRequested}" +
+                    (audio?.let { " · ${it.statsText()}" } ?: ""),
             )
             val lost = reassembler.framesDropped + decoderDrops
             send(Dlp.rateReport((framesReceived - lastFrames).toInt(), (lost - lastLost).toInt(), now))

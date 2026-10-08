@@ -26,6 +26,8 @@ enum class PacketType : uint8_t {
   kRateReport = 9,       // cliente -> host: frames recibidos y perdidos en el último segundo (u16, u16)
   kNack = 10,            // cliente -> host: reenvía estos paquetes de un frame (frame_id en la cabecera; payload: u16 por índice)
   kTouch = 11,           // cliente -> host: estado táctil completo (u8 n, n x {u8 id, u16 x, u16 y, u16 presión}); x,y en 0..65535
+  kAudio = 12,           // host -> cliente: sonido del PC en Opus (frame_id = número de trozo de 10 ms), ver MakeAudioPacket
+  kAudioControl = 13,    // cliente -> host: u8 1 = quiero el sonido, 0 = no (se repite cada segundo)
   kBurstData = 8,        // host -> cliente: paquete de relleno de la ráfaga (packet_index/packet_count)
 };
 
@@ -59,6 +61,19 @@ constexpr size_t kRateReportSize = 4;
 constexpr size_t kTouchContactSize = 7;
 constexpr size_t kMaxTouchContacts = 10;
 
+// Sonido: Opus a 48 kHz estéreo, un trozo cada 10 ms.
+constexpr uint32_t kAudioSampleRate = 48000;
+constexpr uint32_t kAudioChannels = 2;
+constexpr uint32_t kAudioFrameSamples = 480;
+constexpr size_t kAudioControlSize = 1;
+
+// Un trozo de sonido dentro de un paquete AUDIO. `data` apunta dentro del paquete.
+struct AudioFrameRef {
+  uint32_t seq = 0;
+  const uint8_t* data = nullptr;
+  size_t size = 0;
+};
+
 // Escribe la cabecera en kHeaderSize bytes.
 void WriteHeader(const Header& header, uint8_t* out);
 
@@ -74,6 +89,14 @@ std::vector<std::vector<uint8_t>> PacketizeFrame(const uint8_t* data, size_t siz
 
 std::vector<uint8_t> MakeControlPacket(PacketType type, const uint8_t* payload,
                                        size_t payload_size, uint64_t timestamp_us);
+
+// Paquete AUDIO con el trozo `seq` y, si cabe, también el anterior (`prev`, puede ser nulo): si se
+// pierde un paquete por WiFi, el siguiente trae su trozo. Payload: u8 n (1 o 2) y n x {u16 tamaño, bytes};
+// la entrada i es el trozo seq - i. Devuelve vacío si `cur` está vacío o no cabe.
+std::vector<uint8_t> MakeAudioPacket(uint32_t seq, uint64_t timestamp_us, const uint8_t* cur, size_t cur_size,
+                                     const uint8_t* prev, size_t prev_size);
+// Trozos de un paquete AUDIO ya validado con ParseHeader; vacío si el payload no es válido.
+std::vector<AudioFrameRef> ParseAudioPacket(const Header& header, const uint8_t* payload);
 
 std::vector<uint8_t> EncodeStreamInfo(const StreamInfo& info);
 std::optional<StreamInfo> DecodeStreamInfo(const uint8_t* payload, size_t size);
