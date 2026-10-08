@@ -7,9 +7,11 @@ host, que escucha en `127.0.0.1:47800` (TCP) del PC. No pasa por ninguna red ni 
 Una sola vez:
 1. En la tablet, activa las **Opciones de desarrollador** (Ajustes → Acerca de la tablet → toca 7 veces «Número de
    compilación») y dentro activa **Depuración USB**. Se queda activada; no hay que repetirlo como el anclaje.
-2. En el PC, descarga las [platform-tools de Android](https://developer.android.com/tools/releases/platform-tools)
-   y copia `adb.exe`, `AdbWinApi.dll` y `AdbWinUsbApi.dll` junto a `desklink-host.exe` (o deja adb en el PATH;
-   también se busca en `%LOCALAPPDATA%\Android\Sdk\platform-tools` y con `--adb ruta`).
+2. En el PC no hay que instalar nada más: el paquete `desklink-host-windows` de la CI ya trae `adb.exe`,
+   `AdbWinApi.dll` y `AdbWinUsbApi.dll` junto a `desklink-host.exe`; descomprímelo entero en una carpeta. Si compilas
+   el host tú, copia esos tres archivos de las
+   [platform-tools de Android](https://developer.android.com/tools/releases/platform-tools) junto al .exe (o deja adb
+   en el PATH; también se busca en `%LOCALAPPDATA%\Android\Sdk\platform-tools` y con `--adb ruta`).
 3. Enchufa la tablet con un cable **de datos** y acepta «¿Permitir depuración USB?» marcando «Permitir siempre».
 
 Cada vez: abre `desklink-host.exe` (dice «Tablet … conectada por USB (ADB)») y pulsa **Conectar** en la app con la IP
@@ -17,6 +19,10 @@ vacía. La app prueba primero el cable y, si no está, busca por WiFi. Si se des
 reconecta sola.
 
 Si Windows no reconoce la tablet en `adb devices`, instala el driver USB del fabricante (o el «Google USB Driver»).
+Si a los pocos segundos el host dice «no veo ninguna tablet», la depuración USB está apagada o el cable es solo de carga.
+
+Solo puede haber un host abierto a la vez (los dos querrían el puerto 47800). Si abres otro, el anterior se cierra solo
+y le deja el sitio; si el puerto lo tiene otro programa, el host dice cuál.
 
 ### Por qué así (y no Android Open Accessory)
 - AOA no necesita depuración USB, pero en Windows obliga a cambiar el driver del dispositivo (WinUSB/Zadig) y a

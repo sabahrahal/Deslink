@@ -262,6 +262,8 @@ void AdbReverse::Loop() {
   std::printf("USB por cable: usando %s\n", Utf8(adb_).c_str());
   const std::wstring tunnel = L"tcp:" + std::to_wstring(port_) + L" tcp:" + std::to_wstring(port_);
   bool server_warned = false;
+  bool none_warned = false;
+  const ULONGLONG started = GetTickCount64();
 
   while (!stop_) {
     std::string out;
@@ -293,6 +295,13 @@ void AdbReverse::Loop() {
                       "(marca «Permitir siempre desde este ordenador»).\n", serial.c_str());
         }
       }
+      // Sin ninguna tablet a la vista: casi siempre es la depuración USB apagada o un cable solo de carga.
+      if (present.empty() && warned_.empty() && !none_warned && GetTickCount64() - started > 8000) {
+        none_warned = true;
+        std::printf("USB por cable: no veo ninguna tablet. Si está enchufada, activa en ella Opciones de desarrollador "
+                    "→ Depuración USB y usa un cable de datos; no hace falta el anclaje de red.\n");
+      }
+      if (!present.empty()) none_warned = true;
       for (auto it = reversed_.begin(); it != reversed_.end();) {
         if (present.count(*it)) {
           ++it;

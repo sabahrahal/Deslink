@@ -27,7 +27,7 @@ add_executable(desklink-host
 
 target_compile_definitions(desklink-host PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00)
 target_link_libraries(desklink-host PRIVATE dlp
-  d3d11 dxgi mfplat mf mfuuid strmiids ole32 oleaut32 ws2_32 winmm user32 cfgmgr32)
+  d3d11 dxgi mfplat mf mfuuid strmiids ole32 oleaut32 ws2_32 iphlpapi winmm user32 cfgmgr32)
 
 if(MSVC)
   target_compile_options(desklink-host PRIVATE /W3 /utf-8)

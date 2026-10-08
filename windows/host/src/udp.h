@@ -8,10 +8,15 @@
 #include <cstdint>
 #include <functional>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <vector>
 
 #include "usb.h"
+
+// Proceso que tiene abierto el puerto UDP (0 si no se sabe) y su nombre para mostrarlo.
+DWORD UdpPortOwner(uint16_t port);
+std::string DescribeProcess(DWORD pid);
 
 // Socket UDP del host y enlace USB (TCP por adb reverse, ver usb.h). El destino de vídeo es el último
 // cliente que envió HELLO, llegue por donde llegue: el cliente USB se identifica con UsbPeerAddress().
@@ -43,6 +48,7 @@ class UdpEndpoint {
 
  private:
   void ReceiveLoop();
+  bool BindWithRetry(const sockaddr_in& addr, uint16_t port);
 
   SOCKET socket_ = INVALID_SOCKET;
   PacketHandler handler_;
