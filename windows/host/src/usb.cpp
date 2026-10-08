@@ -7,15 +7,21 @@
 #include <cstdio>
 #include <cstring>
 #include <sstream>
+#include <vector>
 
 #include "dlp/packet.h"
+
+SOCKET NonInheritableSocket(int type, int protocol) {
+  // WSA_FLAG_OVERLAPPED: lo mismo que socket(), para que SO_RCVTIMEO funcione.
+  return ::WSASocketW(AF_INET, type, protocol, nullptr, 0, WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT);
+}
 
 UsbLink::~UsbLink() { Stop(); }
 
 bool UsbLink::Start(uint16_t port, PacketHandler on_packet, CloseHandler on_close) {
   on_packet_ = std::move(on_packet);
   on_close_ = std::move(on_close);
-  listen_ = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  listen_ = NonInheritableSocket(SOCK_STREAM, IPPROTO_TCP);
   if (listen_ == INVALID_SOCKET) return false;
   // Solo en loopback: el único que llega aquí es el servidor adb del propio PC.
   sockaddr_in addr{};
@@ -48,6 +54,7 @@ void UsbLink::Loop() {
     if (FD_ISSET(listen_, &rd)) {
       SOCKET s = ::accept(listen_, nullptr, nullptr);
       if (s != INVALID_SOCKET) {
+        SetHandleInformation(reinterpret_cast<HANDLE>(s), HANDLE_FLAG_INHERIT, 0);
         if (c != INVALID_SOCKET) {
           CloseClient();
           on_close_();
@@ -190,34 +197,45 @@ std::wstring FindAdb() {
   return {};
 }
 
-}  // namespace
-
-AdbReverse::~AdbReverse() { Stop(); }
-
-void AdbReverse::Start(uint16_t port, std::wstring adb_path) {
-  port_ = port;
-  adb_ = std::move(adb_path);
-  thread_ = std::thread([this] { Loop(); });
-}
-
 // Ejecuta adb sin ventana y recoge su salida. Se espera a que el proceso termine, no al final de la tubería:
 // la primera vez adb arranca su servidor en segundo plano y este podría quedarse con la tubería abierta.
-bool AdbReverse::Run(const std::wstring& args, std::string* out, DWORD timeout_ms) {
+// adb solo hereda su tubería de salida: si heredara todo (el socket UDP del host, su salida hacia la app…), el
+// servidor de adb, que sigue vivo cuando el host se cierra, se quedaría con el puerto 47800 y el siguiente host
+// no podría abrirlo («lo está usando PID x», un PID que ya no existe).
+bool RunAdb(const std::wstring& adb, const std::wstring& args, std::string* out, DWORD timeout_ms,
+            const std::atomic<bool>* stop) {
   SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
   HANDLE read_end = nullptr, write_end = nullptr;
   if (!CreatePipe(&read_end, &write_end, &sa, 0)) return false;
   SetHandleInformation(read_end, HANDLE_FLAG_INHERIT, 0);
 
-  STARTUPINFOW si{};
-  si.cb = sizeof(si);
-  si.dwFlags = STARTF_USESTDHANDLES;
-  si.hStdOutput = write_end;
-  si.hStdError = write_end;
-  si.hStdInput = nullptr;
+  SIZE_T attr_size = 0;
+  InitializeProcThreadAttributeList(nullptr, 1, 0, &attr_size);
+  std::vector<uint8_t> attr_buf(attr_size);
+  auto* attrs = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(attr_buf.data());
+  HANDLE inherit[] = {write_end};
+  if (!InitializeProcThreadAttributeList(attrs, 1, 0, &attr_size)) {
+    CloseHandle(read_end);
+    CloseHandle(write_end);
+    return false;
+  }
+  const bool listed = UpdateProcThreadAttribute(attrs, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inherit,
+                                                sizeof(inherit), nullptr, nullptr);
+
+  STARTUPINFOEXW si{};
+  si.StartupInfo.cb = sizeof(si);
+  si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+  si.StartupInfo.hStdOutput = write_end;
+  si.StartupInfo.hStdError = write_end;
+  si.StartupInfo.hStdInput = nullptr;
+  si.lpAttributeList = attrs;
   PROCESS_INFORMATION pi{};
-  std::wstring cmd = L"\"" + adb_ + L"\" " + args;
-  const BOOL ok = CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr,
-                                 &si, &pi);
+  std::wstring cmd = L"\"" + adb + L"\" " + args;
+  // Sin la lista de handles no se lanza: heredarlo todo es justo lo que deja el puerto ocupado.
+  const BOOL ok = listed && CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, TRUE,
+                                           CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT, nullptr, nullptr,
+                                           &si.StartupInfo, &pi);
+  DeleteProcThreadAttributeList(attrs);
   CloseHandle(write_end);
   if (!ok) {
     CloseHandle(read_end);
@@ -237,7 +255,7 @@ bool AdbReverse::Run(const std::wstring& args, std::string* out, DWORD timeout_m
   bool exited = false;
   while (!(exited = WaitForSingleObject(pi.hProcess, 20) == WAIT_OBJECT_0)) {
     drain();
-    if (GetTickCount64() > deadline || stop_) break;
+    if (GetTickCount64() > deadline || (stop && *stop)) break;
   }
   drain();
   DWORD code = 1;
@@ -250,6 +268,20 @@ bool AdbReverse::Run(const std::wstring& args, std::string* out, DWORD timeout_m
   CloseHandle(pi.hProcess);
   CloseHandle(read_end);
   return exited && code == 0;
+}
+
+}  // namespace
+
+AdbReverse::~AdbReverse() { Stop(); }
+
+void AdbReverse::Start(uint16_t port, std::wstring adb_path) {
+  port_ = port;
+  adb_ = std::move(adb_path);
+  thread_ = std::thread([this] { Loop(); });
+}
+
+bool AdbReverse::Run(const std::wstring& args, std::string* out, DWORD timeout_ms) {
+  return RunAdb(adb_, args, out, timeout_ms, &stop_);
 }
 
 void AdbReverse::Loop() {
@@ -336,4 +368,9 @@ void AdbReverse::Stop() {
   }
   reversed_.clear();
   ready_ = 0;
+}
+
+bool StopAdbServer(const std::wstring& adb_path) {
+  const std::wstring adb = adb_path.empty() ? FindAdb() : adb_path;
+  return !adb.empty() && RunAdb(adb, L"kill-server", nullptr, 5000, nullptr);
 }

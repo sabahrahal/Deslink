@@ -28,6 +28,17 @@ std::string ProcessName(DWORD pid) {
   return name;
 }
 
+// El proceso ya no existe. Si aun así figura como dueño del puerto, otro proceso heredó el socket y lo mantiene
+// abierto (Windows apunta el PID de quien lo creó): casi siempre el servidor de adb lanzado por un host antiguo.
+bool ProcessGone(DWORD pid) {
+  HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+  if (!h) return GetLastError() == ERROR_INVALID_PARAMETER;
+  DWORD code = 0;
+  const bool gone = GetExitCodeProcess(h, &code) && code != STILL_ACTIVE;
+  CloseHandle(h);
+  return gone;
+}
+
 }  // namespace
 
 DWORD UdpPortOwner(uint16_t port) {
@@ -59,9 +70,9 @@ bool UdpEndpoint::IsUsb(const sockaddr_in& addr) {
   return addr.sin_port == 0 && addr.sin_addr.s_addr == htonl(INADDR_LOOPBACK);
 }
 
-bool UdpEndpoint::Bind(uint16_t port, PacketHandler handler, bool usb) {
+bool UdpEndpoint::Bind(uint16_t port, PacketHandler handler, bool usb, std::function<bool()> free_orphaned_port) {
   handler_ = std::move(handler);
-  socket_ = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+  socket_ = NonInheritableSocket(SOCK_DGRAM, IPPROTO_UDP);
   if (socket_ == INVALID_SOCKET) return false;
 
   int send_buf = 4 * 1024 * 1024;
@@ -80,7 +91,7 @@ bool UdpEndpoint::Bind(uint16_t port, PacketHandler handler, bool usb) {
   addr.sin_family = AF_INET;
   addr.sin_addr.s_addr = htonl(INADDR_ANY);
   addr.sin_port = htons(port);
-  if (!BindWithRetry(addr, port)) return false;
+  if (!BindWithRetry(addr, port, free_orphaned_port)) return false;
   thread_ = std::thread([this] { ReceiveLoop(); });
   if (usb) {
     const sockaddr_in usb_addr = UsbPeerAddress();
@@ -103,9 +114,13 @@ bool UdpEndpoint::Bind(uint16_t port, PacketHandler handler, bool usb) {
 }
 
 // Si el puerto está ocupado se reintenta unos segundos (un host que se está cerrando tarda en soltarlo). Si lo
-// tiene un desklink-host antiguo (sin el relevo automático de main.cpp), se cierra; si es otro programa, se dice cuál.
-bool UdpEndpoint::BindWithRetry(const sockaddr_in& addr, uint16_t port) {
+// tiene un desklink-host antiguo (sin el relevo automático de main.cpp), se cierra; si figura un proceso que ya no
+// existe, el puerto lo retiene quien heredó su socket y se llama a free_orphaned_port; si es otro programa, se dice
+// cuál.
+bool UdpEndpoint::BindWithRetry(const sockaddr_in& addr, uint16_t port,
+                                const std::function<bool()>& free_orphaned_port) {
   bool killed = false;
+  bool freed = false;
   for (int attempt = 0;; ++attempt) {
     if (::bind(socket_, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) == 0) return true;
     const int err = WSAGetLastError();
@@ -124,6 +139,22 @@ bool UdpEndpoint::BindWithRetry(const sockaddr_in& addr, uint16_t port) {
       }
       killed = true;
       continue;
+    }
+    const bool orphaned = pid && ProcessGone(pid);
+    if (orphaned && !freed && free_orphaned_port) {
+      freed = true;
+      std::printf("El puerto UDP %u sigue retenido por un DeskLink que ya se cerró (PID %lu): cierro el servidor de "
+                  "adb, que lo heredó.\n",
+                  port, pid);
+      if (free_orphaned_port()) continue;
+    }
+    if (attempt >= 10 && orphaned) {
+      std::fprintf(stderr,
+                   "Error: el puerto UDP %u, el de DeskLink, lo retiene un programa que lo heredó de un DeskLink ya "
+                   "cerrado (PID %lu), casi siempre adb. Cierra adb.exe en el Administrador de tareas (o ejecuta "
+                   "«adb kill-server») y vuelve a abrir DeskLink.\n",
+                   port, pid);
+      return false;
     }
     if (attempt >= 10) {
       std::fprintf(stderr,

@@ -800,7 +800,7 @@ int Run(int argc, char** argv) {
         std::printf("Táctil NO disponible.\n");
       }
     }
-    if (!udp.Bind(opt.port, on_packet, opt.usb)) break;
+    if (!udp.Bind(opt.port, on_packet, opt.usb, [&opt] { return StopAdbServer(opt.adb_path); })) break;
     std::printf("Escuchando en UDP %u. Abre DeskLink en la tablet y pulsa Conectar (por cable USB no hace falta IP ni anclaje).\n",
                 opt.port);
     if (opt.usb) adb.Start(opt.port, opt.adb_path);

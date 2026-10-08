@@ -31,8 +31,9 @@ class UdpEndpoint {
   static sockaddr_in UsbPeerAddress();
   static bool IsUsb(const sockaddr_in& addr);
 
-  // usb: escucha también en TCP 127.0.0.1:port para el cable USB.
-  bool Bind(uint16_t port, PacketHandler handler, bool usb = true);
+  // usb: escucha también en TCP 127.0.0.1:port para el cable USB. free_orphaned_port: se llama una vez si el
+  // puerto lo retiene un proceso que heredó el socket de un host ya cerrado; true si lo ha soltado.
+  bool Bind(uint16_t port, PacketHandler handler, bool usb = true, std::function<bool()> free_orphaned_port = {});
   void SetPeer(const sockaddr_in& peer);
   // Olvida al cliente si lleva más de timeout sin enviar nada (la tablet manda PING cada segundo).
   // Devuelve true si lo olvidó.
@@ -48,7 +49,7 @@ class UdpEndpoint {
 
  private:
   void ReceiveLoop();
-  bool BindWithRetry(const sockaddr_in& addr, uint16_t port);
+  bool BindWithRetry(const sockaddr_in& addr, uint16_t port, const std::function<bool()>& free_orphaned_port);
 
   SOCKET socket_ = INVALID_SOCKET;
   PacketHandler handler_;
