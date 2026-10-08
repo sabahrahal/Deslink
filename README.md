@@ -22,10 +22,13 @@ Objetivo: menos de 35 ms de cristal a cristal por WiFi y menos de 25 ms por USB.
 | `windows/app/` | App de bandeja, emparejamiento y panel de diagnóstico (WinUI 3 / .NET 8) |
 | `android/app/` | App Kotlin + Jetpack Compose (UI, emparejamiento QR, panel de diagnóstico) |
 | `android/native/` | C++ NDK: red, FEC, AMediaCodec |
+| `windows/installer/` | Instalador de Windows (Inno Setup) |
+| `tools/dev/` | `actualizar.ps1`: instala la última versión de prueba en el PC o la tablet |
 | `tools/bench/` | `desklink-bench`: comparación de latencia entre transportes |
 
 ## Documentación
 
+- [Instalar y probar una versión nueva](docs/instalar-y-probar.md)
 - [Arquitectura](docs/architecture.md)
 - [Fase 1: prototipo y cómo probarlo](docs/fase-1.md)
 - [Fase 3: monitor virtual](docs/fase-3.md)

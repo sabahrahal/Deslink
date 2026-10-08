@@ -7,7 +7,7 @@ host, que escucha en `127.0.0.1:47800` (TCP) del PC. No pasa por ninguna red ni 
 Una sola vez:
 1. En la tablet, activa las **Opciones de desarrollador** (Ajustes → Acerca de la tablet → toca 7 veces «Número de
    compilación») y dentro activa **Depuración USB**. Se queda activada; no hay que repetirlo como el anclaje.
-2. En el PC, descarga las [platform-tools de Android](https://developer.android.com/tools/releases/platform-tools)
+2. En el PC, el instalador de DeskLink ya trae `adb`. Sin el instalador: descarga las [platform-tools de Android](https://developer.android.com/tools/releases/platform-tools)
    y copia `adb.exe`, `AdbWinApi.dll` y `AdbWinUsbApi.dll` junto a `desklink-host.exe` (o deja adb en el PATH;
    también se busca en `%LOCALAPPDATA%\Android\Sdk\platform-tools` y con `--adb ruta`).
 3. Enchufa la tablet con un cable **de datos** y acepta «¿Permitir depuración USB?» marcando «Permitir siempre».

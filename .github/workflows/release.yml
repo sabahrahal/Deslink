@@ -1,0 +1,163 @@
+name: release
+
+# Compila todo (APK firmada, host, driver, adb) y arma el instalador de Windows. En cada cambio en main lo publica
+# como la versión de prueba «latest» de GitHub Releases, siempre con los mismos enlaces:
+#   https://github.com/sabahrahal/Deslink/releases/download/latest/DeskLink-Setup.exe
+#   https://github.com/sabahrahal/Deslink/releases/download/latest/DeskLink.apk
+# En los PR sólo compila (para probar que el instalador sigue armándose) y deja los archivos como artefactos.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VERSION: 0.1.${{ github.run_number }}
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Aceptar licencias del SDK
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+        working-directory: .
+      - name: Clave de firma
+        # Si existe el secreto DESKLINK_KEYSTORE_B64 (el .jks en base64) se firma con él; si no, con
+        # android/keystore/desklink-dev.jks (ver android/keystore/README.md).
+        env:
+          KEYSTORE_B64: ${{ secrets.DESKLINK_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/desklink.jks"
+            echo "DESKLINK_KEYSTORE=$RUNNER_TEMP/desklink.jks" >> "$GITHUB_ENV"
+            echo "Firma: secreto DESKLINK_KEYSTORE_B64"
+          elif [ -f keystore/desklink-dev.jks ]; then
+            echo "Firma: android/keystore/desklink-dev.jks"
+          else
+            echo "::warning::No hay clave de firma fija: la APK sale firmada con una clave de depuración que cambia en cada ejecución y no se podrá instalar encima de la anterior."
+          fi
+      - name: APK firmada
+        env:
+          # Siempre sube: cada APK se instala encima de la anterior.
+          DESKLINK_VERSION_CODE: ${{ github.run_number }}
+          DESKLINK_VERSION_NAME: ${{ env.VERSION }}
+          DESKLINK_KEYSTORE_PASSWORD: ${{ secrets.DESKLINK_KEYSTORE_PASSWORD || 'desklink-dev' }}
+          DESKLINK_KEY_PASSWORD: ${{ secrets.DESKLINK_KEY_PASSWORD || secrets.DESKLINK_KEYSTORE_PASSWORD || 'desklink-dev' }}
+        run: |
+          ./gradlew :app:testReleaseUnitTest :app:assembleRelease --no-daemon
+          cp app/build/outputs/apk/release/app-release.apk ../DeskLink.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeskLink.apk
+          path: DeskLink.apk
+
+  windows:
+    # windows-2022 trae el WDK (Windows Driver Kit) instalado; windows-2025 no.
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Compilar el driver
+        run: msbuild windows/driver/idd/desklink-idd.vcxproj /p:Configuration=Release /p:Platform=x64 /m /v:minimal
+
+      - name: Compilar la herramienta del driver
+        run: |
+          cmake -S windows/driver/setup -B build/setup -A x64
+          cmake --build build/setup --config Release
+
+      - name: Empaquetar y firmar el driver
+        shell: pwsh
+        run: .github/scripts/package-driver.ps1 -Out build/installer/driver
+
+      - name: Compilar el host
+        run: |
+          cmake -S windows/host -B build/host -A x64
+          cmake --build build/host --config Release
+
+      - name: Preparar los archivos
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = 'build/installer'
+          New-Item -ItemType Directory -Force "$stage/host", "$stage/adb", "$stage/tools" | Out-Null
+          # Todo lo que deje el host junto a su .exe (si un día trae DLL propias, van también).
+          Get-ChildItem build/host/Release -File | Where-Object Extension -in '.exe', '.dll' | Copy-Item -Destination "$stage/host"
+          Copy-Item tools/dev/actualizar.ps1, tools/dev/actualizar-tablet.bat, tools/dev/actualizar-pc.bat "$stage/tools"
+
+          # adb oficial de Google (platform-tools). Sólo hacen falta estos tres archivos.
+          Invoke-WebRequest https://dl.google.com/android/repository/platform-tools-latest-windows.zip -OutFile pt.zip
+          Expand-Archive pt.zip -DestinationPath pt
+          Copy-Item pt/platform-tools/adb.exe, pt/platform-tools/AdbWinApi.dll, pt/platform-tools/AdbWinUsbApi.dll "$stage/adb"
+          Get-ChildItem -Recurse $stage | Select-Object FullName, Length
+
+      - name: Armar el instalador
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+            if ($LASTEXITCODE) { throw 'choco install innosetup' }
+          }
+          $stage = (Resolve-Path build/installer).Path
+          $driverId = Get-Content -Raw "$stage/driver/driver-id.txt"
+          & $iscc "/DAppVersion=$env:VERSION" "/DStage=$stage" "/DDriverId=$driverId" "/O$PWD" windows/installer/desklink.iss
+          if ($LASTEXITCODE) { throw 'ISCC' }
+          Get-Item DeskLink-Setup.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeskLink-Setup.exe
+          path: DeskLink-Setup.exe
+
+  publish:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: [android, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: publish-latest
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: Publicar la versión «latest»
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          ls -la assets
+          title="Versión de prueba $VERSION"
+          notes="Compilada automáticamente desde main ($GITHUB_SHA). Se sustituye con cada cambio en main.
+
+          - **DeskLink-Setup.exe**: instalador de Windows (host, monitor virtual y adb). Se instala encima de la versión anterior.
+          - **DeskLink.apk**: app de la tablet. Se instala encima de la anterior sin borrar los ajustes."
+          # Mueve la etiqueta «latest» a este commit (la versión sigue apuntando a la etiqueta).
+          gh api -X PATCH "repos/$GH_REPO/git/refs/tags/latest" -f sha="$GITHUB_SHA" -F force=true > /dev/null 2>&1 ||
+            gh api -X POST "repos/$GH_REPO/git/refs" -f ref=refs/tags/latest -f sha="$GITHUB_SHA" > /dev/null
+          if gh release view latest > /dev/null 2>&1; then
+            gh release upload latest assets/DeskLink-Setup.exe assets/DeskLink.apk --clobber
+            gh release edit latest --prerelease --title "$title" --notes "$notes"
+          else
+            gh release create latest assets/DeskLink-Setup.exe assets/DeskLink.apk --prerelease --verify-tag \
+              --title "$title" --notes "$notes"
+          fi
