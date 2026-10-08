@@ -32,3 +32,4 @@ principal y el borde de la tarjeta destacada.
 ## Dónde está
 
 - Android: `android/app/src/main/kotlin/com/desklink/ui/Theme.kt` (`Palette`) y `res/values/colors.xml`.
+- Windows: `windows/app/src/main.cpp` (`namespace color`).
