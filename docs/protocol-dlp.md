@@ -1,6 +1,6 @@
 # Protocolo DLP v1
 
-Protocolo propio sobre UDP, el mismo para WiFi y USB. Implementado en `protocol/` (C++, usado por el host de Windows) y en `android/app/.../Dlp.kt` y `FrameReassembler.kt` (Kotlin, fase 1). Las pruebas de ambos cubren los mismos casos.
+Protocolo propio sobre UDP, el mismo para WiFi y USB. Por cable USB (`adb reverse`, ver `docs/usb.md`) los mismos paquetes viajan por TCP, cada uno precedido de su tamaño (u16 little-endian). Implementado en `protocol/` (C++, usado por el host de Windows) y en `android/app/.../Dlp.kt` y `FrameReassembler.kt` (Kotlin, fase 1). Las pruebas de ambos cubren los mismos casos.
 
 ## Cabecera (24 bytes, little-endian)
 

@@ -22,6 +22,7 @@ add_executable(desklink-host
   src/encoder.cpp
   src/touch.cpp
   src/udp.cpp
+  src/usb.cpp
   src/virtual_display.cpp)
 
 target_compile_definitions(desklink-host PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00)

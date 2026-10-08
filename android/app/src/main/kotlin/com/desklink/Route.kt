@@ -5,7 +5,7 @@ import java.net.InetAddress
 import java.net.NetworkInterface
 
 enum class Transport(val label: String) {
-    WIFI("WiFi"), USB("USB (anclaje)"), ETHERNET("Ethernet"), OTHER("Otra red");
+    WIFI("WiFi"), USB("USB (anclaje)"), CABLE("USB (cable)"), ETHERNET("Ethernet"), OTHER("Otra red");
 
     companion object {
         /** Clasifica una interfaz de Android por su nombre (wlan0, rndis0, usb0, ncm0, eth0…). */

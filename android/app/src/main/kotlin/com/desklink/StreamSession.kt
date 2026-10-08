@@ -3,15 +3,10 @@ package com.desklink
 import android.os.Process
 import android.view.Surface
 import java.io.IOException
-import java.net.DatagramPacket
-import java.net.DatagramSocket
-import java.net.InetAddress
-import java.net.InetSocketAddress
-import java.net.SocketTimeoutException
 import java.util.concurrent.Executors
 
 /**
- * Sesión de recepción: envía HELLO al host, recibe vídeo por UDP, lo reensambla y lo
+ * Sesión de recepción: envía HELLO al host, recibe vídeo (UDP o cable USB, ver [Link]), lo reensambla y lo
  * entrega al decodificador. Sin colas: un frame que no cabe en el decodificador se descarta
  * y se pide un frame clave.
  */
@@ -35,7 +30,7 @@ class StreamSession(
     @Volatile private var routeLabel = ""
     @Volatile private var lastRxUs = 0L
 
-    private var socket: DatagramSocket? = null
+    @Volatile private var link: Link? = null
     private var receiveThread: Thread? = null
     private var controlThread: Thread? = null
     private val reassembler = FrameReassembler()
@@ -55,7 +50,8 @@ class StreamSession(
     fun stop() {
         running = false
         touchExecutor.shutdownNow()
-        socket?.close()
+        link?.close()
+        receiveThread?.interrupt()
         receiveThread?.join(500)
         controlThread?.interrupt()
         controlThread?.join(500)
@@ -66,62 +62,79 @@ class StreamSession(
     private fun nowUs() = System.nanoTime() / 1000
 
     private fun send(packet: ByteArray) {
-        try {
-            socket?.send(DatagramPacket(packet, packet.size))
-        } catch (_: IOException) {
-        }
+        link?.send(packet)
     }
 
     private fun receiveLoop() {
         Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
-        val sock: DatagramSocket
-        try {
-            val route = Route.forHost(host)
-            routeLabel = route?.let { "[${it.transport.label}] " } ?: ""
-            listener.onRoute(route)
-            sock = if (route != null) DatagramSocket(InetSocketAddress(route.local, 0)) else DatagramSocket()
-            sock.receiveBufferSize = 1 shl 20
-            sock.soTimeout = BUSY_TIMEOUT_MS
-            sock.connect(InetAddress.getByName(host), Dlp.DEFAULT_PORT)
-            socket = sock
-        } catch (e: IOException) {
-            listener.onError("No se pudo conectar con $host: ${e.message}")
-            return
-        }
-
+        val cable = host.equals(Link.CABLE_HOST, ignoreCase = true)
         val buf = ByteArray(2048)
-        val packet = DatagramPacket(buf, buf.size)
-        var timeoutMs = BUSY_TIMEOUT_MS
+        var reported = false
         while (running) {
-            // Con frames a medias se despierta a menudo para reclamar paquetes perdidos y entregar frames;
-            // con el escritorio quieto no llega nada y despertar 250 veces por segundo solo gasta batería.
-            val wanted = if (reassembler.hasPending) BUSY_TIMEOUT_MS else IDLE_TIMEOUT_MS
-            if (wanted != timeoutMs) {
-                timeoutMs = wanted
-                try {
-                    sock.soTimeout = wanted
-                } catch (_: IOException) {
+            val l: Link
+            try {
+                l = Link.open(host)
+                routeLabel = l.route?.let { "[${it.transport.label}] " } ?: ""
+                listener.onRoute(l.route)
+                link = l
+            } catch (e: IOException) {
+                if (!cable) {
+                    listener.onError("No se pudo conectar con $host: ${e.message}")
+                    return
+                }
+                // Por cable, el host o adb pueden tardar en volver (p. ej. al reiniciar desklink-host.exe).
+                if (!reported) listener.onError("Esperando al PC por el cable USB…")
+                reported = true
+                if (!sleepWhileRunning(1000)) return
+                continue
+            }
+            if (!running) {
+                l.close()
+                return
+            }
+            l.send(Dlp.controlPacket(Dlp.TYPE_HELLO, nowUs()))
+            while (running) {
+                // Con frames a medias se despierta a menudo para reclamar paquetes perdidos y entregar frames;
+                // con el escritorio quieto no llega nada y despertar 250 veces por segundo solo gasta batería.
+                // Por cable no se pierde nada: basta con despertar de vez en cuando.
+                val waitMs = when {
+                    l is CableLink -> CABLE_TIMEOUT_MS
+                    reassembler.hasPending -> BUSY_TIMEOUT_MS
+                    else -> IDLE_TIMEOUT_MS
+                }
+                val length = try {
+                    l.receive(buf, waitMs)
+                } catch (e: IOException) {
+                    if (running && !cable) listener.onError("Conexión perdida: ${e.message}")
+                    break
+                }
+                if (length < 0) {
+                    pump()
+                    continue
+                }
+                val header = Dlp.parseHeader(buf, length) ?: continue
+                lastRxUs = nowUs()
+                when (header.type) {
+                    Dlp.TYPE_VIDEO -> onVideo(buf, length)
+                    Dlp.TYPE_STREAM_INFO -> onStreamInfo(buf, header)
+                    Dlp.TYPE_PONG -> rttUs = nowUs() - header.timestampUs
                 }
             }
-            packet.length = buf.size
-            try {
-                sock.receive(packet)
-            } catch (_: SocketTimeoutException) {
-                pump()
-                continue
-            } catch (e: IOException) {
-                if (running) listener.onError("Conexión perdida: ${e.message}")
-                break
-            }
-            val length = packet.length
-            val header = Dlp.parseHeader(buf, length) ?: continue
-            lastRxUs = nowUs()
-            when (header.type) {
-                Dlp.TYPE_VIDEO -> onVideo(buf, length)
-                Dlp.TYPE_STREAM_INFO -> onStreamInfo(buf, header)
-                Dlp.TYPE_PONG -> rttUs = nowUs() - header.timestampUs
-            }
+            l.close()
+            if (!cable || !running) return
+            // El cable se cortó (host cerrado, cable desenchufado): se reintenta solo.
+            listener.onStats("Conexión USB perdida. Reconectando…")
+            if (!sleepWhileRunning(1000)) return
         }
+    }
+
+    private fun sleepWhileRunning(ms: Long): Boolean {
+        try {
+            Thread.sleep(ms)
+        } catch (_: InterruptedException) {
+            return false
+        }
+        return running
     }
 
     private fun onStreamInfo(buf: ByteArray, header: Dlp.Header) {
@@ -204,6 +217,7 @@ class StreamSession(
     private companion object {
         const val BUSY_TIMEOUT_MS = 4
         const val IDLE_TIMEOUT_MS = 50
+        const val CABLE_TIMEOUT_MS = 100
     }
 
     /** Cada segundo: HELLO hasta que el host responda, PING para medir RTT y estadísticas. */
@@ -230,9 +244,14 @@ class StreamSession(
                     if (helloAttempts < 5) {
                         "${routeLabel}Conectando con $host…"
                     } else {
-                        "Sin respuesta del PC en $host:${Dlp.DEFAULT_PORT}. Comprueba que desklink-host.exe " +
-                            "está abierto, que el cortafuegos permite UDP ${Dlp.DEFAULT_PORT} y que el PC y " +
-                            "la tablet están en la misma red."
+                        if (host.equals(Link.CABLE_HOST, ignoreCase = true)) {
+                            "Sin respuesta del PC por el cable USB. Comprueba que desklink-host.exe está abierto " +
+                                "y que dice «conectada por USB (ADB)»."
+                        } else {
+                            "Sin respuesta del PC en $host:${Dlp.DEFAULT_PORT}. Comprueba que desklink-host.exe " +
+                                "está abierto, que el cortafuegos permite UDP ${Dlp.DEFAULT_PORT} y que el PC y " +
+                                "la tablet están en la misma red."
+                        }
                     },
                 )
                 continue

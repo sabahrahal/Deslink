@@ -128,6 +128,8 @@ struct Options {
   UINT virtual_width = 2944;     // --size: resolución del monitor virtual (por defecto, la Lenovo Idea Tab Pro)
   UINT virtual_height = 1840;
   bool size_given = false;       // si no se pasa --size, se usa la última resolución recordada
+  bool usb = true;               // --no-usb: sin cable USB (TCP por adb reverse)
+  std::wstring adb_path;         // --adb: ruta de adb.exe (si no, se busca)
   UINT refine = 4;               // --refine: repeticiones extra al quedarse quieta la imagen para afinar la calidad
 };
 
@@ -179,6 +181,13 @@ bool ParseArgs(int argc, char** argv, Options* o) {
       o->virtual_width = w;
       o->virtual_height = h;
       o->size_given = true;
+    } else if (a == "--no-usb") {
+      o->usb = false;
+    } else if (a == "--adb") {
+      auto v = next("--adb"); if (!v) return false;
+      const int n = MultiByteToWideChar(CP_ACP, 0, v, -1, nullptr, 0);
+      o->adb_path.resize(n > 0 ? n - 1 : 0);
+      if (n > 1) MultiByteToWideChar(CP_ACP, 0, v, -1, o->adb_path.data(), n);
     } else if (a == "--refine") {
       auto v = next("--refine"); if (!v) return false;
       o->refine = static_cast<UINT>(std::atoi(v));
@@ -195,7 +204,7 @@ bool ParseArgs(int argc, char** argv, Options* o) {
       std::fprintf(stderr,
                    "Uso: desklink-host [--port 47800] [--output 0] [--fps 60] [--bitrate 50] "
                    "[--codec hevc|h264] [--pace Mbps] [--refine 4] [--no-touch] [--mouse] [--no-cursor] "
-                   "[--virtual [--size 2944x1840]]\n");
+                   "[--virtual [--size 2944x1840]] [--no-usb] [--adb ruta\\adb.exe]\n");
       return false;
     }
   }
@@ -222,6 +231,7 @@ int Run(int argc, char** argv) {
   VirtualDisplay virtual_display;  // se declara antes que el resto: el monitor se quita lo último
   std::unique_ptr<Pipeline> pipe;
   UdpEndpoint udp;
+  AdbReverse adb;
   int exit_code = 1;
 
   std::atomic<uint32_t> next_frame_id{1};
@@ -251,7 +261,11 @@ int Run(int argc, char** argv) {
       auto ph = dlp::ParseHeader(pkt.data(), pkt.size());
       if (ph) history.Put(ph->frame_id, ph->packet_index, pkt);
     }
-    SendPaced(packets, opt.pace_mbps, [&](const std::vector<uint8_t>& p) { udp.SendToPeer(p); });
+    if (udp.peer_is_usb()) {
+      udp.SendBatchToPeer(packets);  // por cable no hay pérdidas: TCP ya regula el ritmo, sin --pace
+    } else {
+      SendPaced(packets, opt.pace_mbps, [&](const std::vector<uint8_t>& p) { udp.SendToPeer(p); });
+    }
     bytes_sent += size;
     ++frames_encoded;
     if (keyframe) ++keyframes_sent;
@@ -339,10 +353,16 @@ int Run(int argc, char** argv) {
       switch (header->type) {
         case dlp::PacketType::kHello:
           if (last_client_ip.exchange(from.sin_addr.s_addr) != from.sin_addr.s_addr) {
-            char ip[INET_ADDRSTRLEN] = {};
-            inet_ntop(AF_INET, &from.sin_addr, ip, sizeof(ip));
-            std::printf("Cliente conectado: %s:%u\n", ip, ntohs(from.sin_port));
-            current_bps = std::min(max_bps, kStartBps);
+            const bool usb = UdpEndpoint::IsUsb(from);
+            if (usb) {
+              std::printf("Cliente conectado por cable USB.\n");
+            } else {
+              char ip[INET_ADDRSTRLEN] = {};
+              inet_ntop(AF_INET, &from.sin_addr, ip, sizeof(ip));
+              std::printf("Cliente conectado: %s:%u\n", ip, ntohs(from.sin_port));
+            }
+            // Por cable no se pierden paquetes: se empieza ya a la tasa máxima.
+            current_bps = usb ? max_bps : std::min(max_bps, kStartBps);
             ceiling_bps = max_bps;
             last_decrease_us = last_increase_us = NowUs();
             enc_bitrate(current_bps);
@@ -463,9 +483,10 @@ int Run(int argc, char** argv) {
                               : "Táctil NO disponible.\n",
                   r.right - r.left, r.bottom - r.top, r.left, r.top);
     }
-    if (!udp.Bind(opt.port, on_packet)) break;
+    if (!udp.Bind(opt.port, on_packet, opt.usb)) break;
     std::printf("Escuchando en UDP %u. Abre DeskLink en el móvil e indica la IP de este PC.\n",
                 opt.port);
+    if (opt.usb) adb.Start(opt.port, opt.adb_path);
 
     const uint64_t min_interval_us = 1'000'000ull / opt.fps;
     constexpr uint64_t kRefineIntervalUs = 100'000;  // separación de las repeticiones de afinado
@@ -655,6 +676,7 @@ int Run(int argc, char** argv) {
       enc_ptr = nullptr;
     }
     if (pipe && pipe->encoder) pipe->encoder->Stop();
+    adb.Stop();
     udp.Stop();
     exit_code = failed ? 1 : 0;
   } while (false);

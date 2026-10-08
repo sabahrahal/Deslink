@@ -1,16 +1,40 @@
-# USB y diagnóstico (fase 2)
+# USB y diagnóstico
 
-## Conectar por USB con anclaje (funciona ya)
+## Conectar por cable USB (recomendado)
+Va por `adb reverse`: la app abre una conexión TCP a `127.0.0.1:47800` en la tablet y adb la lleva por el cable hasta el
+host, que escucha en `127.0.0.1:47800` (TCP) del PC. No pasa por ninguna red ni por el cortafuegos.
+
+Una sola vez:
+1. En la tablet, activa las **Opciones de desarrollador** (Ajustes → Acerca de la tablet → toca 7 veces «Número de
+   compilación») y dentro activa **Depuración USB**. Se queda activada; no hay que repetirlo como el anclaje.
+2. En el PC, descarga las [platform-tools de Android](https://developer.android.com/tools/releases/platform-tools)
+   y copia `adb.exe`, `AdbWinApi.dll` y `AdbWinUsbApi.dll` junto a `desklink-host.exe` (o deja adb en el PATH;
+   también se busca en `%LOCALAPPDATA%\Android\Sdk\platform-tools` y con `--adb ruta`).
+3. Enchufa la tablet con un cable **de datos** y acepta «¿Permitir depuración USB?» marcando «Permitir siempre».
+
+Cada vez: abre `desklink-host.exe` (dice «Tablet … conectada por USB (ADB)») y pulsa **Conectar** en la app con la IP
+vacía. La app prueba primero el cable y, si no está, busca por WiFi. Si se desenchufa o se reinicia el host, la app
+reconecta sola.
+
+Si Windows no reconoce la tablet en `adb devices`, instala el driver USB del fabricante (o el «Google USB Driver»).
+
+### Por qué así (y no Android Open Accessory)
+- AOA no necesita depuración USB, pero en Windows obliga a cambiar el driver del dispositivo (WinUSB/Zadig) y a
+  instalar otro para el modo accesorio, porque el driver MTP no deja mandar los comandos de cambio de modo.
+- ADB ya trae su driver y por USB 3 mueve de sobra 100+ Mbps con ~1 ms de sobrecoste.
+- Por cable no se pierden paquetes: el host envía cada frame en una sola escritura (sin `--pace`), empieza ya a la
+  tasa máxima y la tablet no reclama paquetes (NACK); despierta cada 100 ms en vez de cada 4 ms (menos CPU y batería).
+
+Formato: los mismos paquetes DLP, cada uno precedido de su tamaño (u16 little-endian). Un cliente a la vez; una
+conexión nueva sustituye a la anterior. `--no-usb` lo desactiva.
+
+## Conectar por USB con anclaje
 1. Conecta la tablet al PC con un cable USB-C **de datos** (mejor uno USB 3.x o Thunderbolt, no el de carga lenta).
 2. En la tablet: Ajustes → Conexiones → Punto de acceso y anclaje → **Anclaje USB**.
 3. En el PC aparece un adaptador de red nuevo. Mira su IPv4 con `ipconfig` (normalmente `192.168.42.x`).
 4. Escribe esa IP en DeskLink. Es el mismo protocolo UDP, sin pasar por el router.
 
 Con el campo de IP vacío, la app busca el PC sola (broadcast por todas las redes, incluido el anclaje USB). Para comparar con WiFi: pulsa «Diagnóstico y recomendaciones» con cada IP y compara la mediana y el p95.
-
-## ADB reverse
-`adb reverse` solo reenvía TCP; DLP va sobre UDP, así que no sirve tal cual. Queda para la fase 5 junto con AOA
-(Android Open Accessory), que no necesita anclaje ni depuración USB.
 
 ## Qué mide el diagnóstico
 - Prueba de conexión: 100 PING/PONG de DLP (uno cada 20 ms) → mediana, p95, variación y pérdida.
