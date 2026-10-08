@@ -27,6 +27,16 @@ enum class CodecChoice(val wire: Int, val label: String, val hint: String) {
 }
 
 /**
+ * Perfil de batería. Lo aplica la sesión (hilo «Perfiles de batería», PowerProfile.kt); aquí solo se elige.
+ * [id] es el valor guardado en la clave "power_profile".
+ */
+enum class PowerChoice(val id: String, val label: String, val hint: String) {
+    SAVER("ahorro", "Ahorro", "Dura más la batería"),
+    BALANCED("equilibrado", "Equilibrado", "Buena imagen sin gastar de más"),
+    MAX("maxima", "Máxima", "La mejor imagen, gasta más"),
+}
+
+/**
  * Ajustes de la app. Los de imagen viajan al PC en el HELLO ([toHelloConfig]); el resto son de la tablet.
  * Para añadir un ajuste: un campo aquí con su valor por defecto, su clave en [SettingsStore] y una fila en
  * la sección que toque de SettingsScreen (Imagen, Pantalla, o una sección nueva como Táctil, Audio o Batería).
@@ -40,6 +50,9 @@ data class AppSettings(
     val showStats: Boolean = false,
     val keepScreenOn: Boolean = true,
     val autoConnect: Boolean = true,
+    val power: PowerChoice = PowerChoice.BALANCED,
+    /** Por cable USB, no gastar más de lo que entra por el cable. */
+    val powerAdapt: Boolean = true,
 ) {
     /**
      * Lo que se pide al PC para [display]. [hevcSupported]: si la tablet no decodifica HEVC, "Automático"
@@ -112,6 +125,8 @@ class SettingsStore(context: Context) {
             showStats = prefs.getBoolean(K_STATS, d.showStats),
             keepScreenOn = prefs.getBoolean(K_SCREEN_ON, d.keepScreenOn),
             autoConnect = prefs.getBoolean(K_AUTO, d.autoConnect),
+            power = PowerChoice.entries.firstOrNull { it.id == prefs.getString(K_POWER, null) } ?: d.power,
+            powerAdapt = prefs.getBoolean(K_POWER_ADAPT, d.powerAdapt),
         )
     }
 
@@ -124,6 +139,8 @@ class SettingsStore(context: Context) {
             .putBoolean(K_STATS, s.showStats)
             .putBoolean(K_SCREEN_ON, s.keepScreenOn)
             .putBoolean(K_AUTO, s.autoConnect)
+            .putString(K_POWER, s.power.id)
+            .putBoolean(K_POWER_ADAPT, s.powerAdapt)
             .apply()
     }
 
@@ -149,5 +166,7 @@ class SettingsStore(context: Context) {
         const val K_STATS = "show_stats"
         const val K_SCREEN_ON = "keep_screen_on"
         const val K_AUTO = "auto_connect"
+        const val K_POWER = "power_profile" // las mismas que PowerProfile.PREF_KEY / PREF_ADAPT
+        const val K_POWER_ADAPT = "power_adapt"
     }
 }

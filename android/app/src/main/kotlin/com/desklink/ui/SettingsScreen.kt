@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import com.desklink.AppSettings
 import com.desklink.CodecChoice
 import com.desklink.DisplaySpec
+import com.desklink.PowerChoice
 import com.desklink.Quality
 import com.desklink.ResolutionScale
 
@@ -96,6 +97,18 @@ fun SettingsScreen(
                     }
                 }
                 if (!hevcSupported) Hint("Esta tablet no decodifica HEVC: se usa H.264.")
+            }
+
+            SettingsSection("Batería") {
+                ChoiceGroup("Perfil") {
+                    for (p in PowerChoice.entries) {
+                        OptionChip(p.label, p.hint, settings.power == p) { onChange(settings.copy(power = p)) }
+                    }
+                }
+                VSpace(4.dp)
+                SwitchRow("Adaptar a la carga por USB", "Por cable, no gastar más de lo que entra: la tablet no se descarga.", settings.powerAdapt) {
+                    onChange(settings.copy(powerAdapt = it))
+                }
             }
 
             SettingsSection("Pantalla") {
