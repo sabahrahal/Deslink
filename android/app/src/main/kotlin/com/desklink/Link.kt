@@ -110,6 +110,12 @@ class CableLink private constructor(private val socket: Socket) : Link {
     override fun close() = socket.close()
 
     companion object {
+        /**
+         * Hay una sesión en marcha: el host solo admite una conexión por cable y una nueva cortaría la de la
+         * sesión, así que [probe] no se conecta.
+         */
+        @Volatile var sessionActive = false
+
         fun connect(connectTimeoutMs: Int = 500): CableLink {
             val s = Socket()
             try {
@@ -125,22 +131,31 @@ class CableLink private constructor(private val socket: Socket) : Link {
 
         /**
          * ¿Está el PC al otro lado del cable? Sin `adb reverse` la conexión se rechaza al momento; con él,
-         * adbd la acepta siempre, así que hace falta que el host conteste al HELLO.
+         * adbd la acepta siempre, así que hace falta que el host conteste. Primero DISCOVER (no le hace
+         * empezar a enviar vídeo); un host antiguo solo contesta a HELLO.
          */
-        fun probe(timeoutMs: Int = 1500): Boolean = try {
+        fun probe(timeoutMs: Int = 1500): Found? = if (sessionActive) null else try {
             connect().use { link ->
-                link.send(Dlp.controlPacket(Dlp.TYPE_HELLO, System.nanoTime() / 1000))
                 val buf = ByteArray(2048)
-                val deadline = System.currentTimeMillis() + timeoutMs
-                var found = false
-                while (!found && System.currentTimeMillis() < deadline) {
+                val start = System.currentTimeMillis()
+                link.send(Dlp.controlPacket(Dlp.TYPE_DISCOVER, System.nanoTime() / 1000))
+                var helloSent = false
+                var found: Found? = null
+                while (found == null && System.currentTimeMillis() - start < timeoutMs) {
+                    if (!helloSent && System.currentTimeMillis() - start >= 600) {
+                        helloSent = true
+                        link.send(Dlp.controlPacket(Dlp.TYPE_HELLO, System.nanoTime() / 1000))
+                    }
                     val n = link.receive(buf, 100)
-                    if (n > 0) found = Dlp.parseHeader(buf, n)?.type == Dlp.TYPE_STREAM_INFO
+                    val h = if (n > 0) Dlp.parseHeader(buf, n) else null
+                    if (h != null && h.type == Dlp.TYPE_STREAM_INFO) {
+                        found = Found.from(Link.CABLE_HOST, link.route, Dlp.parseStreamInfo(buf, h))
+                    }
                 }
                 found
             }
         } catch (_: IOException) {
-            false
+            null
         }
     }
 }

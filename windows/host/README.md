@@ -24,11 +24,13 @@ build\host\Release\desklink-host.exe --fps 60 --bitrate 50 --codec hevc
 | `--bitrate` | 50 | Mbps (CBR) |
 | `--codec` | hevc | `hevc` o `h264` |
 | `--virtual` | apagado | Monitor virtual en vez de `--output` (requiere el driver) |
-| `--size` | 2944x1840 | Resolución del monitor virtual |
+| `--size` | la de la tablet | Resolución del monitor virtual. Sin `--size` se usa la que pide la tablet al conectar (o la última recordada hasta que conecte) |
 | `--pace` | 100 | Reparte cada frame a estos Mbps por UDP (0 = de golpe); por cable USB no se usa |
 | `--no-usb` | apagado | No escucha en TCP 127.0.0.1 ni pone `adb reverse` (cable USB, ver `docs/usb.md`) |
 | `--adb` | se busca | Ruta de `adb.exe` (por defecto: junto al .exe, PATH o SDK de Android) |
 | `--refine` | 4 | Repeticiones lentas (cada 100 ms) al quedarse quieta la imagen, para que el codificador la afine; 0 las desactiva |
+
+La app de la tablet puede pedir otra resolución, fps, tasa o códec desde sus Ajustes (ver «Configuración de la tablet» en `docs/protocol-dlp.md`); lo que pide manda sobre `--fps`, `--bitrate` y `--codec`.
 
 Cada segundo imprime fps capturados, fps codificados, Mbps y la latencia de codificación media (desde que el frame llega al codificador hasta que sale el flujo).
 

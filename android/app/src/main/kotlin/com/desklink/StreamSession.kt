@@ -14,14 +14,30 @@ class StreamSession(
     private val host: String,
     private val surface: Surface,
     private val listener: Listener,
+    /** Lo que se pide al PC en cada HELLO (resolución, fps, tasa, códec); null = HELLO vacío. */
+    private val helloConfig: Dlp.HelloConfig? = null,
 ) {
+    /** En qué punto está la conexión, para la pantalla de estado. */
+    enum class Phase { CONNECTING, NO_ANSWER, STREAMING, RECONNECTING, FAILED }
+
     interface Listener {
         fun onStreamInfo(info: Dlp.StreamInfo)
         fun onStats(text: String)
         fun onError(message: String)
+        /** Cambio de estado; [detail] explica qué pasa y qué puede hacer el usuario. */
+        fun onPhase(phase: Phase, detail: String) = Unit
         /** Interfaz por la que se llega al host (null si no se supo). */
         fun onRoute(route: Route?) = Unit
     }
+
+    @Volatile private var phase: Phase? = null
+    private fun setPhase(p: Phase, detail: String = "") {
+        if (phase == p && p != Phase.FAILED) return
+        phase = p
+        listener.onPhase(p, detail)
+    }
+    private val isCable = host.equals(Link.CABLE_HOST, ignoreCase = true)
+    private fun hello() = Dlp.hello(helloConfig, nowUs())
 
     @Volatile private var running = false
     @Volatile private var decoder: VideoDecoder? = null
@@ -43,6 +59,7 @@ class StreamSession(
 
     fun start() {
         running = true
+        setPhase(Phase.CONNECTING)
         receiveThread = Thread({ receiveLoop() }, "desklink-receive").also { it.start() }
         controlThread = Thread({ controlLoop() }, "desklink-control").also { it.start() }
     }
@@ -79,11 +96,16 @@ class StreamSession(
                 link = l
             } catch (e: IOException) {
                 if (!cable) {
-                    listener.onError("No se pudo conectar con $host: ${e.message}")
+                    setPhase(Phase.FAILED, "No se pudo conectar con $host (${e.message}). Revisa la dirección.")
                     return
                 }
                 // Por cable, el host o adb pueden tardar en volver (p. ej. al reiniciar desklink-host.exe).
-                if (!reported) listener.onError("Esperando al PC por el cable USB…")
+                if (!reported) {
+                    setPhase(
+                        if (streamInfo == null) Phase.NO_ANSWER else Phase.RECONNECTING,
+                        "Esperando al PC por el cable USB. Comprueba que DeskLink está abierto en el PC.",
+                    )
+                }
                 reported = true
                 if (!sleepWhileRunning(1000)) return
                 continue
@@ -92,7 +114,8 @@ class StreamSession(
                 l.close()
                 return
             }
-            l.send(Dlp.controlPacket(Dlp.TYPE_HELLO, nowUs()))
+            reported = false
+            l.send(hello())
             while (running) {
                 // Con frames a medias se despierta a menudo para reclamar paquetes perdidos y entregar frames;
                 // con el escritorio quieto no llega nada y despertar 250 veces por segundo solo gasta batería.
@@ -105,7 +128,7 @@ class StreamSession(
                 val length = try {
                     l.receive(buf, waitMs)
                 } catch (e: IOException) {
-                    if (running && !cable) listener.onError("Conexión perdida: ${e.message}")
+                    if (running && !cable) setPhase(Phase.FAILED, "Se perdió la conexión: ${e.message}")
                     break
                 }
                 if (length < 0) {
@@ -114,6 +137,7 @@ class StreamSession(
                 }
                 val header = Dlp.parseHeader(buf, length) ?: continue
                 lastRxUs = nowUs()
+                if (streamInfo != null && phase != Phase.STREAMING) setPhase(Phase.STREAMING)
                 when (header.type) {
                     Dlp.TYPE_VIDEO -> onVideo(buf, length)
                     Dlp.TYPE_STREAM_INFO -> onStreamInfo(buf, header)
@@ -123,7 +147,7 @@ class StreamSession(
             l.close()
             if (!cable || !running) return
             // El cable se cortó (host cerrado, cable desenchufado): se reintenta solo.
-            listener.onStats("Conexión USB perdida. Reconectando…")
+            setPhase(Phase.RECONNECTING, "Se cortó el cable USB o se cerró DeskLink en el PC. Reconectando…")
             if (!sleepWhileRunning(1000)) return
         }
     }
@@ -150,8 +174,9 @@ class StreamSession(
             decoder = VideoDecoder(surface, info) { listener.onError(it) }
             streamInfo = info
             listener.onStreamInfo(info)
+            setPhase(Phase.STREAMING)
         } catch (e: Exception) {
-            listener.onError("No se pudo iniciar el decodificador: ${e.message}")
+            setPhase(Phase.FAILED, "Esta tablet no pudo abrir el vídeo (${e.message}). Prueba con el códec H.264 en Ajustes.")
         }
     }
 
@@ -232,7 +257,10 @@ class StreamSession(
             val info = streamInfo
             // Si el host dejó de oírnos (p. ej. un corte de red) nos habrá olvidado: un HELLO lo reengancha.
             val silent = info != null && nowUs() - lastRxUs > 3_000_000
-            send(Dlp.controlPacket(if (info == null || silent) Dlp.TYPE_HELLO else Dlp.TYPE_PING, nowUs()))
+            send(if (info == null || silent) hello() else Dlp.controlPacket(Dlp.TYPE_PING, nowUs()))
+            if (silent && phase == Phase.STREAMING) {
+                setPhase(Phase.RECONNECTING, "El PC no responde. Reintentando…")
+            }
             try {
                 Thread.sleep(1000)
             } catch (_: InterruptedException) {
@@ -240,20 +268,19 @@ class StreamSession(
             }
             if (info == null) {
                 helloAttempts++
-                listener.onStats(
-                    if (helloAttempts < 5) {
-                        "${routeLabel}Conectando con $host…"
-                    } else {
-                        if (host.equals(Link.CABLE_HOST, ignoreCase = true)) {
-                            "Sin respuesta del PC por el cable USB. Comprueba que desklink-host.exe está abierto " +
-                                "y que dice «conectada por USB (ADB)»."
+                // El PC puede tardar unos segundos en preparar el monitor virtual a nuestra medida.
+                if (helloAttempts >= 8 && phase == Phase.CONNECTING) {
+                    setPhase(
+                        Phase.NO_ANSWER,
+                        if (isCable) {
+                            "El PC no responde por el cable USB. Comprueba que DeskLink está abierto en el PC " +
+                                "y que la depuración USB está aceptada."
                         } else {
-                            "Sin respuesta del PC en $host:${Dlp.DEFAULT_PORT}. Comprueba que desklink-host.exe " +
-                                "está abierto, que el cortafuegos permite UDP ${Dlp.DEFAULT_PORT} y que el PC y " +
-                                "la tablet están en la misma red."
-                        }
-                    },
-                )
+                            "El PC ($host) no responde. Comprueba que DeskLink está abierto en el PC, que el " +
+                                "cortafuegos de Windows lo permite y que los dos estáis en la misma red."
+                        },
+                    )
+                }
                 continue
             }
             val now = nowUs()
