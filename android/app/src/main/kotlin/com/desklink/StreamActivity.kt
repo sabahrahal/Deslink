@@ -2,6 +2,7 @@ package com.desklink
 
 import android.content.Context
 import android.graphics.Color
+import android.media.AudioManager
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
@@ -87,6 +88,8 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         helloConfig = settings.toHelloConfig(Device.display(this), Device.hevcSupported)
 
         if (settings.keepScreenOn) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // Los botones de volumen controlan el sonido del PC (multimedia), no el del timbre.
+        volumeControlStream = AudioManager.STREAM_MUSIC
         // Evita que la CPU/GPU bajen de frecuencia a mitad de sesión.
         window.setSustainedPerformanceMode(true)
         // Toda la pantalla, también la zona de la cámara: el monitor del PC se crea con la resolución completa.
@@ -237,7 +240,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         phase = StreamSession.Phase.CONNECTING
         phaseDetail = ""
         overlay.visibility = View.VISIBLE
-        session = StreamSession(host, s, this, helloConfig).also { it.start() }
+        session = StreamSession(host, s, this, helloConfig, settings.audio).also { it.start() }
     }
 
     private fun stopSession() {

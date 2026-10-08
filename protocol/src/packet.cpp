@@ -103,6 +103,46 @@ std::vector<uint8_t> MakeControlPacket(PacketType type, const uint8_t* payload,
   return pkt;
 }
 
+std::vector<uint8_t> MakeAudioPacket(uint32_t seq, uint64_t timestamp_us, const uint8_t* cur, size_t cur_size,
+                                     const uint8_t* prev, size_t prev_size) {
+  if (cur_size == 0 || 1 + 2 + cur_size > kMaxPayload) return {};
+  const bool with_prev = prev && prev_size > 0 && 1 + 4 + cur_size + prev_size <= kMaxPayload;
+  const size_t payload = 1 + 2 + cur_size + (with_prev ? 2 + prev_size : 0);
+  Header h;
+  h.type = PacketType::kAudio;
+  h.frame_id = seq;
+  h.timestamp_us = timestamp_us;
+  h.payload_size = static_cast<uint16_t>(payload);
+  std::vector<uint8_t> pkt(kHeaderSize + payload);
+  WriteHeader(h, pkt.data());
+  uint8_t* p = pkt.data() + kHeaderSize;
+  *p++ = with_prev ? 2 : 1;
+  Put16(p, static_cast<uint16_t>(cur_size));
+  std::memcpy(p + 2, cur, cur_size);
+  p += 2 + cur_size;
+  if (with_prev) {
+    Put16(p, static_cast<uint16_t>(prev_size));
+    std::memcpy(p + 2, prev, prev_size);
+  }
+  return pkt;
+}
+
+std::vector<AudioFrameRef> ParseAudioPacket(const Header& header, const uint8_t* payload) {
+  std::vector<AudioFrameRef> frames;
+  if (header.payload_size < 1) return frames;
+  const size_t n = payload[0];
+  size_t offset = 1;
+  for (size_t i = 0; i < n; ++i) {
+    if (offset + 2 > header.payload_size) return {};
+    const size_t size = Get16(payload + offset);
+    offset += 2;
+    if (size == 0 || offset + size > header.payload_size) return {};
+    frames.push_back({header.frame_id - static_cast<uint32_t>(i), payload + offset, size});
+    offset += size;
+  }
+  return frames;
+}
+
 std::vector<uint8_t> EncodeStreamInfo(const StreamInfo& info) {
   const size_t name_len = std::min(info.host_name.size(), kMaxHostName);
   std::vector<uint8_t> out(kStreamInfoSize + 2 + name_len);
