@@ -4,7 +4,7 @@
 
 #include <cstdio>
 
-bool Nv12Converter::Init(Gpu& gpu, UINT width, UINT height, size_t ring_size) {
+bool Nv12Converter::Init(Gpu& gpu, UINT width, UINT height, UINT out_width, UINT out_height, size_t ring_size) {
   gpu_ = &gpu;
   {
     DXGI_OUTPUT_DESC od{};
@@ -15,6 +15,8 @@ bool Nv12Converter::Init(Gpu& gpu, UINT width, UINT height, size_t ring_size) {
   }
   width_ = width;
   height_ = height;
+  out_width_ = out_width;
+  out_height_ = out_height;
 
   if (FAILED(gpu.device.As(&video_device_)) || FAILED(gpu.context.As(&video_context_))) {
     std::fprintf(stderr, "La GPU no expone el procesador de vídeo D3D11\n");
@@ -23,8 +25,10 @@ bool Nv12Converter::Init(Gpu& gpu, UINT width, UINT height, size_t ring_size) {
 
   D3D11_VIDEO_PROCESSOR_CONTENT_DESC cd{};
   cd.InputFrameFormat = D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE;
-  cd.InputWidth = cd.OutputWidth = width;
-  cd.InputHeight = cd.OutputHeight = height;
+  cd.InputWidth = width;
+  cd.InputHeight = height;
+  cd.OutputWidth = out_width;
+  cd.OutputHeight = out_height;
   cd.Usage = D3D11_VIDEO_USAGE_PLAYBACK_NORMAL;
   if (FAILED(video_device_->CreateVideoProcessorEnumerator(&cd, &enumerator_)) ||
       FAILED(video_device_->CreateVideoProcessor(enumerator_.Get(), 0, &processor_))) {
@@ -40,6 +44,12 @@ bool Nv12Converter::Init(Gpu& gpu, UINT width, UINT height, size_t ring_size) {
   out_cs.Nominal_Range = D3D11_VIDEO_PROCESSOR_NOMINAL_RANGE_16_235;
   video_context_->VideoProcessorSetStreamColorSpace(processor_.Get(), 0, &in_cs);
   video_context_->VideoProcessorSetOutputColorSpace(processor_.Get(), &out_cs);
+  // Toda la captura en toda la salida (escala si son de distinto tamaño).
+  const RECT src{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
+  const RECT dst{0, 0, static_cast<LONG>(out_width), static_cast<LONG>(out_height)};
+  video_context_->VideoProcessorSetStreamSourceRect(processor_.Get(), 0, TRUE, &src);
+  video_context_->VideoProcessorSetStreamDestRect(processor_.Get(), 0, TRUE, &dst);
+  video_context_->VideoProcessorSetOutputTargetRect(processor_.Get(), TRUE, &dst);
 
   // La textura de Desktop Duplication no sirve como entrada directa del
   // procesador: se copia (en GPU) a una textura propia.
@@ -72,6 +82,8 @@ bool Nv12Converter::Init(Gpu& gpu, UINT width, UINT height, size_t ring_size) {
   }
 
   td.Format = DXGI_FORMAT_NV12;
+  td.Width = out_width;
+  td.Height = out_height;
   td.BindFlags = D3D11_BIND_RENDER_TARGET;
   for (size_t i = 0; i < ring_size; ++i) {
     ComPtr<ID3D11Texture2D> tex;

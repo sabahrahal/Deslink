@@ -230,7 +230,27 @@ struct Options {
   std::wstring stop_event;       // --stop-event: evento con nombre que, al activarse, cierra el host limpiamente
   bool audio = true;             // --no-audio: nunca envía el sonido del PC (aunque la tablet lo pida)
   UINT audio_kbps = 128;         // --audio-bitrate: kbps de Opus
+  // --profile: perfil de batería si la tablet no manda el suyo (una app antigua). La tablet manda siempre el
+  // que eligió el usuario (o al que bajó sola por la carga) y ese manda; --fps y --bitrate siguen siendo el techo.
+  dlp::Profile profile = dlp::Profile::kMaxQuality;
 };
+
+// Límites efectivos: lo que pide la tablet acotado por las opciones del host.
+struct Effective {
+  UINT fps;
+  UINT bitrate_mbps_x10;
+  uint8_t scale_percent;
+};
+
+Effective Apply(const Options& o, const dlp::QualityRequest& q) {
+  Effective e;
+  e.fps = q.max_fps ? std::min<UINT>(o.fps, q.max_fps) : o.fps;
+  const uint32_t host_bps = o.bitrate_mbps * 1'000'000u;
+  const uint32_t bps = q.max_bitrate_bps ? std::min(host_bps, q.max_bitrate_bps) : host_bps;
+  e.bitrate_mbps_x10 = bps / 100'000u;
+  e.scale_percent = q.scale_percent ? q.scale_percent : 100;
+  return e;
+}
 
 std::wstring Widen(const char* v) {
   const int n = MultiByteToWideChar(CP_ACP, 0, v, -1, nullptr, 0);
@@ -247,7 +267,9 @@ struct Pipeline {
   DesktopCapture capture;
   Nv12Converter converter;
   std::unique_ptr<MfEncoder> encoder;
-  UINT w = 0, h = 0;
+  UINT w = 0, h = 0;    // tamaño capturado
+  UINT ew = 0, eh = 0;  // tamaño codificado (menor con los perfiles de ahorro)
+  uint8_t scale_percent = 100;
 };
 
 bool ParseArgs(int argc, char** argv, Options* o) {
@@ -297,6 +319,16 @@ bool ParseArgs(int argc, char** argv, Options* o) {
     } else if (a == "--stop-event") {
       auto v = next("--stop-event"); if (!v) return false;
       o->stop_event = Widen(v);
+    } else if (a == "--profile") {
+      auto v = next("--profile"); if (!v) return false;
+      const std::string p = v;
+      if (p == "ahorro") o->profile = dlp::Profile::kSaver;
+      else if (p == "equilibrado") o->profile = dlp::Profile::kBalanced;
+      else if (p == "maxima") o->profile = dlp::Profile::kMaxQuality;
+      else {
+        std::fprintf(stderr, "--profile debe ser ahorro, equilibrado o maxima\n");
+        return false;
+      }
     } else if (a == "--refine") {
       auto v = next("--refine"); if (!v) return false;
       o->refine = static_cast<UINT>(std::atoi(v));
@@ -319,7 +351,8 @@ bool ParseArgs(int argc, char** argv, Options* o) {
     } else {
       std::fprintf(stderr,
                    "Uso: desklink-host [--port 47800] [--output 0] [--fps 60] [--bitrate 50] "
-                   "[--codec hevc|h264] [--pace Mbps] [--refine 4] [--no-touch] [--touch|--mouse] [--no-cursor] [--no-audio] [--audio-bitrate 128] "
+                   "[--codec hevc|h264] [--pace Mbps] [--refine 4] [--profile ahorro|equilibrado|maxima] "
+                   "[--no-touch] [--touch|--mouse] [--no-cursor] [--no-audio] [--audio-bitrate 128] "
                    "[--virtual [--size 2944x1840]] [--no-usb] [--adb ruta\\adb.exe] [--status] [--stop-event nombre]\n");
       return false;
     }
@@ -387,7 +420,20 @@ int Run(int argc, char** argv) {
   };
   std::mutex info_mutex;
   std::vector<uint8_t> info_payload;
+  dlp::StreamInfo info_current;  // lo que dice info_payload (bajo info_mutex)
   const std::string host_name = ComputerNameUtf8();
+
+  // Perfil de batería que pide la tablet (o el de --profile). Lo escribe el hilo de recepción; el bucle
+  // principal lee los fps y, si cambia la escala, rehace la captura con el tamaño nuevo. Los fps y la tasa de
+  // opt (que la tablet también puede cambiar con su HELLO) se cambian bajo el mismo mutex: son el techo.
+  std::mutex quality_mutex;
+  dlp::QualityRequest quality = dlp::ProfileDefaults(opt.profile);
+  std::atomic<uint64_t> min_interval_us{1'000'000ull / Apply(opt, quality).fps};
+  std::atomic<bool> rescale_requested{false};
+  auto current_quality = [&]() {
+    std::lock_guard<std::mutex> lock(quality_mutex);
+    return Apply(opt, quality);
+  };
 
   // Configuración que pide la tablet en su HELLO (resolución, fps, tasa, códec). El hilo de recepción la deja
   // aquí y el bucle principal la aplica rehaciendo el pipeline; mientras tanto no se responde a los HELLO
@@ -396,7 +442,6 @@ int Run(int argc, char** argv) {
   dlp::HelloConfig requested_config;
   std::atomic<uint32_t> config_seq{0};
   std::atomic<bool> reconfiguring{false};
-  std::atomic<uint32_t> max_bps_setting{opt.bitrate_mbps * 1'000'000u};
   std::atomic<bool> rate_reset{false};
 
   auto on_encoded = [&](const uint8_t* data, size_t size, bool keyframe, uint64_t ts_us) {
@@ -431,25 +476,39 @@ int Run(int argc, char** argv) {
     if (!captured_ok) return nullptr;
     p->w = p->capture.width();
     p->h = p->capture.height();
-    std::printf("Captura: %ux%u a %u fps, %u Mbps, %s\n", p->w, p->h, opt.fps, opt.bitrate_mbps,
-                opt.codec == VideoCodec::kHevc ? "HEVC" : "H.264");
-    if (!p->converter.Init(p->gpu, p->w, p->h, 24)) return nullptr;
+    const Effective eff = current_quality();
+    uint32_t ew = 0, eh = 0;
+    dlp::ScaledSize(p->w, p->h, eff.scale_percent, &ew, &eh);
+    p->ew = ew;
+    p->eh = eh;
+    p->scale_percent = eff.scale_percent;
+    if (ew != p->w || eh != p->h) {
+      std::printf("Captura: %ux%u, se codifica a %ux%u (%u %%) a %u fps, %.1f Mbps, %s\n", p->w, p->h, ew, eh,
+                  eff.scale_percent, eff.fps, eff.bitrate_mbps_x10 / 10.0, opt.codec == VideoCodec::kHevc ? "HEVC" : "H.264");
+    } else {
+      std::printf("Captura: %ux%u a %u fps, %.1f Mbps, %s\n", p->w, p->h, eff.fps, eff.bitrate_mbps_x10 / 10.0,
+                  opt.codec == VideoCodec::kHevc ? "HEVC" : "H.264");
+    }
+    if (!p->converter.Init(p->gpu, p->w, p->h, ew, eh, 24)) return nullptr;
     p->converter.SetDrawCursor(opt.cursor);
     p->encoder = std::make_unique<MfEncoder>();
-    if (!p->encoder->Init(p->gpu, opt.codec, p->w, p->h, opt.fps, opt.bitrate_mbps * 1'000'000u, on_encoded)) {
+    // El codificador se crea a los fps del host: con menos fps simplemente recibe menos frames (como con el
+    // escritorio quieto), así un cambio de perfil no obliga a rehacerlo.
+    if (!p->encoder->Init(p->gpu, opt.codec, ew, eh, opt.fps, eff.bitrate_mbps_x10 * 100'000u, on_encoded)) {
       std::fprintf(stderr, "Error: no se pudo iniciar el codificador (arriba está el motivo).\n");
       return nullptr;
     }
     dlp::StreamInfo info;
-    info.width = static_cast<uint16_t>(p->w);
-    info.height = static_cast<uint16_t>(p->h);
-    info.fps = static_cast<uint16_t>(opt.fps);
+    info.width = static_cast<uint16_t>(ew);
+    info.height = static_cast<uint16_t>(eh);
+    info.fps = static_cast<uint16_t>(eff.fps);
     info.codec = opt.codec == VideoCodec::kHevc ? dlp::Codec::kHevc : dlp::Codec::kH264;
     info.host_flags = dlp::kHostAcceptsHelloConfig;
     info.host_name = host_name;
     {
       std::lock_guard<std::mutex> lock(info_mutex);
       info_payload = dlp::EncodeStreamInfo(info);
+      info_current = info;
     }
     return p;
   };
@@ -475,8 +534,9 @@ int Run(int argc, char** argv) {
     // Tasa adaptativa (AIMD): baja un 30 % ante pérdidas (informe de la tablet o petición de frame
     // clave) y recuerda un techo por debajo de la tasa que falló; sube un 10 % cada 2 s tras 8 s limpios y el
     // techo se relaja 1 Mbps cada 20 s limpios. Solo se toca desde el hilo de recepción.
-    // El máximo puede cambiarlo la tablet (max_bps_setting); se relee en cada paquete.
-    uint32_t max_bps = max_bps_setting.load();
+    // El techo es el del perfil de batería (QUALITY_REQUEST) acotado por la tasa del host (que la tablet
+    // puede cambiar con su HELLO); rate_reset avisa de que hay que releerlo.
+    uint32_t max_bps = current_quality().bitrate_mbps_x10 * 100'000u;
     uint32_t min_bps = std::max<uint32_t>(max_bps / 10, 3'000'000u);
     uint32_t current_bps = max_bps;
     uint32_t ceiling_bps = max_bps;
@@ -512,7 +572,7 @@ int Run(int argc, char** argv) {
       if (!header) return;
       if (rate_reset.exchange(false)) {
         // La tablet cambió la tasa máxima: se vuelve a empezar desde abajo con el máximo nuevo.
-        max_bps = max_bps_setting.load();
+        max_bps = current_quality().bitrate_mbps_x10 * 100'000u;
         min_bps = std::max<uint32_t>(max_bps / 10, 3'000'000u);
         current_bps = udp.peer_is_usb() ? max_bps : std::min(max_bps, kStartBps);
         ceiling_bps = max_bps;
@@ -546,6 +606,11 @@ int Run(int argc, char** argv) {
               std::printf("Cliente conectado: %s:%u\n", ip, ntohs(from.sin_port));
             }
             audio_requested = false;  // cliente nuevo: hasta que diga si quiere sonido
+            // El perfil se conserva entre reconexiones: la tablet lo repite tras el HELLO (y una app antigua
+            // que no lo manda se queda con el de --profile).
+            Effective eff = current_quality();
+            max_bps = eff.bitrate_mbps_x10 * 100'000u;
+            min_bps = std::max<uint32_t>(max_bps / 10, 3'000'000u);
             // Por cable no se pierden paquetes: se empieza ya a la tasa máxima.
             current_bps = usb ? max_bps : std::min(max_bps, kStartBps);
             ceiling_bps = max_bps;
@@ -607,6 +672,43 @@ int Run(int argc, char** argv) {
               std::printf("Tasa adaptada a %.1f Mbps (enlace limpio)\n", current_bps / 1e6);
             }
           }
+          break;
+        }
+        case dlp::PacketType::kQualityRequest: {
+          auto q = dlp::DecodeQualityRequest(data + dlp::kHeaderSize, header->payload_size);
+          if (!q) break;
+          Effective before, after;
+          {
+            std::lock_guard<std::mutex> lock(quality_mutex);
+            before = Apply(opt, quality);
+            const bool same = q->max_fps == quality.max_fps && q->max_bitrate_bps == quality.max_bitrate_bps &&
+                              q->scale_percent == quality.scale_percent && q->profile == quality.profile;
+            quality = *q;
+            after = Apply(opt, quality);
+            if (same) break;  // la tablet lo repite cada pocos segundos
+          }
+          std::printf("Perfil de la tablet: %s · %u fps · %.1f Mbps · %u %%\n", dlp::ProfileName(q->profile), after.fps,
+                      after.bitrate_mbps_x10 / 10.0, after.scale_percent);
+          if (after.bitrate_mbps_x10 != before.bitrate_mbps_x10) {
+            max_bps = after.bitrate_mbps_x10 * 100'000u;
+            min_bps = std::max<uint32_t>(max_bps / 10, 3'000'000u);
+            ceiling_bps = std::min(ceiling_bps, max_bps);
+            // Al subir de perfil se va directo al nuevo techo si el enlace venía limpio; si no, lo sube el AIMD.
+            current_bps = std::clamp(after.bitrate_mbps_x10 > before.bitrate_mbps_x10 && udp.peer_is_usb() ? max_bps : current_bps,
+                                     min_bps, max_bps);
+            if (after.bitrate_mbps_x10 > before.bitrate_mbps_x10) ceiling_bps = max_bps;
+            enc_bitrate(current_bps);
+          }
+          if (after.fps != before.fps) {
+            min_interval_us = 1'000'000ull / after.fps;
+            // Se avisa a la tablet (ajusta la frecuencia de su pantalla); el decodificador no se rehace.
+            std::lock_guard<std::mutex> lock(info_mutex);
+            info_current.fps = static_cast<uint16_t>(after.fps);
+            info_payload = dlp::EncodeStreamInfo(info_current);
+            udp.SendToPeer(dlp::MakeControlPacket(dlp::PacketType::kStreamInfo, info_payload.data(),
+                                                  info_payload.size(), NowUs()));
+          }
+          if (after.scale_percent != before.scale_percent) rescale_requested = true;
           break;
         }
         case dlp::PacketType::kTouch: {
@@ -724,7 +826,6 @@ int Run(int argc, char** argv) {
       }
     };
 
-    const uint64_t min_interval_us = 1'000'000ull / opt.fps;
     constexpr uint64_t kRefineIntervalUs = 100'000;  // separación de las repeticiones de afinado
     uint64_t last_submit_us = 0;
     uint64_t last_rect_check_us = 0;
@@ -785,8 +886,12 @@ int Run(int argc, char** argv) {
           applied_seq = config_seq.load();
         }
         const Options before = opt;
-        opt.fps = want.fps > 0 && want.fps <= 240 ? want.fps : cli.fps;
-        opt.bitrate_mbps = want.bitrate_mbps > 0 && want.bitrate_mbps <= 1000 ? want.bitrate_mbps : cli.bitrate_mbps;
+        {
+          std::lock_guard<std::mutex> lock(quality_mutex);
+          opt.fps = want.fps > 0 && want.fps <= 240 ? want.fps : cli.fps;
+          opt.bitrate_mbps = want.bitrate_mbps > 0 && want.bitrate_mbps <= 1000 ? want.bitrate_mbps : cli.bitrate_mbps;
+          min_interval_us = 1'000'000ull / Apply(opt, quality).fps;
+        }
         opt.codec = want.codec == 1 ? VideoCodec::kH264 : want.codec == 2 ? VideoCodec::kHevc : cli.codec;
         // --size al arrancar manda sobre la tablet; si no, el monitor virtual toma la resolución de la tablet.
         if (opt.virtual_display && !opt.size_given && want.width >= 640 && want.height >= 480 &&
@@ -798,10 +903,7 @@ int Run(int argc, char** argv) {
                             (opt.virtual_width != before.virtual_width || opt.virtual_height != before.virtual_height ||
                              opt.fps != before.fps);
         const bool rebuild_needed = replug || opt.fps != before.fps || opt.codec != before.codec;
-        if (opt.bitrate_mbps != before.bitrate_mbps) {
-          max_bps_setting = opt.bitrate_mbps * 1'000'000u;
-          rate_reset = true;
-        }
+        if (opt.bitrate_mbps != before.bitrate_mbps) rate_reset = true;
         if (rebuild_needed) {
           std::printf("La tablet pide %s%ux%u a %u fps, %u Mbps, %s.\n",
                       opt.virtual_display ? "un monitor de " : "(captura de la pantalla actual) ",
@@ -833,7 +935,7 @@ int Run(int argc, char** argv) {
       if (udp.has_peer() && pipe->converter.has_image()) {
         uint64_t due = 0;
         if (dirty || flush_left > 0 || pipe->encoder->keyframe_pending()) {
-          due = last_submit_us + min_interval_us;
+          due = last_submit_us + min_interval_us.load();
         } else if (refine_left > 0) {
           due = last_submit_us + kRefineIntervalUs;
         }
@@ -843,6 +945,24 @@ int Run(int argc, char** argv) {
         }
       }
       auto result = pipe->capture.Acquire(timeout_ms, &frame);
+      // Cambió la escala del perfil de batería: se rehace todo con el tamaño de codificación nuevo.
+      if (rescale_requested.exchange(false) && current_quality().scale_percent != pipe->scale_percent) {
+        pipe->capture.Release();
+        std::printf("Cambia la escala de codificación: reinicio la captura.\n");
+        if (!rebuild(false, opt.virtual_width, opt.virtual_height)) {
+          std::fprintf(stderr, "Error: no se pudo reiniciar la captura con la escala nueva.\n");
+          failed = true;
+          break;
+        }
+        rate_reset = true;  // codificador nuevo: tasa desde abajo
+        if (udp.has_peer()) {
+          std::lock_guard<std::mutex> lock(info_mutex);
+          udp.SendToPeer(dlp::MakeControlPacket(dlp::PacketType::kStreamInfo, info_payload.data(),
+                                                info_payload.size(), NowUs()));
+        }
+        enc_keyframe();
+        continue;
+      }
       if (result == DesktopCapture::Result::kLost) {
         // Windows corta la captura al cambiar de modo, al salir la pantalla de UAC o al bloquear la
         // sesión. Primero se intenta reabrirla tal cual; si el tamaño cambió (el usuario cambió la
@@ -913,7 +1033,7 @@ int Run(int argc, char** argv) {
       // quieta (texto nítido tras desplazar o arrastrar una ventana) en vez de dejarla como salió en movimiento.
       const uint64_t now = NowUs();
       const bool refine_due = refine_left > 0 && now - last_submit_us >= kRefineIntervalUs;
-      if (udp.has_peer() && pipe->converter.has_image() && now - last_submit_us >= min_interval_us &&
+      if (udp.has_peer() && pipe->converter.has_image() && now - last_submit_us >= min_interval_us.load() &&
           (dirty || flush_left > 0 || refine_due || pipe->encoder->keyframe_pending())) {
         if (dirty || !last_nv12) {
           const uint64_t conv_start = NowUs();

@@ -35,6 +35,7 @@ Objetivo: menos de 35 ms de cristal a cristal por WiFi y menos de 25 ms por USB.
 - [Protocolo DLP](docs/protocol-dlp.md)
 - [Asesor de latencia](docs/latency-advisor.md)
 - [Panel de diagnóstico](docs/diagnostics-panel.md)
+- [Batería: perfiles y adaptar a la carga](docs/battery.md)
 
 ## Hardware de referencia (pruebas de desarrollo)
 

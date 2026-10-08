@@ -244,8 +244,43 @@ static void TestAudioPacket() {
   CHECK(ParseAudioPacket(*h, pkt.data() + kHeaderSize).empty());
 }
 
+
+static void TestQualityRequest() {
+  CHECK(static_cast<uint8_t>(PacketType::kQualityRequest) == 16);
+  QualityRequest q = ProfileDefaults(Profile::kSaver);
+  auto payload = EncodeQualityRequest(q);
+  CHECK(payload.size() == kQualityRequestSize);
+  auto pkt = MakeControlPacket(PacketType::kQualityRequest, payload.data(), payload.size(), 5);
+  auto h = ParseHeader(pkt.data(), pkt.size());
+  CHECK(h && h->type == PacketType::kQualityRequest);
+  auto d = DecodeQualityRequest(pkt.data() + kHeaderSize, h->payload_size);
+  CHECK(d && d->max_fps == 30 && d->max_bitrate_bps == 12'000'000 && d->scale_percent == 75 &&
+        d->profile == Profile::kSaver);
+
+  // Valores fuera de rango se acotan; perfil desconocido = equilibrado; escala 0 = 100 %.
+  const uint8_t odd[kQualityRequestSize] = {3, 0, 1, 0, 0, 9};
+  auto o = DecodeQualityRequest(odd, sizeof(odd));
+  CHECK(o && o->max_fps == 10 && o->max_bitrate_bps == 1'000'000 && o->scale_percent == 100 &&
+        o->profile == Profile::kBalanced);
+  const uint8_t none[kQualityRequestSize] = {0, 0, 0, 0, 20, 0};
+  auto n = DecodeQualityRequest(none, sizeof(none));
+  CHECK(n && n->max_fps == 0 && n->max_bitrate_bps == 0 && n->scale_percent == 50);
+  CHECK(!DecodeQualityRequest(none, 5));
+
+  uint32_t w = 0, hh = 0;
+  ScaledSize(2944, 1840, 75, &w, &hh);
+  CHECK(w == 2208 && hh == 1380);
+  ScaledSize(2944, 1840, 100, &w, &hh);
+  CHECK(w == 2944 && hh == 1840);
+  ScaledSize(1001, 601, 100, &w, &hh);
+  CHECK(w == 1000 && hh == 600);
+  ScaledSize(800, 600, 50, &w, &hh);
+  CHECK(w == 640 && hh == 480);
+}
+
 int main() {
   TestAudioPacket();
+  TestQualityRequest();
   TestBurstTypes();
   TestHeaderRoundtrip();
   TestHeaderRejects();

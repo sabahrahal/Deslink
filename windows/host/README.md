@@ -35,6 +35,7 @@ build\host\Release\desklink-host.exe --fps 60 --bitrate 50 --codec hevc
 | `--stop-event` | ninguno | Nombre de un evento de Windows; al activarse, el host para limpiamente (lo usa la app de bandeja) |
 | `--no-audio` | apagado | No envía nunca el sonido del PC, aunque la tablet lo pida |
 | `--audio-bitrate` | 128 | kbps de Opus para el sonido (32–256) |
+| `--profile` | maxima | Perfil de batería si la tablet no manda el suyo (`ahorro`, `equilibrado`, `maxima`). La app manda siempre el elegido y ese manda; `--fps` y `--bitrate` siguen siendo el techo. Ver `docs/battery.md` |
 
 Lo normal es abrirlo con `desklink.exe` (la app de bandeja, `windows/app/`); desde una consola sigue funcionando igual.
 

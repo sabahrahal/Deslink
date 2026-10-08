@@ -201,4 +201,71 @@ std::optional<HelloConfig> DecodeHelloConfig(const uint8_t* payload, size_t size
   return c;
 }
 
+QualityRequest ProfileDefaults(Profile profile) {
+  QualityRequest r;
+  r.profile = profile;
+  switch (profile) {
+    case Profile::kMaxQuality:
+      break;  // sin límites: lo que permita el host
+    case Profile::kBalanced:
+      r.max_fps = 60;
+      r.max_bitrate_bps = 30'000'000;
+      break;
+    case Profile::kSaver:
+      r.max_fps = 30;
+      r.max_bitrate_bps = 12'000'000;
+      r.scale_percent = 75;
+      break;
+    case Profile::kMinimum:
+      r.max_fps = 30;  // 24 fps obligaría a la pantalla a 120 Hz para no dar saltos: gasta más que 30 a 60 Hz
+      r.max_bitrate_bps = 8'000'000;
+      r.scale_percent = 60;
+      break;
+  }
+  return r;
+}
+
+const char* ProfileName(Profile profile) {
+  switch (profile) {
+    case Profile::kMaxQuality: return "M\xC3\xA1xima calidad";  // UTF-8 escrito a mano: la librería no se compila con /utf-8
+    case Profile::kBalanced: return "Equilibrado";
+    case Profile::kSaver: return "Ahorro";
+    case Profile::kMinimum: return "M\xC3\xADnimo";
+  }
+  return "Equilibrado";
+}
+
+std::vector<uint8_t> EncodeQualityRequest(const QualityRequest& request) {
+  std::vector<uint8_t> out(kQualityRequestSize);
+  Put16(out.data() + 0, request.max_fps);
+  const uint32_t units = (request.max_bitrate_bps + 50'000) / 100'000;
+  Put16(out.data() + 2, static_cast<uint16_t>(std::min<uint32_t>(units, 0xFFFF)));
+  out[4] = request.scale_percent;
+  out[5] = static_cast<uint8_t>(request.profile);
+  return out;
+}
+
+std::optional<QualityRequest> DecodeQualityRequest(const uint8_t* payload, size_t size) {
+  if (size < kQualityRequestSize) return std::nullopt;
+  QualityRequest r;
+  r.max_fps = Get16(payload + 0);
+  if (r.max_fps != 0) r.max_fps = std::clamp<uint16_t>(r.max_fps, 10, 240);
+  r.max_bitrate_bps = Get16(payload + 2) * 100'000u;
+  if (r.max_bitrate_bps != 0) r.max_bitrate_bps = std::max<uint32_t>(r.max_bitrate_bps, 1'000'000);
+  r.scale_percent = payload[4] == 0 ? 100 : std::clamp<uint8_t>(payload[4], 50, 100);
+  r.profile = payload[5] <= static_cast<uint8_t>(Profile::kMinimum) ? static_cast<Profile>(payload[5])
+                                                                    : Profile::kBalanced;
+  return r;
+}
+
+void ScaledSize(uint32_t width, uint32_t height, uint8_t percent, uint32_t* out_width, uint32_t* out_height) {
+  percent = percent == 0 ? 100 : std::min<uint8_t>(percent, 100);
+  uint32_t w = width * percent / 100;
+  if (w < 640 && width > 640) w = 640;
+  if (w > width) w = width;
+  uint32_t h = static_cast<uint32_t>(static_cast<uint64_t>(height) * w / (width ? width : 1));
+  *out_width = w & ~1u;
+  *out_height = h & ~1u;
+}
+
 }  // namespace dlp

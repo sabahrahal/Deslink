@@ -28,4 +28,4 @@ Un puerto USB normal del PC entrega unos 2,5 W (USB 2.0) o 4,5 W (USB 3.0). La t
 | Tablet caliente | "La tablet se está calentando; bajamos a 60 Hz para cuidarla" | Reducir fps y bitrate |
 | Todo óptimo | "Conexión excelente: 18 ms de retardo" | Ninguna |
 
-El modo ahorro (60 Hz, brillo moderado, bitrate menor) se activa con un toque.
+Los perfiles de batería y el modo «adaptar a la carga» por USB están en [battery.md](battery.md).

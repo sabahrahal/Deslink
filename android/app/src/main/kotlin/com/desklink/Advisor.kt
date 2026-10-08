@@ -15,8 +15,24 @@ data class BurstResult(val sent: Int, val received: Int, val mbps: Double, val p
 /** Estado de la red de la tablet. */
 data class NetworkInfo(val isWifi: Boolean, val wifiLinkMbps: Int, val wifiRssiDbm: Int, val wifiFrequencyMhz: Int, val isEthernetLike: Boolean)
 
+/** De dónde sale la cifra de potencia (ver [DeviceProbe]): medida o estimada. */
+enum class PowerSource(val label: String) {
+    CURRENT_LEARNED("medido: corriente de la batería"),
+    COUNTER("medido: contador de carga"),
+    CURRENT_GUESS("estimado: signo según el estado de carga"),
+}
+
 /** Estado de la batería. `netMilliwatts`: positivo = se carga, negativo = se descarga; null si aún no se sabe. */
-data class BatteryInfo(val percent: Int, val pluggedUsbOrAc: Boolean, val netMilliwatts: Double?, val temperatureC: Double)
+data class BatteryInfo(
+    val percent: Int,
+    val pluggedUsbOrAc: Boolean,
+    val netMilliwatts: Double?,
+    val temperatureC: Double,
+    val source: PowerSource? = null,
+    /** «USB», «cargador», «inalámbrica» o null sin cable. */
+    val plugLabel: String? = null,
+    val chargingStatus: Boolean = false,
+)
 
 enum class Severity { OK, INFO, WARNING }
 
