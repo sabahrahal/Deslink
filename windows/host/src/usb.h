@@ -11,6 +11,17 @@
 #include <thread>
 #include <vector>
 
+#ifndef WSA_FLAG_NO_HANDLE_INHERIT
+#define WSA_FLAG_NO_HANDLE_INHERIT 0x80
+#endif
+
+// Socket que los procesos hijos no heredan (adb sobre todo: ver RunAdb en usb.cpp).
+SOCKET NonInheritableSocket(int type, int protocol);
+
+// Cierra el servidor de adb (adb kill-server). adb_path vacío: lo busca como AdbReverse. Para soltar el puerto
+// de DeskLink si lo retiene un servidor de adb que lo heredó de un host de una versión anterior.
+bool StopAdbServer(const std::wstring& adb_path);
+
 // Enlace USB: servidor TCP en 127.0.0.1 al que llega la tablet por `adb reverse` (ver docs/usb.md).
 // Cada paquete DLP viaja precedido de su tamaño (u16, little-endian). Un solo cliente a la vez:
 // una conexión nueva sustituye a la anterior.
