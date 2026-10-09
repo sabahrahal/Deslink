@@ -87,6 +87,10 @@ class RateController {
   bool OnKeyframeRequest(uint64_t now_us);
   // Cambia el máximo (otra calidad o batería); vuelve al máximo nuevo si el enlace va limpio.
   bool SetMax(uint32_t max_bps, uint64_t now_us);
+  // Por cable no se pierden frames, pero el túnel de adb tiene un tope (en algunas tablets ~20 Mbps): si el envío
+  // pasa más del 80 % del segundo ocupado, la tasa baja al 80 % de lo que pasó de verdad y eso queda de techo. Con el
+  // envío holgado (menos del 50 %) durante 30 s, el techo sube un 10 % para volver a probar. Una vez por segundo.
+  bool OnLinkLoad(uint32_t link_bps, double busy_fraction, uint64_t now_us);
 
   uint32_t current_bps() const { return current_; }
   uint32_t max_bps() const { return max_; }
@@ -102,6 +106,8 @@ class RateController {
   uint32_t max_ = 30'000'000;
   uint32_t current_ = 30'000'000;
   uint32_t ceiling_ = 30'000'000;
+  uint32_t link_cap_ = UINT32_MAX;  // lo que aguanta el cable (OnLinkLoad); sin medir, sin tope
+  uint64_t link_idle_since_us_ = 0;
   bool usb_ = false;
   uint64_t last_decrease_us_ = 0;
   uint64_t last_increase_us_ = 0;

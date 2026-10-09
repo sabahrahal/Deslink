@@ -26,6 +26,7 @@
 #include "dlp/session.h"
 #include "encoder.h"
 #include "gpu.h"
+#include "frame_sender.h"
 #include "history.h"
 #include "touch.h"
 #include "udp.h"
@@ -624,8 +625,10 @@ int Run(int argc, char** argv) {
     }).detach();
   }
 
-  auto on_encoded = [&](const uint8_t* data, size_t size, bool keyframe, uint64_t ts_us) {
-    auto packets = dlp::PacketizeFrame(data, size, next_frame_id++, keyframe, ts_us);
+  // Los frames se envían desde su propio hilo (FrameSender): un envío lento ya no frena al codificador.
+  FrameSender sender;
+  sender.Start([&](const FrameSender::Frame& f) {
+    auto packets = dlp::PacketizeFrame(f.data.data(), f.data.size(), next_frame_id++, f.keyframe, f.timestamp_us);
     for (const auto& pkt : packets) {
       auto ph = dlp::ParseHeader(pkt.data(), pkt.size());
       if (ph) history.Put(ph->frame_id, ph->packet_index, pkt);
@@ -635,11 +638,16 @@ int Run(int argc, char** argv) {
     } else {
       SendPaced(packets, opt.pace_mbps, [&](const std::vector<uint8_t>& p) { udp.SendToPeer(p); });
     }
-    bytes_sent += size;
+    bytes_sent += f.data.size();
+    if (f.keyframe) ++keyframes_sent;
+  });
+
+  auto on_encoded = [&](const uint8_t* data, size_t size, bool keyframe, uint64_t ts_us) {
     ++frames_encoded;
-    if (keyframe) ++keyframes_sent;
     const uint64_t now = NowUs();
     if (now > ts_us) encode_latency_us += now - ts_us;
+    // El envío va más de 4 frames atrasado: se tiran y se pide un frame clave.
+    if (sender.Push(data, size, keyframe, ts_us)) enc_keyframe();
   };
 
   // SESSION_CONFIG: lo que eligió el PC y por qué la imagen va por debajo, si es así (ver dlp/session.h).
@@ -772,6 +780,8 @@ int Run(int argc, char** argv) {
     // de los topes de la sesión y rate_reset avisa de que hay que releerlo.
     dlp::RateController rate;
     rate.Reset(current_quality().bitrate_mbps_x10 * 100'000u, true, NowUs());
+    // Lo que pasa de verdad por el enlace desde el último informe de la tablet (solo por cable, ver OnLinkLoad).
+    uint64_t link_last_us = NowUs(), link_last_busy = sender.busy_us, link_last_bytes = sender.sent_bytes;
     auto publish_rate = [&](const char* why) {
       enc_bitrate(rate.current_bps());
       rate_bps = rate.current_bps();
@@ -888,6 +898,20 @@ int Run(int argc, char** argv) {
           tablet_decoded = header->payload_size >= dlp::kRateReportSize + 2 ? (q[4] | (q[5] << 8)) : -1;
           if (rate.OnReport(tablet_received, lost, NowUs())) {
             publish_rate(lost ? "la tablet pierde frames" : "enlace limpio");
+          }
+          {
+            const uint64_t now = NowUs();
+            const uint64_t busy = sender.busy_us - link_last_busy;
+            const uint64_t bytes = sender.sent_bytes - link_last_bytes;
+            const uint64_t span = now - link_last_us;
+            link_last_us = now;
+            link_last_busy += busy;
+            link_last_bytes += bytes;
+            if (udp.peer_is_usb() && span > 0 && busy > 0 &&
+                rate.OnLinkLoad(static_cast<uint32_t>(std::min<uint64_t>(bytes * 8'000'000 / busy, UINT32_MAX)),
+                                static_cast<double>(busy) / span, now)) {
+              publish_rate("el cable no da para más");
+            }
           }
           break;
         }
@@ -1055,7 +1079,7 @@ int Run(int argc, char** argv) {
     UINT refine_left = 0;    // repeticiones lentas pendientes para afinar la calidad de la imagen quieta
     uint64_t captured = 0, composed = 0, last_composed = 0, last_stats_us = NowUs();
     uint64_t convert_us = 0, last_convert = 0, last_fed = 0, last_mailbox = 0, last_submitted = 0, last_dropped = 0;
-    uint64_t last_encode_us = 0, last_encode_count = 0;
+    uint64_t last_encode_us = 0, last_encode_count = 0, last_sender_dropped = sender.dropped;
     TouchInjector::Mode last_input_mode = touch.active();
     uint64_t last_bytes = 0, last_encoded = 0, last_latency = 0, last_captured = 0, last_keyframes = 0, last_retransmits = 0, last_touch = 0;
     bool failed = false;
@@ -1070,6 +1094,7 @@ int Run(int argc, char** argv) {
         enc_ptr = nullptr;
       }
       pipe.reset();
+      sender.Clear();
       if (replug) {
         virtual_display.Unplug();
         Sleep(500);
@@ -1348,6 +1373,11 @@ int Run(int argc, char** argv) {
         // Fluidez: si el codificador no da abasto con estos fps (descarta frames), se bajan un escalón, y vuelven a
         // subir solos cuando hay holgura (dlp::FpsGovernor).
         adb.set_busy(udp.has_peer());
+        if (const uint64_t sd = sender.dropped - last_sender_dropped) {
+          last_sender_dropped += sd;
+          std::printf("Envío atrasado: el enlace no da abasto, tiro %llu frames y pido uno clave.\n",
+                      static_cast<unsigned long long>(sd));
+        }
         const uint64_t submitted = pipe->encoder->submitted_frames - last_submitted;
         const uint64_t dropped = pipe->encoder->dropped_frames - last_dropped;
         if (udp.has_peer()) {
@@ -1444,6 +1474,7 @@ int Run(int argc, char** argv) {
       enc_ptr = nullptr;
     }
     if (pipe && pipe->encoder) pipe->encoder->Stop();
+    sender.Stop();
     audio.Stop();
     adb.Stop();
     udp.Stop();
