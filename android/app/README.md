@@ -19,4 +19,4 @@ La APK queda en `app/build/outputs/apk/debug/app-debug.apk`. Requiere JDK 17 y e
   «Avanzado»: resolución, calidad, fluidez, códec, adaptar a la carga, estadísticas, pantalla encendida y conexión
   automática. Se guardan en `SettingsStore` y se mandan al PC al conectar.
 - **Sesión** (`StreamActivity`): vídeo a pantalla completa (también bajo la cámara), capa de estado con
-  reintentar/volver, atrás dos veces para desconectar, cuatro dedos para ver u ocultar las estadísticas.
+  reintentar/volver, atrás dos veces para desconectar, botón ••• de la esquina (se puede arrastrar) para el menú rápido.

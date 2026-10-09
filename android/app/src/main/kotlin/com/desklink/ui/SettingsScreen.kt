@@ -90,7 +90,7 @@ fun SettingsScreen(
             SectionHeader("Pantalla")
             DlCard(padding = 12.dp) {
                 Column {
-                    SwitchRow("Mostrar estadísticas", "fps, Mbps y retardo. También desde el menú de 4 dedos.", settings.showStats) {
+                    SwitchRow("Mostrar estadísticas", "fps, Mbps y retardo. También desde el botón ••• durante la sesión.", settings.showStats) {
                         onChange(settings.copy(showStats = it))
                     }
                     RowDivider()

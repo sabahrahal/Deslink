@@ -48,7 +48,7 @@ las dos opciones (de serie, el cable). El anclaje USB cuenta como cable, no como
 último PC llega también por cable, usa el cable. En **Configuración avanzada** solo está lo que es de la tablet: conectar solo
 al abrir, escribir la IP del PC, estadísticas, mantener la pantalla encendida y el diagnóstico.
 
-Durante la sesión, tocar con **cuatro dedos a la vez** abre el menú rápido: táctil o ratón (el PC lo recuerda),
+Durante la sesión, el **botón ••• de la esquina** abre el menú rápido (se puede arrastrar si tapa algo; recuerda dónde lo dejas): táctil o ratón (el PC lo recuerda),
 estadísticas y desconectar.
 
 ## Cómo viaja cada cosa
