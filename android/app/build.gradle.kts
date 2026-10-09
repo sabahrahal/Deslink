@@ -75,5 +75,8 @@ dependencies {
     testImplementation("androidx.test.ext:junit:1.1.5")
     testImplementation(composeBom)
     testImplementation("androidx.compose.ui:ui-test-junit4")
+    // La actividad vacía donde corren las pruebas de pantalla. En las pruebas de las dos variantes (la release
+    // también se prueba en la CI de publicación) sin meterla en la APK.
+    testImplementation("androidx.compose.ui:ui-test-manifest")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
