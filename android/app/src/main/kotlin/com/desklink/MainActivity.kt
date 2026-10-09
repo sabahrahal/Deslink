@@ -17,12 +17,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.desklink.ui.DeskLinkTheme
 import com.desklink.ui.HomeScreen
 import com.desklink.ui.HomeState
+import com.desklink.ui.OnboardingScreen
 import com.desklink.ui.palette
 import com.desklink.ui.SettingsScreen
 import kotlinx.coroutines.Dispatchers
@@ -69,8 +71,19 @@ class MainActivity : ComponentActivity() {
         setContent {
             DeskLinkTheme {
                 var showSettings by rememberSaveable { mutableStateOf(false) }
-                var autoDone by rememberSaveable { mutableStateOf(!coldStart) }
-                BackHandler(enabled = showSettings) { showSettings = false }
+                // Guía de inicio la primera vez (no si se abrió porque el PC vio enchufar la tablet).
+                var showGuide by rememberSaveable { mutableStateOf(coldStart && !plugPending && !store.onboardingDone) }
+                var guideUsb by remember { mutableStateOf(UsbDebugHint.NONE) }
+                var autoDone by rememberSaveable { mutableStateOf(!coldStart || showGuide) }
+                BackHandler(enabled = showSettings && !showGuide) { showSettings = false }
+                BackHandler(enabled = showGuide) {
+                    store.onboardingDone = true
+                    showGuide = false
+                }
+                LaunchedEffect(showGuide, resumed) {
+                    // Al volver de Ajustes se ve al momento si ya quedó activada la depuración USB.
+                    if (showGuide && resumed) guideUsb = UsbDebug.readUnplugged(this@MainActivity)
+                }
 
                 // Búsqueda continua mientras la pantalla está a la vista. No corre durante una sesión: la prueba
                 // del cable abre una conexión USB nueva y el PC cortaría la de la sesión.
@@ -122,46 +135,61 @@ class MainActivity : ComponentActivity() {
                 }
 
                 Box(Modifier.fillMaxSize().background(palette.background)) {
-                    AnimatedContent(showSettings, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "screen") { inSettings ->
-                        if (inSettings) {
-                            SettingsScreen(
-                                settings = settings,
-                                display = display,
-                                versionName = version,
-                                onChange = {
-                                    settings = it
-                                    store.save(it)
-                                },
-                                onConnectAddress = {
-                                    autoDone = true
-                                    showSettings = false
-                                    connect(Found(it, null))
-                                },
-                                onOpenDiagnostics = { openDiagnostics() },
-                                onBack = { showSettings = false },
-                            )
-                        } else {
-                            HomeScreen(
-                                state = home,
-                                onConnect = {
-                                    autoDone = true
-                                    connect(it)
-                                },
-                                onConnectAddress = {
-                                    autoDone = true
-                                    connect(Found(it, null))
-                                },
-                                onCancelAuto = {
-                                    autoDone = true
-                                    home = home.copy(autoConnecting = null)
-                                },
-                                onOpenAdvanced = {
-                                    autoDone = true
-                                    home = home.copy(autoConnecting = null)
-                                    showSettings = true
-                                },
-                                onOpenUsbDebug = { openUsbDebugSettings() },
-                            )
+                    if (showGuide) {
+                        OnboardingScreen(
+                            usbDebug = guideUsb,
+                            onOpenUsbDebug = { openUsbDebugSettings(guideUsb) },
+                            onDone = {
+                                store.onboardingDone = true
+                                showGuide = false
+                            },
+                        )
+                    } else {
+                        AnimatedContent(showSettings, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "screen") { inSettings ->
+                            if (inSettings) {
+                                SettingsScreen(
+                                    settings = settings,
+                                    display = display,
+                                    versionName = version,
+                                    onChange = {
+                                        settings = it
+                                        store.save(it)
+                                    },
+                                    onConnectAddress = {
+                                        autoDone = true
+                                        showSettings = false
+                                        connect(Found(it, null))
+                                    },
+                                    onOpenDiagnostics = { openDiagnostics() },
+                                    onBack = { showSettings = false },
+                                    onOpenGuide = {
+                                        showSettings = false
+                                        showGuide = true
+                                    },
+                                )
+                            } else {
+                                HomeScreen(
+                                    state = home,
+                                    onConnect = {
+                                        autoDone = true
+                                        connect(it)
+                                    },
+                                    onConnectAddress = {
+                                        autoDone = true
+                                        connect(Found(it, null))
+                                    },
+                                    onCancelAuto = {
+                                        autoDone = true
+                                        home = home.copy(autoConnecting = null)
+                                    },
+                                    onOpenAdvanced = {
+                                        autoDone = true
+                                        home = home.copy(autoConnecting = null)
+                                        showSettings = true
+                                    },
+                                    onOpenUsbDebug = { openUsbDebugSettings(home.usbDebug) },
+                                )
+                            }
                         }
                     }
                 }
@@ -214,8 +242,7 @@ class MainActivity : ComponentActivity() {
         const val ACTION_USB_ATTACHED = "com.desklink.action.USB_ATTACHED"
     }
 
-    private fun openUsbDebugSettings() {
-        val hint = home.usbDebug
+    private fun openUsbDebugSettings(hint: UsbDebugHint) {
         try {
             startActivity(UsbDebug.settingsIntent(hint))
         } catch (_: Exception) {

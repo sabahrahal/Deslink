@@ -42,6 +42,7 @@ fun SettingsScreen(
     onConnectAddress: (String) -> Unit,
     onOpenDiagnostics: () -> Unit,
     onBack: () -> Unit,
+    onOpenGuide: () -> Unit = {},
 ) {
     var manual by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
@@ -111,6 +112,15 @@ fun SettingsScreen(
                         }
                         Spacer(Modifier.width(12.dp))
                         SecondaryButton("Abrir", onOpenDiagnostics)
+                    }
+                    RowDivider()
+                    Row(Modifier.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Guía de inicio", style = DlText.Body)
+                            Text("Cable, resolución y escala de Windows, y el menú.", style = DlText.Note, color = palette.textSecondary)
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        SecondaryButton("Ver", onOpenGuide)
                     }
                     RowDivider()
                     Text(
