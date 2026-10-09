@@ -1,19 +1,41 @@
-# Batería: perfiles y «adaptar a la carga»
+# Fluidez automática, calidad y batería
+
+## Fluidez automática
+
+El PC decide y ajusta la imagen solo, sin que haya que tocar nada (lógica en `protocol/src/session.cpp`, probada en
+`protocol/tests/test_session.cpp`):
+
+- **Al conectar**: fps según la pantalla de la tablet (120, 90 o 60), tasa según la resolución y los fps, HEVC si la
+  tablet puede (ver [ajustes](ajustes.md#qué-es-automático)).
+- **Wi-Fi justo** (`RateController`): solo baja la tasa un 15 % si en un segundo se pierde más del 2 % de los frames,
+  nunca por debajo de la mitad de la elegida, y vuelve a subir un 10 % por segundo tras 3 s sin pérdidas. Por cable
+  USB no baja nunca. Antes se bajaba un 30 % por cada pérdida hasta el 10 % y tardaba mucho en volver: esa era la
+  caída de calidad repentina.
+- **Gráfica del PC cargada** (`FpsGovernor`): si codificar un frame tarda más del 85 % del tiempo de un frame durante
+  3 s, baja un escalón de fps (120, 90, 60, 45, 30); si sobra (menos del 50 % durante 10 s), vuelve a subir.
+- **En la tablet**: cada frame se pinta en el siguiente refresco de pantalla y, si llega otro antes, se descarta el
+  viejo (`VideoDecoder.kt`): no se acumula retraso con el Wi-Fi a ráfagas.
+
+Cuando la imagen va por debajo de lo elegido, la ventana del PC y la tablet dicen por qué («el Wi-Fi va justo», «la
+gráfica va cargada», «la batería no aguanta»).
 
 ## Perfiles
 
-La app elige el perfil y se lo manda al PC (paquete `QUALITY_REQUEST`, ver [protocolo](protocol-dlp.md)). El host
-lo aplica como techo de sus opciones (`--fps`, `--bitrate`): nunca sube por encima de lo que se le pasó.
+La calidad se elige en el PC (Alta, Equilibrada, Ahorro) y viaja a la tablet en `SESSION_CONFIG`; la tablet aplica
+su parte (brillo, Wi-Fi, frecuencia de pantalla). Con **«bajar la calidad si la batería de la tablet no aguanta»**
+activado en la Configuración avanzada del PC (de serie, no), la tablet puede pedir un perfil menor con
+`QUALITY_REQUEST` (ver [protocolo](protocol-dlp.md)); el PC lo atiende bajando antes los fps, nunca la resolución ni
+la tasa por debajo del 60 % de la elegida. Sin esa opción, la batería de la tablet no cambia la imagen.
 
 | Perfil | fps | Mbps | Resolución codificada | Brillo | WiFi | Pantalla |
 | --- | --- | --- | --- | --- | --- | --- |
-| Máxima calidad | los del PC (60 de serie) | los del PC (50 de serie) | 100 % | sin tocar | baja latencia | frecuencia libre, rendimiento sostenido |
+| Alta (Máxima calidad) | automáticos | automáticos | 100 % | sin tocar | baja latencia | frecuencia libre, rendimiento sostenido |
 | **Equilibrado (recomendado)** | 60 | 30 | 100 % | sin tocar | baja latencia | modo de 60 Hz |
 | Ahorro | 30 | 12 | 75 % (2208x1380 en la Idea Tab Pro) | tope 50 % | alto rendimiento (deja dormir la radio) | modo de 60 Hz |
 | Mínimo (solo automático) | 30 | 8 | 60 % | tope 35 % | alto rendimiento | modo de 60 Hz |
 
-- **Recomendado: Equilibrado con «adaptar a la carga» activado.** 30 Mbps de HEVC sobran para texto nítido en un
-  escritorio y, por cable, el modo automático baja solo si la batería se descarga.
+- **De serie: Alta, sin bajar por batería.** Es lo que se pidió: la imagen más fluida. Equilibrada o la opción de
+  batería son para quien prefiera que la tablet aguante más.
 - El tope de brillo solo actúa con el brillo en manual y más alto que el tope; en automático no se toca (al sol
   quedaría ilegible).
 - «Modo de 60 Hz»: se pide a Android el modo de pantalla de la misma resolución con la menor frecuencia que muestra
@@ -24,12 +46,11 @@ lo aplica como techo de sus opciones (`--fps`, `--bitrate`): nunca sube por enci
 - El códec sigue siendo HEVC en todos: a igual calidad necesita menos Mbps que H.264 y la tablet lo decodifica por
   hardware.
 
-Claves para la pantalla de ajustes (`SharedPreferences` `desklink`, constantes en `PowerProfile.kt`):
-`power_profile` = `ahorro` | `equilibrado` | `maxima` (de serie `equilibrado`) y `power_adapt` (booleano, de
-serie `true`). El host acepta `--profile ahorro|equilibrado|maxima` para tablets con una app antigua que no manda el
-suyo, e imprime `Perfil de la tablet: …` cada vez que cambia.
+En el host: `--profile alta|equilibrada|ahorro` y `--battery-adapt` (los pone la ventana del PC).
 
-## Adaptar a la carga (por USB)
+## Bajar si la batería no aguanta (con cable USB)
+
+Solo con la opción activada en el PC.
 
 Cada segundo la app mide la potencia neta de la batería (lo que entra por el cable menos lo que gasta la tablet) y
 `ChargeGovernor.kt` decide:
@@ -55,7 +76,7 @@ Arriba a la derecha, unos segundos al empezar y tras cada cambio, y fijo mientra
 - rojo «Se descarga pese al cable −0,4 W · bajado a Mínimo»
 - «Batería · consumo neto −4,2 W» sin cable
 
-Las estadísticas (toque con cuatro dedos) muestran además el %, por dónde entra la carga (USB, cargador), de dónde sale
+Las estadísticas (menú de cuatro dedos) muestran además el %, por dónde entra la carga (USB, cargador), de dónde sale
 la cifra (medida o estimada, ver abajo) y el perfil activo con sus fps, Mbps y escala.
 
 ## Qué se mide y qué se estima
@@ -87,10 +108,9 @@ En el PC el perfil también reduce trabajo: menos frames convertidos y codificad
 
 ### Cómo medirlo de verdad (para afinar la tabla)
 
-1. Sin cable y con el brillo fijo en manual, abre el stream y deja las estadísticas a la vista (toque con 4 dedos).
+1. Sin cable y con el brillo fijo en manual, abre el stream y deja las estadísticas a la vista (menú de 4 dedos).
 2. Espera a que la cifra diga «medido: corriente de la batería» (aprende el signo en unos segundos sin cable).
-3. Con el escritorio quieto y luego moviendo una ventana, anota los W de cada perfil (cambia de perfil en ajustes y
-   vuelve a entrar). Unos 2 min por perfil.
+3. Con el escritorio quieto y luego moviendo una ventana, anota los W de cada perfil (cambia la calidad en la ventana del PC). Unos 2 min por perfil.
 4. Repite con el cable en el puerto que uses para ver cuánto da (neto con cable − neto sin cable ≈ lo que entra).
 
 Los umbrales están en `ChargeGovernor.kt` y los perfiles en `PowerProfile.kt` y `protocol/src/packet.cpp`

@@ -36,26 +36,27 @@ Tamaño máximo de paquete: 1200 bytes (1176 de payload), para no fragmentar en 
 | 12 | DISCOVER | cliente a host | vacío. El host responde STREAM_INFO al remitente sin tomarlo como destino del vídeo (búsqueda de PCs). Un host antiguo lo ignora: la tablet manda HELLO si nadie responde en 1 s |
 | 13 | INPUT_MODE | ambos | cliente a host: u8 modo pedido (0 táctil directo, 1 ratón); el host lo aplica en marcha y lo guarda en `%APPDATA%\DeskLink\input-mode.txt`. Host a cliente: u8 modo pedido, u8 modo en uso (distintos si Windows no aceptó los toques y se pasó a ratón); se envía tras cada HELLO y cada vez que cambia |
 | 14 | AUDIO | host a cliente | sonido del PC: Opus 48 kHz estéreo, 10 ms por trozo (RESTRICTED_LOWDELAY, 128 kbps por defecto). `frame_id` = número de trozo. Payload: u8 n (1 o 2) y n x {u16 tamaño, bytes}; la entrada i es el trozo `frame_id - i` (el anterior va repetido para cubrir pérdidas por WiFi). Si en el PC no suena nada, no se envía nada |
-| 15 | AUDIO_CONTROL | cliente a host | u8: 1 = quiero el sonido del PC, 0 = no. La tablet lo manda tras el HELLO y cada segundo; el host captura (WASAPI loopback de la salida predeterminada) solo mientras haya un cliente que lo pida y no se haya arrancado con `--no-audio` |
+| 15 | AUDIO_CONTROL | cliente a host | obsoleto: el host lo ignora. Dónde suena el sonido lo elige el PC (`--audio-tablet`); el host captura (WASAPI loopback de la salida predeterminada) y lo envía solo si está elegido y no se arrancó con `--no-audio` |
 | 8 | BURST_DATA | host a cliente | relleno; `packet_index`/`packet_count` numeran la ráfaga y el timestamp devuelve el nonce |
-| 16 | QUALITY_REQUEST | cliente a host | perfil de batería: fps máx. u16, Mbps máx. u16 en unidades de 100 kbps, escala de la resolución codificada u8 (50–100 %), perfil u8 (0 máxima, 1 equilibrado, 2 ahorro, 3 mínimo). 0 = sin límite. La tablet lo manda tras cada HELLO, al cambiar de perfil y cada 5 s. El host lo acota con `--fps`/`--bitrate`; si cambian los fps reenvía STREAM_INFO (la tablet no rehace el decodificador), si cambia la escala rehace la captura. Ver [batería](battery.md). Los tipos 12–15 quedan para audio y táctil |
+| 16 | QUALITY_REQUEST | cliente a host | petición de la batería: fps máx. u16, Mbps máx. u16 en unidades de 100 kbps, escala u8, perfil u8 (0 alta, 1 equilibrado, 2 ahorro, 3 mínimo). La tablet solo lo manda si SESSION_CONFIG dice que el PC lo acepta (bit 1), al cambiar y cada 5 s. El host solo baja fps y, como mucho, la tasa al 60 % de la elegida; nunca cambia la escala por esto. Ver [batería](battery.md) |
+| 17 | SESSION_CONFIG | host a cliente | lo que decidió el PC, 10 bytes: calidad u8 (0 alta, 1 equilibrada, 2 ahorro), banderas u8 (bit 0 sonido en la tablet, bit 1 acepta QUALITY_REQUEST de la batería), táctil u8 (0 táctil, 1 ratón, 2 solo ver), reducido u8 (0 no, 1 Wi-Fi, 2 batería, 3 carga de la gráfica), fps u16 de ahora, tasa u16 de ahora y tasa elegida u16 (en 100 kbps). Tras cada STREAM_INFO, al cambiar y cada 2 s. Ver `protocol/include/dlp/session.h` |
 
 ## Configuración de la tablet (payload de HELLO)
 
-14 bytes, little-endian. 0 en un campo = lo que diga el host (sus opciones de arranque).
+14 bytes, little-endian. La tablet dice lo que **puede** hacer; lo que se usa lo decide el PC (ver [ajustes](ajustes.md)).
 
 | Bytes | Campo | Significado |
 | --- | --- | --- |
-| 0–1 | width | ancho pedido para el monitor virtual (la tablet en horizontal, ya escalado por el ajuste «Resolución») |
+| 0–1 | width | ancho de la pantalla de la tablet en horizontal (el monitor virtual se crea así salvo que el PC fije otra resolución) |
 | 2–3 | height | alto |
-| 4–5 | fps | fotogramas por segundo |
-| 6–7 | bitrate_mbps | tasa máxima |
-| 8 | codec | 0 el del host, 1 H.264, 2 HEVC |
+| 4–5 | fps | sin uso (0) |
+| 6–7 | bitrate_mbps | sin uso (0) |
+| 8 | codec | qué decodifica: 0 no lo dice, 1 solo H.264, 2 también HEVC |
 | 9 | reservado | 0 |
 | 10–11 | density_dpi | informativo: densidad de la pantalla |
-| 12–13 | refresh_hz | informativo: frecuencia máxima de la pantalla |
+| 12–13 | refresh_hz | frecuencia máxima de la pantalla: con fluidez automática el PC usa 120 fps si llega a 119 Hz, 90 si llega a 89, si no 60 |
 
-Campos nuevos se añaden al final: el host ignora los bytes que no conoce y toma como 0 los que falten. La tablet manda la misma configuración en cada HELLO; el host solo actúa cuando cambia. Entonces deja de responder a los HELLO, rehace el pipeline (y, con `--virtual`, vuelve a crear el monitor con el tamaño pedido salvo que se arrancara con `--size`) y manda el STREAM_INFO nuevo. fps, tasa y códec de la tablet mandan sobre `--fps`, `--bitrate` y `--codec` cuando no son 0.
+Campos nuevos se añaden al final: el host ignora los bytes que no conoce y toma como 0 los que falten. La tablet manda la misma configuración en cada HELLO; el host solo actúa cuando cambia. Entonces deja de responder a los HELLO, rehace el pipeline (y, con `--virtual`, vuelve a crear el monitor con el tamaño pedido salvo que se arrancara con `--size`) y manda el STREAM_INFO nuevo.
 
 ## Flujo
 
