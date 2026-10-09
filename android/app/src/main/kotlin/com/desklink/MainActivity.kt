@@ -91,6 +91,7 @@ class MainActivity : ComponentActivity() {
                             scanning = false,
                             scans = scan,
                             networks = withContext(Dispatchers.IO) { Discovery.describeNetworks() },
+                            usbDebug = UsbDebug.read(this@MainActivity),
                         )
                         val cable = hosts.firstOrNull { it.isCable }
                         if (plugPending && cable != null) {
@@ -159,6 +160,7 @@ class MainActivity : ComponentActivity() {
                                     home = home.copy(autoConnecting = null)
                                     showSettings = true
                                 },
+                                onOpenUsbDebug = { openUsbDebugSettings() },
                             )
                         }
                     }
@@ -210,6 +212,16 @@ class MainActivity : ComponentActivity() {
     companion object {
         /** Lo manda el PC (adb shell am start -a …) al ver la tablet enchufada, si el usuario lo activó. */
         const val ACTION_USB_ATTACHED = "com.desklink.action.USB_ATTACHED"
+    }
+
+    private fun openUsbDebugSettings() {
+        val hint = home.usbDebug
+        try {
+            startActivity(UsbDebug.settingsIntent(hint))
+        } catch (_: Exception) {
+            // Algún fabricante no tiene la pantalla directa: los Ajustes generales.
+            startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
+        }
     }
 
     private fun openDiagnostics() {

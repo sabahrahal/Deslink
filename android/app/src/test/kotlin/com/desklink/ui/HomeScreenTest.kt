@@ -15,6 +15,7 @@ import com.desklink.Found
 import com.desklink.Link
 import com.desklink.Route
 import com.desklink.Transport
+import com.desklink.UsbDebugHint
 import java.net.InetAddress
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -32,10 +33,22 @@ class HomeScreenTest {
     private val usb = Found(Link.CABLE_HOST, null, "ESCRITORIO", acceptsConfig = true)
     private val net = Found("192.168.1.20", wifi, "ESCRITORIO", acceptsConfig = true)
 
-    private fun show(state: HomeState, onConnect: (Found) -> Unit = {}, onAdvanced: () -> Unit = {}) {
+    private fun show(
+        state: HomeState,
+        onConnect: (Found) -> Unit = {},
+        onAdvanced: () -> Unit = {},
+        onUsbDebug: () -> Unit = {},
+    ) {
         compose.setContent {
             DeskLinkTheme(dark = true) {
-                HomeScreen(state, onConnect = onConnect, onConnectAddress = {}, onCancelAuto = {}, onOpenAdvanced = onAdvanced)
+                HomeScreen(
+                    state,
+                    onConnect = onConnect,
+                    onConnectAddress = {},
+                    onCancelAuto = {},
+                    onOpenAdvanced = onAdvanced,
+                    onOpenUsbDebug = onUsbDebug,
+                )
             }
         }
     }
@@ -99,5 +112,21 @@ class HomeScreenTest {
         // Calidad, sonido y táctil no están en la tablet: se eligen en el PC.
         compose.onAllNodesWithText("Calidad").assertCountEquals(0)
         compose.onAllNodesWithText("Sonido").assertCountEquals(0)
+    }
+
+    @Test
+    fun usbDebugCardOnlyWhenPluggedWithoutDebugging() {
+        var opened = false
+        show(HomeState(scans = 1, usbDebug = UsbDebugHint.ENABLE_DEVELOPER), onUsbDebug = { opened = true })
+        compose.onNode(hasTestTag("usb-debug")).assertIsDisplayed()
+        compose.onNode(hasText("toca 7 veces", substring = true)).assertIsDisplayed()
+        compose.onNodeWithText("Abrir ajustes").performClick()
+        assertEquals(true, opened)
+    }
+
+    @Test
+    fun noUsbDebugCardWhenNothingIsMissing() {
+        show(HomeState(hosts = listOf(usb), scans = 1))
+        compose.onAllNodes(hasTestTag("usb-debug")).assertCountEquals(0)
     }
 }

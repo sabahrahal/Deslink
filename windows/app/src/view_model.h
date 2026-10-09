@@ -20,6 +20,7 @@ struct ViewInput {
   std::wstring error;                          // mensaje de error para el usuario
   bool advanced_open = false;
   bool driver_installed = true;
+  bool repairing_driver = false;  // instalando el driver desde la app
   bool dirty = false;      // hay ajustes que solo se aplican reiniciando la transmisión
   bool autostart = false;  // abrir al iniciar Windows
   std::vector<std::wstring> monitors;
@@ -58,6 +59,7 @@ struct View {
   bool primary_enabled = true;
   bool primary_stop = false;
   bool show_apply = false;
+  std::wstring repair;    // botón para instalar el driver de la pantalla extra (vacío: no hace falta)
   std::vector<Row> main;  // a la vista: modo, calidad, sonido, táctil
   bool advanced_open = false;
   std::vector<Row> advanced;

@@ -7,6 +7,7 @@ host, que escucha en `127.0.0.1:47800` (TCP) del PC. No pasa por ninguna red ni 
 Una sola vez:
 1. En la tablet, activa las **Opciones de desarrollador** (Ajustes → Acerca de la tablet → toca 7 veces «Número de
    compilación») y dentro activa **Depuración USB**. Se queda activada; no hay que repetirlo como el anclaje.
+   Si la tablet está enchufada sin depuración USB, la pantalla de inicio de DeskLink lo avisa y abre el ajuste.
 2. En el PC no hay que instalar nada más: el instalador de DeskLink y el paquete `desklink-host-windows` de la CI ya
    traen `adb.exe`, `AdbWinApi.dll` y `AdbWinUsbApi.dll` junto a `desklink-host.exe` (del paquete, descomprímelo entero
    en una carpeta). Si compilas el host tú, copia esos tres archivos de las

@@ -67,6 +67,8 @@ Source: "{#Stage}\tools\*"; DestDir: "{app}\tools"; Flags: ignoreversion
 ; El driver sólo se copia cuando se va a (re)instalar: así {app}\driver siempre es el que está instalado y
 ; desinstalar quita exactamente ese.
 Source: "{#Stage}\driver\*"; DestDir: "{app}\driver"; Flags: ignoreversion; Check: DriverNeedsInstall
+; La herramienta sí se actualiza siempre: con «estado» comprueba que el driver instalado funciona.
+Source: "{#Stage}\driver\desklink-driver.exe"; DestDir: "{app}\driver"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\DeskLink"; Filename: "{app}\{#MainExe}"; Parameters: "{#MainArgs}"; WorkingDir: "{app}"
@@ -148,8 +150,14 @@ procedure CurStepChanged(CurStep: TSetupStep);
 var
   Log: String;
   Code: Integer;
+  Reinstall: Boolean;
 begin
-  if (CurStep = ssPostInstall) and DriverNeedsInstall() then begin
+  // Mismo driver que el instalado: se comprueba que de verdad funciona (pudo fallar, o quitarse a mano) y, si no,
+  // se vuelve a instalar con la copia que ya está en {app}\driver.
+  Reinstall := False;
+  if (CurStep = ssPostInstall) and not DriverNeedsInstall() then
+    Reinstall := RunDriverTool('estado', Log) <> 0;
+  if (CurStep = ssPostInstall) and (DriverNeedsInstall() or Reinstall) then begin
     WizardForm.StatusLabel.Caption := 'Instalando el monitor virtual...';
     Code := RunDriverTool('instalar', Log);
     if Code = 0 then

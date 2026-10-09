@@ -27,6 +27,7 @@ using std::min;
 #include <map>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "host_process.h"
@@ -44,6 +45,7 @@ constexpr wchar_t kLogClass[] = L"DeskLinkLog";
 constexpr wchar_t kAppName[] = L"DeskLink";
 constexpr UINT WM_TRAY = WM_APP + 1;
 constexpr UINT WM_APP_SHOW = WM_APP + 4;  // otra copia de la app pide mostrar esta ventana
+constexpr UINT WM_DRIVER_DONE = WM_APP + 5;  // terminó la instalación del driver; lParam = código de salida
 constexpr UINT kTrayId = 1;
 constexpr UINT_PTR kTimerRestart = 1;
 constexpr UINT_PTR kTimerRefresh = 2;
@@ -89,6 +91,9 @@ struct App {
   float pulse = 0;            // el punto de estado late mientras espera
   gp::RectF pulse_rect;       // zona que se repinta con la animación
   float content_bottom = 0;   // alto que necesita el contenido (para ajustar la ventana)
+  float scroll = 0;           // desplazamiento vertical cuando el contenido no cabe en la pantalla
+  float advanced_top = 0;     // dónde empieza «Configuración avanzada» (para llevarla a la vista al abrirla)
+  bool reveal_advanced = false;
 
   // Datos
   Settings settings;
@@ -106,6 +111,7 @@ struct App {
   bool advanced_open = false;       // «Configuración avanzada» desplegada
   bool tray_hint_shown = false;
   bool driver_installed = false;
+  bool repairing_driver = false;
   bool autostart = false;
   std::vector<std::wstring> monitors;
   std::wstring addresses;
@@ -146,12 +152,12 @@ COLORREF ToneColor(Tone t) {
 std::wstring FriendlyError(const std::wstring& line) {
   auto has = [&](const wchar_t* s) { return line.find(s) != std::wstring::npos; };
   if (has(L"driver del monitor virtual no está instalado")) {
-    return L"Falta el driver de la pantalla extra. Instálalo con instalar-driver.bat (paquete "
-           L"desklink-driver-windows) o elige «Duplicar».";
+    return L"Falta el driver de la pantalla extra. Pulsa «Instalar la pantalla extra» (Windows pedirá permiso) o "
+           L"elige «Duplicar».";
   }
   if (has(L"no se pudo abrir el driver")) {
-    return L"Windows no deja abrir el driver de la pantalla extra. Vuelve a ejecutar instalar-driver.bat con el "
-           L"driver de la última versión.";
+    return L"Windows no deja abrir el driver de la pantalla extra. Reinstala DeskLink con el instalador de la "
+           L"última versión.";
   }
   if (has(L"no activó el monitor virtual")) {
     return L"Windows no activó la pantalla extra. En Configuración > Pantalla, elige «Extender estas pantallas».";
@@ -241,6 +247,7 @@ ViewInput Input() {
   in.stats = g.stats;
   in.error = g.error;
   in.advanced_open = g.advanced_open;
+  in.repairing_driver = g.repairing_driver;
   in.driver_installed = g.driver_installed;
   in.dirty = g.dirty;
   in.autostart = g.autostart;
@@ -448,6 +455,93 @@ void ApplyChanges() {
   if (!Running() || g.state == State::kStopping) return;
   g.restart_after_stop = true;
   StopHost();
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Instalar el driver de la pantalla extra desde la app (lo que hace el instalador, por si falló o se quitó).
+
+void RepairDriver() {
+  if (g.repairing_driver) return;
+  const std::wstring dir = AppDirectory() + L"\\driver";
+  const std::wstring exe = dir + L"\\desklink-driver.exe";
+  if (GetFileAttributesW(exe.c_str()) == INVALID_FILE_ATTRIBUTES) {
+    g.error = L"No encuentro el driver junto a DeskLink. Vuelve a instalar DeskLink con DeskLink-Setup.exe.";
+    g.error_mapped = true;
+    SetState(State::kError);
+    return;
+  }
+  wchar_t sys[MAX_PATH];
+  GetSystemDirectoryW(sys, MAX_PATH);
+  const std::wstring cmd = std::wstring(sys) + L"\\cmd.exe";
+  const std::wstring params =
+      L"/c \"\"" + exe + L"\" instalar --sin-pausa > \"" + dir + L"\\reparar.log\" 2>&1\"";
+  SHELLEXECUTEINFOW sei{sizeof(sei)};
+  sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+  sei.hwnd = g.wnd;
+  sei.lpVerb = L"runas";  // pide permiso de administrador (UAC)
+  sei.lpFile = cmd.c_str();
+  sei.lpParameters = params.c_str();
+  sei.lpDirectory = dir.c_str();
+  sei.nShow = SW_HIDE;
+  if (!ShellExecuteExW(&sei) || !sei.hProcess) {
+    g.error = GetLastError() == ERROR_CANCELLED
+                  ? L"Para instalar la pantalla extra hace falta aceptar el permiso de Windows. Vuelve a pulsar el botón."
+                  : L"No se pudo lanzar la instalación de la pantalla extra.";
+    g.error_mapped = true;
+    SetState(State::kError);
+    return;
+  }
+  g.repairing_driver = true;
+  AddLog(L"--- instalando el driver de la pantalla extra");
+  Redraw();
+  HANDLE proc = sei.hProcess;
+  HWND wnd = g.wnd;
+  std::thread([proc, wnd] {
+    WaitForSingleObject(proc, INFINITE);
+    DWORD code = 1;
+    GetExitCodeProcess(proc, &code);
+    CloseHandle(proc);
+    PostMessageW(wnd, WM_DRIVER_DONE, 0, static_cast<LPARAM>(code));
+  }).detach();
+}
+
+void OnDriverDone(DWORD code) {
+  g.repairing_driver = false;
+  // La salida de desklink-driver.exe va al registro de la app (Configuración avanzada > Ver registro).
+  const std::wstring log_path = AppDirectory() + L"\\driver\\reparar.log";
+  HANDLE f = CreateFileW(log_path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+  if (f != INVALID_HANDLE_VALUE) {
+    std::string bytes(16384, '\0');
+    DWORD read = 0;
+    ReadFile(f, bytes.data(), static_cast<DWORD>(bytes.size()), &read, nullptr);
+    CloseHandle(f);
+    bytes.resize(read);
+    const int n = MultiByteToWideChar(CP_UTF8, 0, bytes.data(), static_cast<int>(bytes.size()), nullptr, 0);
+    std::wstring text(n, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, bytes.data(), static_cast<int>(bytes.size()), text.data(), n);
+    size_t start = 0;
+    while (start < text.size()) {
+      size_t end = text.find(L'\n', start);
+      if (end == std::wstring::npos) end = text.size();
+      std::wstring line = text.substr(start, end - start);
+      if (!line.empty() && line.back() == L'\r') line.pop_back();
+      if (!line.empty()) AddLog(line);
+      start = end + 1;
+    }
+  }
+  // Windows tarda un momento en arrancar el dispositivo nuevo.
+  for (int i = 0; i < 20 && !(g.driver_installed = VirtualDriverInstalled()); ++i) Sleep(250);
+  if (g.driver_installed) {
+    AddLog(L"--- pantalla extra instalada");
+    StartHost();
+    return;
+  }
+  g.error = code == 0 ? L"El driver se instaló pero Windows no arrancó la pantalla extra. Reinicia el PC y pulsa Iniciar."
+                      : Format(L"No se pudo instalar la pantalla extra (código %lu). El detalle está en Configuración "
+                               L"avanzada > Ver registro. Mientras tanto puedes usar «Duplicar».",
+                               code);
+  g.error_mapped = true;
+  SetState(State::kError);
 }
 
 // Valor de «clave=valor» dentro de una línea del host.
@@ -729,7 +823,7 @@ int PickFromMenu(float x, float y, const std::vector<std::wstring>& items, int c
   for (size_t i = 0; i < items.size(); ++i) {
     AppendMenuW(m, MF_STRING | (static_cast<int>(i) == checked ? MF_CHECKED : 0), kMenuPick + i, items[i].c_str());
   }
-  POINT pt{static_cast<LONG>(x), static_cast<LONG>(y)};
+  POINT pt{static_cast<LONG>(x), static_cast<LONG>(y - g.scroll)};
   ClientToScreen(g.wnd, &pt);
   const int cmd = TrackPopupMenu(m, TPM_RETURNCMD | TPM_RIGHTALIGN | TPM_TOPALIGN | TPM_NONOTIFY, pt.x, pt.y, 0,
                                  g.wnd, nullptr);
@@ -982,6 +1076,7 @@ void Paint(gp::Graphics& gr, float width) {
   gr.SetPixelOffsetMode(gp::PixelOffsetModeHalf);
   gp::SolidBrush bg(C(P().background));
   gr.FillRectangle(&bg, 0.0f, 0.0f, width, 10000.0f);
+  gr.TranslateTransform(0.0f, -g.scroll);
 
   const View v = BuildView(Input());
   const float x = F(kMargin), w = width - F(2 * kMargin);
@@ -1002,6 +1097,12 @@ void Paint(gp::Graphics& gr, float width) {
          !v.primary_enabled ? ButtonKind::kDisabled : v.primary_stop ? ButtonKind::kStop : ButtonKind::kPrimary,
          ToggleHost);
   y += F(40);
+  if (!v.repair.empty()) {
+    y += F(8);
+    Button(gr, gp::RectF(x, y, w, F(36)), v.repair,
+           g.repairing_driver ? ButtonKind::kDisabled : ButtonKind::kSecondary, RepairDriver);
+    y += F(36);
+  }
   if (v.show_apply) {
     y += F(8);
     Button(gr, gp::RectF(x, y, w, F(36)), L"Aplicar cambios (reinicia la transmisión)", ButtonKind::kSecondary,
@@ -1015,10 +1116,12 @@ void Paint(gp::Graphics& gr, float width) {
   y += F(16);
 
   // Configuración avanzada, plegada.
+  g.advanced_top = y;
   {
     const gp::RectF head(x, y, w, F(32));
     const int hit = AddHit(head, [] {
       g.advanced_open = !g.advanced_open;
+      g.reveal_advanced = g.advanced_open;
       if (g.advanced_open) {
         g.monitors = MonitorNames();
         g.autostart = StartsWithWindows();
@@ -1037,6 +1140,39 @@ void Paint(gp::Graphics& gr, float width) {
   g.content_bottom = y + F(16);
 }
 
+// Alto máximo del área de la ventana: el del escritorio de su pantalla menos la barra de título.
+int MaxClientHeight(HWND hwnd) {
+  MONITORINFO mi{sizeof(mi)};
+  GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mi);
+  RECT frame{0, 0, 100, 0};
+  AdjustWindowRectEx(&frame, GetWindowLongW(hwnd, GWL_STYLE), FALSE, GetWindowLongW(hwnd, GWL_EXSTYLE));
+  return (mi.rcWork.bottom - mi.rcWork.top) - (frame.bottom - frame.top);
+}
+
+// Si al crecer la ventana se sale por abajo, la sube.
+void KeepOnScreen(HWND hwnd) {
+  MONITORINFO mi{sizeof(mi)};
+  GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mi);
+  RECT wr;
+  GetWindowRect(hwnd, &wr);
+  if (wr.bottom <= mi.rcWork.bottom) return;
+  const int top = std::max<int>(mi.rcWork.top, wr.top - (wr.bottom - mi.rcWork.bottom));
+  SetWindowPos(hwnd, nullptr, wr.left, top, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+}
+
+void ClampScroll(float client_h) {
+  g.scroll = std::clamp(g.scroll, 0.0f, std::max(0.0f, g.content_bottom - client_h));
+}
+
+// Barra fina a la derecha cuando el contenido no cabe: indica que hay más y dónde se está.
+void ScrollIndicator(gp::Graphics& gr, float w, float h) {
+  if (g.content_bottom <= h + 1) return;
+  const float track = h - F(16);
+  const float thumb = std::max(F(32), track * h / g.content_bottom);
+  const float top = F(8) + (track - thumb) * g.scroll / (g.content_bottom - h);
+  FillRound(gr, gp::RectF(w - F(8), top, F(4), thumb), F(2), P().text_secondary, 140);
+}
+
 void OnPaint(HWND hwnd) {
   PAINTSTRUCT ps;
   HDC dc = BeginPaint(hwnd, &ps);
@@ -1047,9 +1183,12 @@ void OnPaint(HWND hwnd) {
   HDC mem = CreateCompatibleDC(dc);
   HBITMAP bmp = CreateCompatibleBitmap(dc, w, h);
   HGDIOBJ old = SelectObject(mem, bmp);
+  ClampScroll(static_cast<float>(h));
   {
     gp::Graphics gr(mem);
     Paint(gr, static_cast<float>(w));
+    gr.ResetTransform();
+    ScrollIndicator(gr, static_cast<float>(w), static_cast<float>(h));
   }
   BitBlt(dc, ps.rcPaint.left, ps.rcPaint.top, ps.rcPaint.right - ps.rcPaint.left, ps.rcPaint.bottom - ps.rcPaint.top,
          mem, ps.rcPaint.left, ps.rcPaint.top, SRCCOPY);
@@ -1058,18 +1197,39 @@ void OnPaint(HWND hwnd) {
   DeleteDC(mem);
   EndPaint(hwnd, &ps);
 
-  // La ventana toma el alto del contenido.
-  const int want = static_cast<int>(std::ceil(g.content_bottom));
+  // La ventana toma el alto del contenido, sin pasar del alto de la pantalla: lo que no cabe se desplaza con la rueda.
+  const int want = std::min(static_cast<int>(std::ceil(g.content_bottom)), MaxClientHeight(hwnd));
   if (want > 0 && std::abs(want - h) > 1) {
     RECT wr{0, 0, w, want};
     AdjustWindowRectEx(&wr, GetWindowLongW(hwnd, GWL_STYLE), FALSE, GetWindowLongW(hwnd, GWL_EXSTYLE));
     SetWindowPos(hwnd, nullptr, 0, 0, wr.right - wr.left, wr.bottom - wr.top, SWP_NOMOVE | SWP_NOZORDER);
+    KeepOnScreen(hwnd);
+  }
+  // Al abrir «Configuración avanzada» se desplaza para que se vea.
+  if (g.reveal_advanced) {
+    g.reveal_advanced = false;
+    const float before = g.scroll;
+    g.scroll = std::max(g.scroll, g.advanced_top - F(12));
+    ClampScroll(static_cast<float>(want > 0 ? want : h));
+    if (g.scroll != before) Redraw();
+  }
+}
+
+void ScrollBy(float dy) {
+  RECT rc;
+  GetClientRect(g.wnd, &rc);
+  const float before = g.scroll;
+  g.scroll += dy;
+  ClampScroll(static_cast<float>(rc.bottom));
+  if (g.scroll != before) {
+    g.hover = -1;
+    Redraw();
   }
 }
 
 int HitAt(int x, int y) {
   for (size_t i = 0; i < g.hits.size(); ++i) {
-    if (g.hits[i].rect.Contains(static_cast<float>(x), static_cast<float>(y))) return static_cast<int>(i);
+    if (g.hits[i].rect.Contains(static_cast<float>(x), static_cast<float>(y) + g.scroll)) return static_cast<int>(i);
   }
   return -1;
 }
@@ -1174,8 +1334,16 @@ LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
       }
       return 0;
     }
+    case WM_DRIVER_DONE:
+      OnDriverDone(static_cast<DWORD>(lp));
+      return 0;
+    case WM_MOUSEWHEEL:
+      ScrollBy(-static_cast<float>(GET_WHEEL_DELTA_WPARAM(wp)) / WHEEL_DELTA * F(60));
+      return 0;
     case WM_KEYDOWN:
       if (wp == VK_SPACE || wp == VK_RETURN) ToggleHost();
+      else if (wp == VK_NEXT || wp == VK_DOWN) ScrollBy(F(wp == VK_NEXT ? 300 : 60));
+      else if (wp == VK_PRIOR || wp == VK_UP) ScrollBy(-F(wp == VK_PRIOR ? 300 : 60));
       return 0;
     case WM_TRAY:
       switch (LOWORD(lp)) {
@@ -1212,9 +1380,9 @@ LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         UpdateAddresses();
       } else if (wp == kTimerPulse) {
         g.pulse += 0.2f;
-        RECT r{static_cast<LONG>(g.pulse_rect.X), static_cast<LONG>(g.pulse_rect.Y),
+        RECT r{static_cast<LONG>(g.pulse_rect.X), static_cast<LONG>(g.pulse_rect.Y - g.scroll),
                static_cast<LONG>(g.pulse_rect.X + g.pulse_rect.Width + 1),
-               static_cast<LONG>(g.pulse_rect.Y + g.pulse_rect.Height + 1)};
+               static_cast<LONG>(g.pulse_rect.Y - g.scroll + g.pulse_rect.Height + 1)};
         InvalidateRect(hwnd, &r, FALSE);
       }
       return 0;
@@ -1362,7 +1530,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd_line, int) {
     DeleteObject(bmp);
     DeleteDC(mem);
     ReleaseDC(g.wnd, screen);
-    RECT wr{0, 0, static_cast<LONG>(F(kClientW)), static_cast<LONG>(std::ceil(g.content_bottom))};
+    RECT wr{0, 0, static_cast<LONG>(F(kClientW)),
+            static_cast<LONG>(std::min(static_cast<int>(std::ceil(g.content_bottom)), MaxClientHeight(g.wnd)))};
     AdjustWindowRectEx(&wr, style, FALSE, 0);
     SetWindowPos(g.wnd, nullptr, 0, 0, wr.right - wr.left, wr.bottom - wr.top, SWP_NOMOVE | SWP_NOZORDER);
     CenterOnWorkArea(g.wnd);

@@ -175,6 +175,16 @@ static void TestAdvancedRows() {
   in.settings.virtual_display = true;
   in.driver_installed = false;
   CHECK(Get(BuildView(in).main, "modo").hint_tone == Tone::kWarning);
+  // …y un botón para instalarlo desde la app, que solo sale cuando hace falta.
+  CHECK(BuildView(in).repair == L"Instalar la pantalla extra");
+  in.repairing_driver = true;
+  CHECK(BuildView(in).repair == L"Instalando la pantalla extra…");
+  in.repairing_driver = false;
+  in.settings.virtual_display = false;
+  CHECK(BuildView(in).repair.empty());
+  in.settings.virtual_display = true;
+  in.driver_installed = true;
+  CHECK(BuildView(in).repair.empty());
 }
 
 static void TestHostArguments() {
