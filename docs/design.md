@@ -1,35 +1,60 @@
 # Diseño visual de DeskLink
 
-Estilo oscuro «gamer»: fondo casi negro azulado, acentos neón cian y magenta, tarjetas con borde fino y halo en lo
-que se puede tocar. La app de Android y la del PC usan los mismos colores para que se sientan una sola aplicación.
+Estilo limpio, parecido al de macOS: fondo gris claro (u oscuro, si el sistema está en modo oscuro), tarjetas
+blancas con un borde fino, un solo color de acento azul y nada de brillos, halos ni degradados. La app de Android y
+la del PC usan los mismos colores y tamaños de texto para que se sientan una sola aplicación.
+
+## Una sola fuente
+
+Los colores, el texto y las formas están en [`design/tokens.json`](../design/tokens.json). De ahí salen, con
+`python3 tools/design/gen_tokens.py`:
+
+- Android: `android/app/src/main/kotlin/com/desklink/ui/Tokens.kt` (`LightColors`, `DarkColors`, `DlType`, `DlShape`).
+- Windows: `windows/app/src/tokens.h` (`tokens::kLight`, `tokens::kDark`…).
+
+`gen_tokens.py --check` (en la CI, flujo `design`) falla si esos archivos no están al día o si algún par de colores
+de `contrast_pairs` no llega al contraste AA (4,5:1). Para cambiar un color: se edita el JSON y se regenera.
 
 ## Colores
 
-| Token | Hex | Uso |
-| --- | --- | --- |
-| `background` | `#0A0E17` | Fondo de las pantallas |
-| `surface` | `#121826` | Tarjetas |
-| `surface-raised` | `#1A2233` | Opciones no seleccionadas, campos |
-| `outline` | `#263049` | Bordes y separadores |
-| `accent` | `#00E5FF` | Acción principal, selección, foco (cian neón) |
-| `accent-alt` | `#FF2BD6` | Segundo color de los degradados y detalles (magenta) |
-| `success` | `#3DFF9A` | Conectado, cable USB recomendado |
-| `warning` | `#FFB547` | Sin respuesta, reconectando |
-| `error` | `#FF4D6D` | Errores |
-| `text` | `#E8EEFF` | Texto principal |
-| `text-muted` | `#8A96B8` | Texto secundario |
+| Token | Claro | Oscuro | Uso |
+| --- | --- | --- | --- |
+| `background` | `#F5F5F7` | `#1C1C1E` | Fondo de pantalla |
+| `surface` | `#FFFFFF` | `#2C2C2E` | Tarjetas |
+| `surface_secondary` | `#ECECF0` | `#3A3A3C` | Campos, controles segmentados, botones secundarios |
+| `separator` | `#D2D2D7` | `#48484A` | Bordes y líneas |
+| `text` | `#1D1D1F` | `#F5F5F7` | Texto y títulos |
+| `text_secondary` | `#5E5E63` | `#AEAEB2` | Explicaciones |
+| `accent` | `#0066CC` | `#409CFF` | Botón principal, selección, enlaces |
+| `on_accent` | `#FFFFFF` | `#000000` | Texto sobre el acento |
+| `success` | `#1E7D34` | `#30D158` | Conectado |
+| `warning` | `#A84B00` | `#FF9F0A` | Avisos (calidad reducida, falta algo) |
+| `error` | `#D70015` | `#FF6961` | Errores |
 
-Degradado de marca: `accent` → `accent-alt` (de izquierda a derecha o en diagonal). Se usa en el logotipo, el botón
-principal y el borde de la tarjeta destacada.
+## Texto y formas
 
-## Formas y texto
+| Estilo | Tamaño | Peso | Uso |
+| --- | --- | --- | --- |
+| Large title | 28 | 600 | Nombre de la pantalla («DeskLink», «Configuración avanzada») |
+| Title | 20 | 600 | Estado («Conectado por cable USB») |
+| Headline | 17 | 600 | Nombre de un PC |
+| Section | 13 | 600 | Encabezado de sección, en gris |
+| Body | 15 | 400 | Texto normal |
+| Note | 13 | 400 | Explicaciones bajo una opción |
 
-- Tarjetas con esquinas de 20 dp/px, borde de 1 (1,5 si están destacadas, con el degradado y un halo cian).
-- Botón principal: esquinas de 14, degradado de marca, texto oscuro `#05070C` en negrita.
-- Títulos de sección en mayúsculas, 12 sp, espaciado 2, color `accent`.
-- Tipografía del sistema; logotipo «DESKLINK» en negrita máxima con el degradado y espaciado 4.
+Tarjetas con esquinas de 12, controles (botones, segmentados) de 8. Tipografía del sistema (Segoe UI en Windows).
 
-## Dónde está
+## Reglas
 
-- Android: `android/app/src/main/kotlin/com/desklink/ui/Theme.kt` (`Palette`) y `res/values/colors.xml`.
-- Windows: `windows/app/src/main.cpp` (`namespace color`).
+- Cada pantalla tiene pocas cosas a la vista; lo demás va en **Configuración avanzada**, plegado o en otra pantalla.
+- Opciones excluyentes (modo, calidad, sonido, táctil, cable USB o Wi-Fi) con un control segmentado.
+- Un solo botón principal por pantalla, con el acento. El resto, secundarios en gris.
+- Todo texto lleva color del tema: en Android, `DeskLinkTheme` fija `LocalContentColor` para que un `Text` sin color
+  no salga negro sobre fondo oscuro.
+
+## Pruebas
+
+- Android (Robolectric, `./gradlew :app:testDebugUnitTest`): `ui/HomeScreenTest.kt` (una tarjeta por PC con cable
+  USB y Wi-Fi, ayuda plegada, enlace a Configuración avanzada) y `ui/ThemeTest.kt` (color del texto y contraste).
+- Windows (cualquier sistema, `ctest`): `windows/app/tests/test_view_model.cpp` comprueba qué enseña la ventana en
+  cada estado.

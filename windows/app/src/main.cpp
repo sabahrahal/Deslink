@@ -1,8 +1,10 @@
 // DeskLink: app de bandeja para Windows. Arranca desklink-host.exe sin consola con los ajustes guardados, muestra
-// el estado de la conexión (cable USB o WiFi, fps, Mbps, RTT) y explica los errores con palabras normales.
+// el estado de la conexión (cable USB o Wi-Fi, fps, Mbps, RTT) y explica los errores con palabras normales.
 // La captura y la codificación siguen en desklink-host.exe, que también se puede usar solo desde una consola.
 //
-// La ventana se dibuja entera con GDI+ (sin controles estándar) con el estilo oscuro de docs/design.md.
+// El PC manda: calidad, sonido y táctil se eligen aquí y el host se los dice a la tablet. Lo que se ve sale de
+// view_model.h (probado en tests/test_view_model.cpp); este archivo solo lo pinta con GDI+, en una columna, con
+// los colores de design/tokens.json en claro u oscuro según Windows (docs/design.md).
 #include <windows.h>
 #include <windowsx.h>
 #include <dwmapi.h>
@@ -22,7 +24,6 @@ using std::min;
 #include <cwctype>
 #include <deque>
 #include <functional>
-#include <iterator>
 #include <map>
 #include <memory>
 #include <string>
@@ -31,6 +32,8 @@ using std::min;
 #include "host_process.h"
 #include "settings.h"
 #include "system_info.h"
+#include "tokens.h"
+#include "view_model.h"
 
 namespace gp = Gdiplus;
 
@@ -51,27 +54,11 @@ constexpr ULONGLONG kStableRunMs = 15000;  // si el host cae después de funcion
 enum MenuId { kMenuOpen = 200, kMenuToggle, kMenuVirtual, kMenuMirror, kMenuAutostart, kMenuExit, kMenuPick = 300 };
 enum ChildId { kIdLogEdit = 100, kIdLogCopy };
 
-enum class State { kStopped, kStarting, kWaiting, kConnected, kStopping, kRestarting, kError };
-
-// Colores de docs/design.md.
-namespace color {
-constexpr COLORREF kBackground = RGB(0x0A, 0x0E, 0x17);
-constexpr COLORREF kSurface = RGB(0x12, 0x18, 0x26);
-constexpr COLORREF kSurfaceRaised = RGB(0x1A, 0x22, 0x33);
-constexpr COLORREF kOutline = RGB(0x26, 0x30, 0x49);
-constexpr COLORREF kAccent = RGB(0x00, 0xE5, 0xFF);
-constexpr COLORREF kAccentAlt = RGB(0xFF, 0x2B, 0xD6);
-constexpr COLORREF kSuccess = RGB(0x3D, 0xFF, 0x9A);
-constexpr COLORREF kWarning = RGB(0xFF, 0xB5, 0x47);
-constexpr COLORREF kError = RGB(0xFF, 0x4D, 0x6D);
-constexpr COLORREF kText = RGB(0xE8, 0xEE, 0xFF);
-constexpr COLORREF kTextMuted = RGB(0x8A, 0x96, 0xB8);
-constexpr COLORREF kOnAccent = RGB(0x05, 0x07, 0x0C);
-}  // namespace color
-
 gp::Color C(COLORREF c, BYTE alpha = 255) { return gp::Color(alpha, GetRValue(c), GetGValue(c), GetBValue(c)); }
 
-constexpr int kClientW = 760;  // tamaño del área cliente a 96 ppp; el alto sale del contenido
+constexpr int kClientW = 540;  // ancho del área cliente a 96 ppp; el alto sale del contenido
+constexpr float kMargin = 24;
+constexpr float kPad = 16;  // relleno dentro de las tarjetas
 
 struct Hit {
   gp::RectF rect;
@@ -85,6 +72,7 @@ struct App {
   HWND log_edit = nullptr;
   int dpi = 96;
   float scale = 1;
+  bool dark = false;  // Windows en modo oscuro (AppsUseLightTheme = 0)
   HFONT mono_font = nullptr, ui_font = nullptr;
   HBRUSH log_bg = nullptr;
   HICON tray_icons[4] = {};  // detenido, esperando, conectado, error
@@ -98,7 +86,7 @@ struct App {
   std::vector<Hit> hits;
   int hover = -1;
   bool mouse_tracked = false;
-  float pulse = 0;            // animación del punto de estado mientras espera
+  float pulse = 0;            // el punto de estado late mientras espera
   gp::RectF pulse_rect;       // zona que se repinta con la animación
   float content_bottom = 0;   // alto que necesita el contenido (para ajustar la ventana)
 
@@ -106,7 +94,7 @@ struct App {
   Settings settings;
   HostProcess host;
   State state = State::kStopped;
-  bool restart_after_stop = false;  // «Aplicar cambios»: al terminar el host se vuelve a arrancar
+  bool restart_after_stop = false;  // al terminar el host se vuelve a arrancar (cambio de modo, «Aplicar cambios»)
   ULONGLONG started_at = 0;
   std::wstring args;                // opciones con las que corre el host
   std::wstring error;               // mensaje para el usuario
@@ -114,15 +102,16 @@ struct App {
   std::map<std::wstring, std::wstring> stats;  // última línea «@estado»
   std::wstring link = L"ninguno";
   std::deque<std::wstring> log;
-  bool dirty = false;               // ajustes cambiados con el host en marcha
-  bool advanced_open = false;       // sección «Avanzado» desplegada
-  std::wstring tablet_profile;      // lo último que pidió la tablet («Equilibrado · 60 fps · 30.0 Mbps · 100 %»)
+  bool dirty = false;               // ajustes que piden reiniciar la transmisión
+  bool advanced_open = false;       // «Configuración avanzada» desplegada
   bool tray_hint_shown = false;
   bool driver_installed = false;
   bool autostart = false;
   std::vector<std::wstring> monitors;
   std::wstring addresses;
 } g;
+
+const tokens::Colors& P() { return g.dark ? tokens::kDark : tokens::kLight; }
 
 float F(float v) { return v * g.scale; }
 
@@ -135,15 +124,20 @@ std::wstring Format(const wchar_t* fmt, ...) {
   return buf;
 }
 
-double Stat(const wchar_t* key) {
-  const auto it = g.stats.find(key);
-  return it == g.stats.end() ? 0.0 : _wtof(it->second.c_str());
-}
-
 bool Running() { return g.state != State::kStopped && g.state != State::kError; }
 
 void Redraw() {
   if (g.wnd) InvalidateRect(g.wnd, nullptr, FALSE);
+}
+
+COLORREF ToneColor(Tone t) {
+  switch (t) {
+    case Tone::kNormal: return P().text;
+    case Tone::kSuccess: return P().success;
+    case Tone::kWarning: return P().warning;
+    case Tone::kError: return P().error;
+    default: return P().text_secondary;
+  }
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -163,7 +157,8 @@ std::wstring FriendlyError(const std::wstring& line) {
     return L"Windows no activó la pantalla extra. En Configuración > Pantalla, elige «Extender estas pantallas».";
   }
   if (has(L"el driver no pudo crear el monitor")) {
-    return L"El driver no pudo crear la pantalla extra. Prueba otra resolución o reinstala el driver.";
+    return L"El driver no pudo crear la pantalla extra. Prueba otra resolución en Configuración avanzada o "
+           L"reinstala el driver.";
   }
   if (has(L"bind al puerto") || has(L"USB: no se pudo escuchar")) {
     return Format(L"El puerto %d ya está en uso. ¿Hay otro DeskLink abierto (por ejemplo desklink-host.exe en una "
@@ -171,15 +166,60 @@ std::wstring FriendlyError(const std::wstring& line) {
                   g.settings.port);
   }
   if (has(L"codificador")) {
-    return L"La tarjeta gráfica no pudo iniciar el codificador de vídeo. En la tablet, prueba H.264 en Ajustes > "
-           L"Avanzado > Códec, o actualiza el driver de la GPU.";
+    return L"La tarjeta gráfica no pudo iniciar el codificador de vídeo. Prueba el códec H.264 en Configuración "
+           L"avanzada, o actualiza el driver de la GPU.";
   }
-  if (has(L"No existe la salida")) return L"Ese monitor ya no está conectado. Elige otro en «Monitor».";
+  if (has(L"No existe la salida")) return L"Ese monitor ya no está conectado. Elige otro en Configuración avanzada.";
   if (has(L"DuplicateOutput falló") || has(L"no se pudo recuperar la captura")) {
     return L"Windows no deja capturar la pantalla ahora mismo (pantalla bloqueada, aviso de UAC o un juego a "
            L"pantalla completa).";
   }
   return {};
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Claro u oscuro, como Windows.
+
+bool SystemUsesDark() {
+  DWORD light = 1, size = sizeof(light);
+  if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                   L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &light, &size) != ERROR_SUCCESS) {
+    return false;
+  }
+  return light == 0;
+}
+
+// Barra de título del color del fondo (Windows 11) y oscura o clara según el tema.
+void StyleTitleBar(HWND hwnd) {
+  const BOOL dark = g.dark;
+  if (FAILED(DwmSetWindowAttribute(hwnd, 20, &dark, sizeof(dark)))) DwmSetWindowAttribute(hwnd, 19, &dark, sizeof(dark));
+  const COLORREF caption = P().background;
+  DwmSetWindowAttribute(hwnd, 35, &caption, sizeof(caption));  // DWMWA_CAPTION_COLOR
+}
+
+// Menús (los de la bandeja y los desplegables) claros u oscuros según Windows. uxtheme no lo documenta, pero es
+// lo que usan el Explorador y el Bloc de notas; si no existe, los menús salen claros y ya está.
+void FollowSystemMenus() {
+  HMODULE ux = LoadLibraryExW(L"uxtheme.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+  if (!ux) return;
+  using SetPreferredAppMode = int(WINAPI*)(int);
+  using FlushMenuThemes = void(WINAPI*)();
+  auto set_mode = reinterpret_cast<SetPreferredAppMode>(GetProcAddress(ux, MAKEINTRESOURCEA(135)));
+  auto flush = reinterpret_cast<FlushMenuThemes>(GetProcAddress(ux, MAKEINTRESOURCEA(136)));
+  if (set_mode) set_mode(1);  // AllowDark: sigue al sistema
+  if (flush) flush();
+}
+
+void ApplyTheme() {
+  g.dark = SystemUsesDark();
+  if (g.log_bg) DeleteObject(g.log_bg);
+  g.log_bg = CreateSolidBrush(P().surface);
+  if (g.wnd) StyleTitleBar(g.wnd);
+  if (g.log_wnd) {
+    StyleTitleBar(g.log_wnd);
+    InvalidateRect(g.log_wnd, nullptr, TRUE);
+  }
+  Redraw();
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -194,24 +234,19 @@ int ColorIndex(State s) {
   }
 }
 
-COLORREF StateColor(State s) {
-  const COLORREF colors[4] = {color::kTextMuted, color::kWarning, color::kSuccess, color::kError};
-  return colors[ColorIndex(s)];
-}
-
-std::wstring Title() {
-  switch (g.state) {
-    case State::kStopped: return L"Detenido";
-    case State::kStarting: return L"Iniciando…";
-    case State::kWaiting: return L"Esperando a la tablet";
-    case State::kConnected:
-      if (g.link == L"usb") return L"Conectado por cable USB";
-      return L"Conectado por WiFi";
-    case State::kStopping: return L"Deteniendo…";
-    case State::kRestarting: return L"Reiniciando…";
-    case State::kError: return L"No se pudo transmitir";
-  }
-  return {};
+ViewInput Input() {
+  ViewInput in;
+  in.state = g.state;
+  in.settings = g.settings;
+  in.stats = g.stats;
+  in.error = g.error;
+  in.advanced_open = g.advanced_open;
+  in.driver_installed = g.driver_installed;
+  in.dirty = g.dirty;
+  in.autostart = g.autostart;
+  in.monitors = g.monitors;
+  in.addresses = g.addresses;
+  return in;
 }
 
 void TrayCommand(DWORD message) {
@@ -222,7 +257,7 @@ void TrayCommand(DWORD message) {
   nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
   nid.uCallbackMessage = WM_TRAY;
   nid.hIcon = g.tray_icons[ColorIndex(g.state)];
-  wcsncpy_s(nid.szTip, (std::wstring(kAppName) + L": " + Title()).c_str(), _TRUNCATE);
+  wcsncpy_s(nid.szTip, (std::wstring(kAppName) + L": " + BuildView(Input()).title).c_str(), _TRUNCATE);
   Shell_NotifyIconW(message, &nid);
   if (message == NIM_ADD) {
     nid.uVersion = NOTIFYICON_VERSION_4;
@@ -244,27 +279,6 @@ void Notify(const std::wstring& title, const std::wstring& text, bool warning = 
   Shell_NotifyIconW(NIM_MODIFY, &nid);
 }
 
-// Barra de título oscura (Windows 10 2004+ y 11) y, en Windows 11, del color del fondo.
-void DarkTitleBar(HWND hwnd) {
-  const BOOL dark = TRUE;
-  if (FAILED(DwmSetWindowAttribute(hwnd, 20, &dark, sizeof(dark)))) DwmSetWindowAttribute(hwnd, 19, &dark, sizeof(dark));
-  const COLORREF caption = color::kBackground;
-  DwmSetWindowAttribute(hwnd, 35, &caption, sizeof(caption));  // DWMWA_CAPTION_COLOR
-}
-
-// Menús oscuros (los de la bandeja y los desplegables). uxtheme no lo documenta, pero es lo que usan el
-// Explorador y el Bloc de notas; si no existe, los menús salen claros y ya está.
-void DarkMenus() {
-  HMODULE ux = LoadLibraryExW(L"uxtheme.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
-  if (!ux) return;
-  using SetPreferredAppMode = int(WINAPI*)(int);
-  using FlushMenuThemes = void(WINAPI*)();
-  auto set_mode = reinterpret_cast<SetPreferredAppMode>(GetProcAddress(ux, MAKEINTRESOURCEA(135)));
-  auto flush = reinterpret_cast<FlushMenuThemes>(GetProcAddress(ux, MAKEINTRESOURCEA(136)));
-  if (set_mode) set_mode(2);  // ForceDark
-  if (flush) flush();
-}
-
 // ---------------------------------------------------------------------------------------------------------------
 // Ventana de registro: la salida completa del host, para diagnosticar o copiar en un informe.
 
@@ -282,7 +296,7 @@ void AddLog(const std::wstring& line) {
 LRESULT CALLBACK LogProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
   switch (msg) {
     case WM_CREATE: {
-      DarkTitleBar(hwnd);
+      StyleTitleBar(hwnd);
       g.log_edit = CreateWindowExW(0, L"EDIT", L"",
                                    WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL,
                                    0, 0, 0, 0, hwnd, reinterpret_cast<HMENU>(kIdLogEdit), g.inst, nullptr);
@@ -317,14 +331,14 @@ LRESULT CALLBACK LogProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_CTLCOLORSTATIC:  // edit de solo lectura con los colores de la app
     case WM_CTLCOLOREDIT: {
       HDC dc = reinterpret_cast<HDC>(wp);
-      SetTextColor(dc, color::kText);
-      SetBkColor(dc, color::kSurface);
+      SetTextColor(dc, P().text);
+      SetBkColor(dc, P().surface);
       return reinterpret_cast<LRESULT>(g.log_bg);
     }
     case WM_ERASEBKGND: {
       RECT r;
       GetClientRect(hwnd, &r);
-      HBRUSH b = CreateSolidBrush(color::kBackground);
+      HBRUSH b = CreateSolidBrush(P().background);
       FillRect(reinterpret_cast<HDC>(wp), &r, b);
       DeleteObject(b);
       return 1;
@@ -387,17 +401,10 @@ void StartHost() {
   g.error_mapped = false;
   g.stats.clear();
   g.link = L"ninguno";
-  g.tablet_profile.clear();
   g.dirty = false;
   g.driver_installed = VirtualDriverInstalled();
-  unsigned w, h;
   if (g.settings.virtual_display && !g.driver_installed) {
     g.error = FriendlyError(L"driver del monitor virtual no está instalado");
-    SetState(State::kError);
-    return;
-  }
-  if (g.settings.virtual_display && !g.settings.size.empty() && !ParseSize(g.settings.size, &w, &h)) {
-    g.error = L"La resolución no es válida: escribe ANCHOxALTO, por ejemplo 2560x1600.";
     SetState(State::kError);
     return;
   }
@@ -435,13 +442,35 @@ void ToggleHost() {
 }
 
 void ApplyChanges() {
+  if (!Running() || g.state == State::kStopping) return;
   g.restart_after_stop = true;
   StopHost();
+}
+
+// Valor de «clave=valor» dentro de una línea del host.
+std::wstring Field(const std::wstring& line, const wchar_t* key) {
+  const std::wstring k = std::wstring(L" ") + key + L"=";
+  const size_t pos = line.find(k);
+  if (pos == std::wstring::npos) return {};
+  const size_t start = pos + k.size();
+  const size_t end = line.find(L' ', start);
+  return line.substr(start, end == std::wstring::npos ? std::wstring::npos : end - start);
 }
 
 void OnHostLine(bool from_stderr, const std::wstring& line) {
   if (line.rfind(L"@listo", 0) == 0) {
     if (g.state == State::kStarting) SetState(State::kWaiting);
+    return;
+  }
+  if (line.rfind(L"@ajuste ", 0) == 0) {
+    // La tablet cambió algo desde su menú rápido (táctil o ratón): se recuerda aquí, que es donde manda el PC.
+    const std::wstring touch = Field(line, L"tactil");
+    const int mode = touch == L"raton" ? 1 : touch == L"solo-ver" ? 2 : touch == L"tactil" ? 0 : -1;
+    if (mode >= 0 && mode != g.settings.touch) {
+      g.settings.touch = mode;
+      SaveSettings(g.settings);
+      Redraw();
+    }
     return;
   }
   if (line.rfind(L"@estado ", 0) == 0) {
@@ -460,7 +489,7 @@ void OnHostLine(bool from_stderr, const std::wstring& line) {
       if (link == L"ninguno") {
         Notify(L"Tablet desconectada", L"DeskLink sigue esperando a que vuelva a conectarse.");
       } else {
-        Notify(L"Tablet conectada", link == L"usb" ? L"Por cable USB." : L"Por WiFi (" + g.stats[L"ip"] + L").");
+        Notify(L"Tablet conectada", link == L"usb" ? L"Por cable USB." : L"Por Wi-Fi (" + g.stats[L"ip"] + L").");
       }
       g.link = link;
     }
@@ -475,12 +504,6 @@ void OnHostLine(bool from_stderr, const std::wstring& line) {
     return;
   }
   AddLog(line);
-  constexpr wchar_t kProfilePrefix[] = L"Perfil de la tablet: ";
-  if (line.rfind(kProfilePrefix, 0) == 0) {
-    g.tablet_profile = line.substr(std::size(kProfilePrefix) - 1);
-    Redraw();
-    return;
-  }
   const std::wstring friendly = FriendlyError(line);
   if (!friendly.empty()) {
     g.error = friendly;
@@ -493,8 +516,7 @@ void OnHostLine(bool from_stderr, const std::wstring& line) {
   } else {
     return;
   }
-  // Un aviso durante la transmisión (p. ej. un ajuste de códec no soportado) no es un fallo: se muestra igual,
-  // pero solo pasa a «error» si el host termina.
+  // Un aviso durante la transmisión no es un fallo: solo pasa a «error» si el host termina.
   Redraw();
 }
 
@@ -527,30 +549,45 @@ void OnHostExit(DWORD code) {
   SetState(State::kError);
 }
 
-// Un ajuste cambió: se guarda; con el host en marcha se ofrece «Aplicar cambios».
-void SettingsChanged() {
+// Cambia los ajustes: se guardan y, con la transmisión en marcha, se aplican al momento si se puede (calidad,
+// sonido, táctil, fps…: el host los recibe por su entrada) o se ofrece «Aplicar cambios». restart_now reinicia
+// sin preguntar (el modo, que es lo primero que se ve).
+void ChangeSettings(const Settings& next, bool restart_now = false) {
+  const Settings before = g.settings;
+  g.settings = next;
   SaveSettings(g.settings);
-  if (Running()) g.dirty = true;
+  if (Running() && g.state != State::kStopping) {
+    if (NeedsRestart(before, next)) {
+      if (restart_now) {
+        ApplyChanges();
+      } else {
+        g.dirty = true;
+      }
+    } else if (g.host.running()) {
+      g.host.Send(LiveSettingsLine(next));
+    }
+  }
   Redraw();
 }
 
-void SetMode(bool virtual_display, bool apply_now) {
+void SetMode(bool virtual_display) {
   if (g.settings.virtual_display == virtual_display) return;
-  g.settings.virtual_display = virtual_display;
-  SettingsChanged();
-  if (apply_now && Running()) ApplyChanges();
+  Settings s = g.settings;
+  s.virtual_display = virtual_display;
+  g.driver_installed = VirtualDriverInstalled();
+  ChangeSettings(s, true);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Dibujo: piezas sueltas.
+// Dibujo: piezas sueltas, planas, sin brillos ni degradados.
 
-std::unique_ptr<gp::Font> MakeFont(float px, bool bold) {
+std::unique_ptr<gp::Font> MakeFont(float px, bool semibold) {
   std::unique_ptr<gp::Font> f;
-  if (bold && !g.semibold_family.empty()) {
+  if (semibold && !g.semibold_family.empty()) {
     f = std::make_unique<gp::Font>(g.semibold_family.c_str(), F(px), gp::FontStyleRegular, gp::UnitPixel);
     if (f->GetLastStatus() == gp::Ok) return f;
   }
-  return std::make_unique<gp::Font>(g.family.get(), F(px), bold ? gp::FontStyleBold : gp::FontStyleRegular,
+  return std::make_unique<gp::Font>(g.family.get(), F(px), semibold ? gp::FontStyleBold : gp::FontStyleRegular,
                                     gp::UnitPixel);
 }
 
@@ -563,59 +600,46 @@ void RoundRect(gp::GraphicsPath* path, const gp::RectF& r, float radius) {
   path->CloseFigure();
 }
 
-void FillRound(gp::Graphics& gr, const gp::RectF& r, float radius, const gp::Brush& brush) {
+void FillRound(gp::Graphics& gr, const gp::RectF& r, float radius, COLORREF c, BYTE alpha = 255) {
   gp::GraphicsPath path;
   RoundRect(&path, r, radius);
+  gp::SolidBrush brush(C(c, alpha));
   gr.FillPath(&brush, &path);
 }
 
-void StrokeRound(gp::Graphics& gr, const gp::RectF& r, float radius, const gp::Pen& pen) {
+void StrokeRound(gp::Graphics& gr, const gp::RectF& r, float radius, COLORREF c, float width = 1) {
   gp::GraphicsPath path;
   RoundRect(&path, r, radius);
+  gp::Pen pen(C(c), F(width));
   gr.DrawPath(&pen, &path);
-}
-
-// Halo: varios bordes cada vez más anchos y transparentes alrededor del rectángulo.
-void Glow(gp::Graphics& gr, const gp::RectF& r, float radius, COLORREF c, float strength = 1) {
-  for (int i = 4; i >= 1; --i) {
-    gp::Pen pen(C(c, static_cast<BYTE>(std::min(255.0f, (34 - i * 6) * strength))), F(i * 3.0f));
-    StrokeRound(gr, r, radius, pen);
-  }
-}
-
-gp::LinearGradientBrush BrandBrush(const gp::RectF& r) {
-  return gp::LinearGradientBrush(gp::RectF(r.X - 1, r.Y - 1, r.Width + 2, r.Height + 2), C(color::kAccent),
-                                 C(color::kAccentAlt), gp::LinearGradientModeForwardDiagonal);
 }
 
 enum class Align { kLeft, kCenter, kRight };
 
 void Text(gp::Graphics& gr, const std::wstring& s, const gp::RectF& r, const gp::Font& font, COLORREF c,
-          Align align = Align::kLeft, bool wrap = false, BYTE alpha = 255) {
+          Align align = Align::kLeft, bool wrap = false) {
   gp::StringFormat sf;
   sf.SetAlignment(align == Align::kLeft ? gp::StringAlignmentNear
                   : align == Align::kCenter ? gp::StringAlignmentCenter : gp::StringAlignmentFar);
   sf.SetLineAlignment(wrap ? gp::StringAlignmentNear : gp::StringAlignmentCenter);
   sf.SetTrimming(gp::StringTrimmingEllipsisCharacter);
   if (!wrap) sf.SetFormatFlags(gp::StringFormatFlagsNoWrap);
-  gp::SolidBrush brush(C(c, alpha));
+  gp::SolidBrush brush(C(c));
   gr.DrawString(s.c_str(), static_cast<INT>(s.size()), &font, r, &sf, &brush);
 }
 
-// Texto en mayúsculas con espaciado entre letras (logotipo y títulos de sección).
-void SpacedText(gp::Graphics& gr, const std::wstring& s, float x, float y, float px, float spacing,
-                const gp::Brush& brush, bool bold) {
-  gp::GraphicsPath path;
-  gp::StringFormat sf(gp::StringFormat::GenericTypographic());
-  const INT style = bold ? gp::FontStyleBold : gp::FontStyleRegular;
-  auto font = MakeFont(px, bold);
-  for (wchar_t ch : s) {
-    path.AddString(&ch, 1, g.family.get(), style, F(px), gp::PointF(x, y), &sf);
-    gp::RectF box;
-    gr.MeasureString(&ch, 1, font.get(), gp::PointF(0, 0), &sf, &box);
-    x += (ch == L' ' ? F(px) * 0.3f : box.Width) + F(spacing);
-  }
-  gr.FillPath(&brush, &path);
+// Alto que ocupa un texto partido en líneas a este ancho.
+float TextHeight(gp::Graphics& gr, const std::wstring& s, const gp::Font& font, float width) {
+  if (s.empty()) return 0;
+  gp::RectF box;
+  gr.MeasureString(s.c_str(), static_cast<INT>(s.size()), &font, gp::RectF(0, 0, width, 10000), &box);
+  return std::ceil(box.Height);
+}
+
+float TextWidth(gp::Graphics& gr, const std::wstring& s, const gp::Font& font) {
+  gp::RectF box;
+  gr.MeasureString(s.c_str(), static_cast<INT>(s.size()), &font, gp::PointF(0, 0), &box);
+  return std::ceil(box.Width);
 }
 
 int AddHit(const gp::RectF& r, std::function<void()> action) {
@@ -623,403 +647,328 @@ int AddHit(const gp::RectF& r, std::function<void()> action) {
   return static_cast<int>(g.hits.size()) - 1;
 }
 
-bool Hovered(int hit) { return hit == g.hover; }
+bool Hovered(int hit) { return hit >= 0 && hit == g.hover; }
 
-void SectionTitle(gp::Graphics& gr, const std::wstring& s, float x, float y) {
-  gp::SolidBrush brush(C(color::kAccent));
-  SpacedText(gr, s, x, y, 12, 2, brush, true);
+void Chevron(gp::Graphics& gr, float cx, float cy, bool down, COLORREF c) {
+  gp::Pen pen(C(c), F(1.6f));
+  pen.SetLineJoin(gp::LineJoinRound);
+  pen.SetStartCap(gp::LineCapRound);
+  pen.SetEndCap(gp::LineCapRound);
+  if (down) {
+    const gp::PointF pts[3] = {{cx - F(4.5f), cy - F(2)}, {cx, cy + F(2.5f)}, {cx + F(4.5f), cy - F(2)}};
+    gr.DrawLines(&pen, pts, 3);
+  } else {
+    const gp::PointF pts[3] = {{cx - F(2), cy - F(4.5f)}, {cx + F(2.5f), cy}, {cx - F(2), cy + F(4.5f)}};
+    gr.DrawLines(&pen, pts, 3);
+  }
 }
 
-// Fila de opciones (control segmentado): una pastilla por opción; la elegida en cian con halo.
+// Control segmentado como el de macOS: un carril gris y la opción elegida en una pastilla más clara.
 void Segmented(gp::Graphics& gr, const gp::RectF& r, const std::vector<std::wstring>& labels, int selected,
                const std::function<void(int)>& on_select) {
-  gp::SolidBrush raised(C(color::kSurfaceRaised));
-  FillRound(gr, r, F(10), raised);
-  gp::Pen outline(C(color::kOutline), F(1));
-  StrokeRound(gr, r, F(10), outline);
-  auto font = MakeFont(13, false);
-  auto bold = MakeFont(13, true);
+  FillRound(gr, r, F(tokens::kControlRadius), P().surface_secondary);
+  auto font = MakeFont(tokens::kNotePx, false);
+  auto bold = MakeFont(tokens::kNotePx, true);
   const float w = r.Width / labels.size();
   for (size_t i = 0; i < labels.size(); ++i) {
-    const gp::RectF cell(r.X + w * i + F(3), r.Y + F(3), w - F(6), r.Height - F(6));
+    const gp::RectF cell(r.X + w * i + F(2), r.Y + F(2), w - F(4), r.Height - F(4));
     const int hit = AddHit(cell, [on_select, i] { on_select(static_cast<int>(i)); });
-    if (static_cast<int>(i) == selected) {
-      gp::SolidBrush fill(C(color::kAccent, 40));
-      FillRound(gr, cell, F(8), fill);
-      gp::Pen pen(C(color::kAccent), F(1.5f));
-      StrokeRound(gr, cell, F(8), pen);
-      Text(gr, labels[i], cell, *bold, color::kAccent, Align::kCenter);
-    } else {
-      if (Hovered(hit)) {
-        gp::SolidBrush fill(C(color::kOutline));
-        FillRound(gr, cell, F(8), fill);
-      }
-      Text(gr, labels[i], cell, *font, Hovered(hit) ? color::kText : color::kTextMuted, Align::kCenter);
+    const bool chosen = static_cast<int>(i) == selected;
+    if (chosen) {
+      FillRound(gr, cell, F(tokens::kControlRadius - 2), g.dark ? P().separator : P().surface);
+      if (!g.dark) StrokeRound(gr, cell, F(tokens::kControlRadius - 2), P().separator, 0.75f);
+    } else if (Hovered(hit)) {
+      FillRound(gr, cell, F(tokens::kControlRadius - 2), P().separator, 90);
     }
+    Text(gr, labels[i], cell, chosen ? *bold : *font, P().text, Align::kCenter);
   }
 }
 
-// Interruptor con su texto; toda la fila responde al clic.
-void Toggle(gp::Graphics& gr, const gp::RectF& r, const std::wstring& label, bool on, std::function<void()> action) {
-  const int hit = AddHit(r, std::move(action));
-  auto font = MakeFont(14, false);
-  Text(gr, label, gp::RectF(r.X, r.Y, r.Width - F(56), r.Height), *font, Hovered(hit) ? color::kText : color::kText,
-       Align::kLeft, false, Hovered(hit) ? 255 : 230);
-  const gp::RectF track(r.X + r.Width - F(44), r.Y + (r.Height - F(24)) / 2, F(44), F(24));
-  if (on) {
-    gp::LinearGradientBrush brand = BrandBrush(track);
-    FillRound(gr, track, F(12), brand);
-    if (Hovered(hit)) Glow(gr, track, F(12), color::kAccent, 0.7f);
-  } else {
-    gp::SolidBrush fill(C(color::kSurfaceRaised));
-    FillRound(gr, track, F(12), fill);
-    gp::Pen pen(C(Hovered(hit) ? color::kTextMuted : color::kOutline), F(1.5f));
-    StrokeRound(gr, track, F(12), pen);
-  }
+// Interruptor: carril con el acento si está activo y botón blanco.
+void Switch(gp::Graphics& gr, float x, float y, bool on, bool hover) {
+  const gp::RectF track(x, y, F(38), F(22));
+  FillRound(gr, track, F(11), on ? P().accent : (hover ? P().text_secondary : P().separator));
   const float knob = F(18);
-  const float kx = on ? track.X + track.Width - knob - F(3) : track.X + F(3);
-  gp::SolidBrush knob_brush(on ? C(color::kOnAccent) : C(color::kTextMuted));
-  gr.FillEllipse(&knob_brush, kx, track.Y + F(3), knob, knob);
+  gp::SolidBrush knob_brush(C(RGB(0xFF, 0xFF, 0xFF)));
+  gr.FillEllipse(&knob_brush, on ? track.X + track.Width - knob - F(2) : track.X + F(2), track.Y + F(2), knob, knob);
 }
 
-// Desplegable: al pulsar abre un menú con las opciones.
-void Dropdown(gp::Graphics& gr, const gp::RectF& r, const std::wstring& text, std::function<void()> action,
-              bool enabled = true) {
-  const int hit = enabled ? AddHit(r, std::move(action)) : -1;
-  gp::SolidBrush fill(C(color::kSurfaceRaised));
-  FillRound(gr, r, F(10), fill);
-  gp::Pen pen(C(Hovered(hit) ? color::kAccent : color::kOutline), F(Hovered(hit) ? 1.5f : 1));
-  StrokeRound(gr, r, F(10), pen);
-  auto font = MakeFont(13, false);
-  Text(gr, text, gp::RectF(r.X + F(12), r.Y, r.Width - F(40), r.Height), *font,
-       enabled ? color::kText : color::kTextMuted);
-  // Flecha
-  const float cx = r.X + r.Width - F(18), cy = r.Y + r.Height / 2;
-  gp::Pen arrow(C(enabled ? color::kAccent : color::kTextMuted), F(1.8f));
-  arrow.SetLineJoin(gp::LineJoinRound);
-  arrow.SetStartCap(gp::LineCapRound);
-  arrow.SetEndCap(gp::LineCapRound);
-  const gp::PointF pts[3] = {{cx - F(5), cy - F(2.5f)}, {cx, cy + F(2.5f)}, {cx + F(5), cy - F(2.5f)}};
-  gr.DrawLines(&arrow, pts, 3);
-}
+enum class ButtonKind { kPrimary, kStop, kSecondary, kDisabled };
 
-// Botón: principal (degradado de marca), peligro (borde rojo) o secundario (borde cian).
-enum class ButtonKind { kPrimary, kDanger, kSecondary, kDisabled };
-
-void Button(gp::Graphics& gr, const gp::RectF& r, const std::wstring& label, ButtonKind kind, float text_px,
+void Button(gp::Graphics& gr, const gp::RectF& r, const std::wstring& label, ButtonKind kind,
             std::function<void()> action) {
   const int hit = kind == ButtonKind::kDisabled ? -1 : AddHit(r, std::move(action));
-  const float radius = F(14);
-  auto font = MakeFont(text_px, true);
+  const float radius = F(tokens::kControlRadius);
+  auto font = MakeFont(tokens::kBodyPx, true);
   switch (kind) {
-    case ButtonKind::kPrimary: {
-      if (Hovered(hit)) Glow(gr, r, radius, color::kAccent, 1.4f);
-      gp::LinearGradientBrush brand = BrandBrush(r);
-      FillRound(gr, r, radius, brand);
-      Text(gr, label, r, *font, color::kOnAccent, Align::kCenter);
+    case ButtonKind::kPrimary:
+      FillRound(gr, r, radius, P().accent, Hovered(hit) ? 225 : 255);
+      Text(gr, label, r, *font, P().on_accent, Align::kCenter);
       break;
-    }
-    case ButtonKind::kDanger: {
-      if (Hovered(hit)) Glow(gr, r, radius, color::kError, 1.0f);
-      gp::SolidBrush fill(C(color::kError, Hovered(hit) ? 40 : 22));
-      FillRound(gr, r, radius, fill);
-      gp::Pen pen(C(color::kError), F(1.5f));
-      StrokeRound(gr, r, radius, pen);
-      Text(gr, label, r, *font, color::kError, Align::kCenter);
+    case ButtonKind::kStop:
+      FillRound(gr, r, radius, Hovered(hit) ? P().separator : P().surface_secondary);
+      Text(gr, label, r, *font, P().error, Align::kCenter);
       break;
-    }
-    case ButtonKind::kSecondary: {
-      gp::SolidBrush fill(C(color::kAccent, Hovered(hit) ? 40 : 18));
-      FillRound(gr, r, radius, fill);
-      gp::Pen pen(C(color::kAccent), F(1.5f));
-      StrokeRound(gr, r, radius, pen);
-      Text(gr, label, r, *font, color::kAccent, Align::kCenter);
+    case ButtonKind::kSecondary:
+      FillRound(gr, r, radius, Hovered(hit) ? P().separator : P().surface_secondary);
+      Text(gr, label, r, *font, P().accent, Align::kCenter);
       break;
-    }
-    case ButtonKind::kDisabled: {
-      gp::SolidBrush fill(C(color::kSurfaceRaised));
-      FillRound(gr, r, radius, fill);
-      Text(gr, label, r, *font, color::kTextMuted, Align::kCenter);
+    case ButtonKind::kDisabled:
+      FillRound(gr, r, radius, P().surface_secondary);
+      Text(gr, label, r, *font, P().text_secondary, Align::kCenter);
       break;
-    }
   }
 }
 
-// Menú desplegable bajo un control; devuelve el índice elegido o -1.
-int PickFromMenu(const gp::RectF& anchor, const std::vector<std::wstring>& items, int checked) {
+// Menú desplegable bajo un punto de la ventana; devuelve el índice elegido o -1.
+int PickFromMenu(float x, float y, const std::vector<std::wstring>& items, int checked) {
   HMENU m = CreatePopupMenu();
   for (size_t i = 0; i < items.size(); ++i) {
     AppendMenuW(m, MF_STRING | (static_cast<int>(i) == checked ? MF_CHECKED : 0), kMenuPick + i, items[i].c_str());
   }
-  POINT pt{static_cast<LONG>(anchor.X), static_cast<LONG>(anchor.Y + anchor.Height + F(4))};
+  POINT pt{static_cast<LONG>(x), static_cast<LONG>(y)};
   ClientToScreen(g.wnd, &pt);
-  const int cmd = TrackPopupMenu(m, TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN | TPM_NONOTIFY, pt.x, pt.y, 0, g.wnd,
-                                 nullptr);
+  const int cmd = TrackPopupMenu(m, TPM_RETURNCMD | TPM_RIGHTALIGN | TPM_TOPALIGN | TPM_NONOTIFY, pt.x, pt.y, 0,
+                                 g.wnd, nullptr);
   DestroyMenu(m);
   return cmd >= kMenuPick ? cmd - kMenuPick : -1;
 }
 
-// ---------------------------------------------------------------------------------------------------------------
-// Dibujo: la ventana.
-
-void PaintHeader(gp::Graphics& gr) {
-  // Logotipo: la tableta con degradado y «DESKLINK».
-  const gp::RectF body(F(28), F(26), F(34), F(24));
-  gp::LinearGradientBrush brand = BrandBrush(body);
-  FillRound(gr, body, F(6), brand);
-  gp::SolidBrush screen(C(color::kBackground));
-  FillRound(gr, gp::RectF(body.X + F(4), body.Y + F(4), body.Width - F(8), body.Height - F(8)), F(2), screen);
-  gp::LinearGradientBrush text_brush(gp::RectF(F(72), F(20), F(170), F(30)), C(color::kAccent), C(color::kAccentAlt),
-                                     gp::LinearGradientModeHorizontal);
-  SpacedText(gr, L"DESKLINK", F(72), F(21), 24, 4, text_brush, true);
-  auto small_font = MakeFont(12, false);
-  Text(gr, L"Tu tablet como segunda pantalla", gp::RectF(F(74), F(50), F(260), F(16)), *small_font, color::kTextMuted);
+template <typename T, typename Label>
+void PickValue(float x, float y, const std::vector<T>& values, const T& current, Label label,
+               const std::function<void(const T&)>& apply) {
+  std::vector<std::wstring> items;
+  int checked = -1;
+  for (size_t i = 0; i < values.size(); ++i) {
+    items.push_back(label(values[i]));
+    if (values[i] == current) checked = static_cast<int>(i);
+  }
+  const int pick = PickFromMenu(x, y, items, checked);
+  if (pick >= 0 && values[pick] != current) apply(values[pick]);
 }
 
-void PaintStatusCard(gp::Graphics& gr, const gp::RectF& card) {
-  const bool connected = g.state == State::kConnected;
-  if (connected) Glow(gr, card, F(20), color::kAccent, 0.8f);
-  gp::SolidBrush surface(C(color::kSurface));
-  FillRound(gr, card, F(20), surface);
-  if (connected) {
-    gp::LinearGradientBrush brand = BrandBrush(card);
-    gp::Pen pen(&brand, F(1.5f));
-    StrokeRound(gr, card, F(20), pen);
-  } else {
-    gp::Pen pen(C(color::kOutline), F(1));
-    StrokeRound(gr, card, F(20), pen);
+// ---------------------------------------------------------------------------------------------------------------
+// Qué hace cada fila al pulsarla.
+
+void OnSegment(const std::string& id, int i) {
+  Settings s = g.settings;
+  if (id == "modo") {
+    SetMode(i == 0);
+    return;
   }
+  if (id == "calidad") s.quality = QualityAt(i);
+  else if (id == "sonido") s.audio_tablet = i == 1;
+  else if (id == "tactil") s.touch = i;
+  ChangeSettings(s);
+}
 
-  const float x = card.X + F(20);
-  const float w = card.Width - F(40);
-  float y = card.Y + F(20);
-
-  // Punto de estado con halo; mientras espera, el halo late.
-  const COLORREF sc = StateColor(g.state);
-  const float dot = F(12);
-  const gp::RectF dot_rect(x, y + F(7), dot, dot);
-  g.pulse_rect = gp::RectF(dot_rect.X - F(12), dot_rect.Y - F(12), dot + F(24), dot + F(24));
-  const float beat = (g.state == State::kConnected || g.state == State::kError || g.state == State::kStopped)
-                         ? 1.0f
-                         : 0.5f + 0.5f * std::sin(g.pulse);
-  if (g.state != State::kStopped) {
-    const float grow = F(11) * (0.6f + 0.4f * beat);
-    gp::GraphicsPath halo;
-    halo.AddEllipse(dot_rect.X - grow, dot_rect.Y - grow, dot + 2 * grow, dot + 2 * grow);
-    gp::PathGradientBrush brush(&halo);
-    brush.SetCenterColor(C(sc, static_cast<BYTE>(70 + 70 * beat)));
-    gp::Color edge = C(sc, 0);
-    INT count = 1;
-    brush.SetSurroundColors(&edge, &count);
-    gr.FillPath(&brush, &halo);
+void OnChoice(const std::string& id, float x, float y) {
+  if (id == "resolucion") {
+    PickValue<std::wstring>(x, y, SizeChoices(), g.settings.size, SizeLabel, [](const std::wstring& v) {
+      Settings s = g.settings;
+      s.size = v;
+      ChangeSettings(s);
+    });
+  } else if (id == "monitor") {
+    g.monitors = MonitorNames();
+    const int pick = PickFromMenu(x, y, g.monitors, g.settings.output);
+    if (pick >= 0 && pick != g.settings.output) {
+      Settings s = g.settings;
+      s.output = pick;
+      ChangeSettings(s);
+    }
+  } else if (id == "fps") {
+    PickValue<int>(x, y, FpsChoices(), g.settings.fps, FpsLabel, [](const int& v) {
+      Settings s = g.settings;
+      s.fps = v;
+      ChangeSettings(s);
+    });
+  } else if (id == "mbps") {
+    PickValue<int>(x, y, BitrateChoices(), g.settings.bitrate, BitrateLabel, [](const int& v) {
+      Settings s = g.settings;
+      s.bitrate = v;
+      ChangeSettings(s);
+    });
+  } else if (id == "codec") {
+    PickValue<std::wstring>(x, y, CodecChoices(), g.settings.codec, CodecLabel, [](const std::wstring& v) {
+      Settings s = g.settings;
+      s.codec = v;
+      ChangeSettings(s);
+    });
   }
-  gp::SolidBrush dot_brush(C(sc));
-  gr.FillEllipse(&dot_brush, dot_rect);
+}
 
-  auto title = MakeFont(19, true);
-  Text(gr, Title(), gp::RectF(x + F(24), y, w - F(24), F(26)), *title, color::kText);
+void OnToggle(const std::string& id) {
+  Settings s = g.settings;
+  if (id == "autostart") {
+    SetStartWithWindows(!g.autostart);
+    g.autostart = StartsWithWindows();
+    Redraw();
+    return;
+  }
+  if (id == "bateria") s.battery_adapt = !s.battery_adapt;
+  else if (id == "puntero") s.cursor = !s.cursor;
+  else if (id == "usb") s.usb = !s.usb;
+  else if (id == "abrir") s.stream_on_open = !s.stream_on_open;
+  ChangeSettings(s);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Dibujo: la ventana. Cada tarjeta se mide primero (draw = false) y luego se pinta encima de su fondo.
+
+void Card(gp::Graphics& gr, float x, float* y, float w, const std::function<float(bool draw, float top)>& content) {
+  const float h = content(false, *y);
+  const gp::RectF r(x, *y, w, h);
+  FillRound(gr, r, F(tokens::kCardRadius), P().surface);
+  if (!g.dark) StrokeRound(gr, r, F(tokens::kCardRadius), P().separator, 0.75f);
+  content(true, *y);
+  *y += h;
+}
+
+float StatusContent(gp::Graphics& gr, const View& v, bool draw, float x, float top, float w) {
+  const float ix = x + F(kPad), iw = w - F(2 * kPad);
+  float y = top + F(kPad);
+  auto title = MakeFont(tokens::kTitlePx, true);
+  auto body = MakeFont(tokens::kBodyPx, false);
+  auto note = MakeFont(tokens::kNotePx, false);
+
+  if (draw) {
+    // Punto de estado: mientras espera, late suave.
+    const float dot = F(10);
+    const gp::RectF dot_rect(ix, y + F(8), dot, dot);
+    g.pulse_rect = gp::RectF(dot_rect.X - F(2), dot_rect.Y - F(2), dot + F(4), dot + F(4));
+    const bool waiting = g.state == State::kStarting || g.state == State::kWaiting ||
+                         g.state == State::kRestarting || g.state == State::kStopping;
+    const BYTE alpha = waiting ? static_cast<BYTE>(140 + 115 * (0.5f + 0.5f * std::sin(g.pulse))) : 255;
+    gp::SolidBrush dot_brush(C(ToneColor(v.dot), alpha));
+    gr.FillEllipse(&dot_brush, dot_rect);
+    Text(gr, v.title, gp::RectF(ix + F(20), y, iw - F(20), F(26)), *title, P().text);
+  }
   y += F(30);
 
-  auto body = MakeFont(13, false);
-  std::wstring detail;
-  switch (g.state) {
-    case State::kStopped: detail = L"Pulsa Iniciar para usar la tablet como pantalla."; break;
-    case State::kStarting:
-      detail = g.settings.virtual_display ? L"Creando la pantalla extra…" : L"Preparando la captura…";
-      break;
-    case State::kWaiting: detail = L"Abre DeskLink en la tablet y pulsa Conectar."; break;
-    case State::kConnected:
-      detail = g.link == L"usb" ? L"Tablet por cable: la conexión más rápida." : L"Tablet " + g.stats[L"ip"] + L" por WiFi.";
-      if (!g.stats[L"size"].empty()) detail += L" Pantalla de " + g.stats[L"size"] + L".";
-      break;
-    case State::kStopping: detail = L"Quitando la pantalla extra y el túnel USB…"; break;
-    case State::kRestarting: detail = L"El host se cerró; vuelvo a arrancarlo."; break;
-    case State::kError: detail = L"Corrige esto y pulsa Iniciar:"; break;
-  }
-  Text(gr, detail, gp::RectF(x, y, w, F(38)), *body, color::kTextMuted, Align::kLeft, true);
-  y += F(42);
+  const float dh = TextHeight(gr, v.detail, *body, iw);
+  if (draw) Text(gr, v.detail, gp::RectF(ix, y, iw, dh + F(2)), *body, P().text_secondary, Align::kLeft, true);
+  y += dh + F(4);
 
-  if (!g.error.empty() && (g.state == State::kError || g.state == State::kRestarting)) {
-    // El error ocupa el sitio de las cifras.
-    const gp::RectF box(x, y, w, F(64));
-    gp::SolidBrush fill(C(color::kError, 22));
-    FillRound(gr, box, F(12), fill);
-    gp::Pen pen(C(color::kError, 120), F(1));
-    StrokeRound(gr, box, F(12), pen);
-    Text(gr, g.error, gp::RectF(box.X + F(12), box.Y + F(8), box.Width - F(24), box.Height - F(12)), *body,
-         color::kError, Align::kLeft, true);
-  } else {
-    // Cuatro cifras: fps, Mbps, codificación y RTT.
-    const bool live = connected;
-    const double fps = Stat(L"codificados");
-    const std::wstring values[4] = {
-        live ? Format(L"%.0f", fps) : L"—",
-        live ? Format(L"%.1f", Stat(L"mbps")) : L"—",
-        live ? Format(L"%.1f", Stat(L"cod_ms")) : L"—",
-        live && Stat(L"rtt_ms") > 0 ? Format(L"%.0f", Stat(L"rtt_ms")) : L"—",
-    };
-    const wchar_t* labels[4] = {live && fps < 1 ? L"fps · quieta" : L"fps", L"Mbps", L"ms codif.", L"ms RTT"};
-    auto value_font = MakeFont(20, true);
-    auto label_font = MakeFont(11, false);
-    const float gap = F(8);
-    const float cw = (w - 3 * gap) / 4;
-    for (int i = 0; i < 4; ++i) {
-      const gp::RectF chip(x + i * (cw + gap), y, cw, F(64));
-      gp::SolidBrush fill(C(color::kSurfaceRaised));
-      FillRound(gr, chip, F(12), fill);
-      Text(gr, values[i], gp::RectF(chip.X, chip.Y + F(8), chip.Width, F(28)), *value_font,
-           live ? color::kText : color::kTextMuted, Align::kCenter);
-      Text(gr, labels[i], gp::RectF(chip.X, chip.Y + F(38), chip.Width, F(18)), *label_font, color::kTextMuted,
-           Align::kCenter);
+  if (!v.stats.empty()) {
+    y += F(4);
+    if (draw) Text(gr, v.stats, gp::RectF(ix, y, iw, F(22)), *body, P().text);
+    y += F(24);
+  }
+  if (!v.notice.text.empty()) {
+    const float nh = TextHeight(gr, v.notice.text, *note, iw);
+    if (draw) Text(gr, v.notice.text, gp::RectF(ix, y, iw, nh + F(2)), *note, ToneColor(v.notice.tone), Align::kLeft, true);
+    y += nh + F(4);
+  }
+  if (!v.error.empty()) {
+    y += F(6);
+    const float eh = TextHeight(gr, v.error, *note, iw - F(24));
+    const gp::RectF box(ix, y, iw, eh + F(20));
+    if (draw) {
+      FillRound(gr, box, F(tokens::kControlRadius), P().error, 26);
+      Text(gr, v.error, gp::RectF(box.X + F(12), box.Y + F(10), box.Width - F(24), eh + F(2)), *note, P().error,
+           Align::kLeft, true);
+    }
+    y += box.Height + F(4);
+  }
+  if (!v.connection.empty()) {
+    y += F(8);
+    if (draw) {
+      gp::Pen sep(C(P().separator), F(1));
+      gr.DrawLine(&sep, ix, y, ix + iw, y);
+    }
+    y += F(10);
+    for (const Line& line : v.connection) {
+      const float lh = TextHeight(gr, line.text, *note, iw);
+      if (draw) Text(gr, line.text, gp::RectF(ix, y, iw, lh + F(2)), *note, ToneColor(line.tone), Align::kLeft, true);
+      y += lh + F(4);
     }
   }
-  y += F(76);
-
-  // Cable USB e IP del PC.
-  std::wstring usb;
-  COLORREF usb_color = color::kTextMuted;
-  if (!g.settings.usb) {
-    usb = L"Cable USB desactivado en los ajustes.";
-  } else if ((g.state == State::kWaiting || g.state == State::kConnected) && g.stats.count(L"adb")) {
-    const int ready = _wtoi(g.stats[L"adb"].c_str());
-    const int pending = _wtoi(g.stats[L"adb_pendientes"].c_str());
-    if (ready < 0) {
-      usb = L"Para el cable USB falta adb.exe junto a desklink.exe.";
-      usb_color = color::kWarning;
-    } else if (pending > 0) {
-      usb = L"Acepta «¿Permitir depuración USB?» en la tablet.";
-      usb_color = color::kWarning;
-    } else if (ready > 0) {
-      usb = ready == 1 ? L"Tablet enchufada por USB y lista." : Format(L"%d tablets enchufadas por USB.", ready);
-      usb_color = color::kSuccess;
-    } else {
-      usb = L"Sin tablet por USB (activa la depuración USB).";
-    }
-  } else {
-    usb = L"Cable USB: se activa al iniciar.";
-  }
-  auto small_font = MakeFont(12, false);
-  Text(gr, usb, gp::RectF(x, y, w, F(18)), *small_font, usb_color);
-  y += F(20);
-  Text(gr, L"IP de este PC: " + (g.addresses.empty() ? std::wstring(L"sin red") : g.addresses),
-       gp::RectF(x, y, w, F(18)), *small_font, color::kTextMuted);
+  return y + F(kPad) - F(4) - top;
 }
 
-void PaintSettingsCard(gp::Graphics& gr, float card_x, float card_y, float card_w, float* bottom) {
-  // El alto de la tarjeta depende de las filas: primero se dibuja el contenido en una capa y luego el fondo
-  // debajo. Para simplificar, el fondo se pinta con el alto calculado en la pasada anterior (ver Paint).
-  // La calidad, los fps, el códec, la resolución, el sonido y el táctil se eligen en la tablet (llegan al
-  // conectar); aquí solo queda, plegado en «Avanzado», lo que la tablet no puede saber.
-  Settings& s = g.settings;
-  const float x = card_x + F(20);
-  const float w = card_w - F(40);
-  float y = card_y + F(20);
-  auto label_font = MakeFont(13, false);
-  auto hint_font = MakeFont(12, false);
-  auto bold_font = MakeFont(14, true);
-
-  auto row_label = [&](const std::wstring& text, const std::wstring& hint = L"",
-                       COLORREF hint_color = color::kTextMuted) {
-    Text(gr, text, gp::RectF(x, y, w, F(18)), *label_font, color::kText);
-    if (!hint.empty()) Text(gr, hint, gp::RectF(x, y, w, F(18)), *hint_font, hint_color, Align::kRight);
-    y += F(22);
-  };
-
-  SectionTitle(gr, L"AJUSTES", x, y);
-  y += F(28);
-
-  {
-    const gp::RectF box(x, y, w, F(84));
-    gp::SolidBrush fill(C(color::kAccent, 16));
-    FillRound(gr, box, F(14), fill);
-    gp::Pen pen(C(color::kAccent, 90), F(1));
-    StrokeRound(gr, box, F(14), pen);
-    Text(gr, L"Se eligen en la tablet", gp::RectF(box.X + F(14), box.Y + F(10), box.Width - F(28), F(20)), *bold_font,
-         color::kText);
-    Text(gr,
-         L"Perfil (Calidad, Equilibrado o Ahorro), sonido y táctil: en la app DeskLink de la tablet, botón Ajustes. "
-         L"Se aplican al conectar.",
-         gp::RectF(box.X + F(14), box.Y + F(34), box.Width - F(28), F(44)), *hint_font, color::kTextMuted,
-         Align::kLeft, true);
-    y += F(96);
-  }
-
-  if (g.state == State::kConnected && !g.tablet_profile.empty()) {
-    row_label(L"La tablet pide", g.tablet_profile, color::kAccent);
-    y += F(4);
-  }
-  std::wstring overrides;
-  if (HasPcOverrides(s, &overrides)) {
-    Text(gr, L"Fijado en desklink.ini (manda sobre la tablet): " + overrides, gp::RectF(x, y, w, F(36)), *hint_font,
-         color::kWarning, Align::kLeft, true);
-    y += F(40);
-  }
-
-  // Cabecera plegable de «Avanzado».
-  {
-    const gp::RectF head(x - F(8), y, w + F(16), F(40));
-    const int hit = AddHit(head, [] {
-      g.advanced_open = !g.advanced_open;
-      Redraw();
-    });
-    if (Hovered(hit)) {
-      gp::SolidBrush fill(C(color::kSurfaceRaised));
-      FillRound(gr, head, F(10), fill);
+// Filas de una tarjeta de ajustes, separadas por una línea fina.
+float RowsContent(gp::Graphics& gr, const std::vector<Row>& rows, bool draw, float x, float top, float w) {
+  const float ix = x + F(kPad), iw = w - F(2 * kPad);
+  auto body = MakeFont(tokens::kBodyPx, false);
+  auto note = MakeFont(tokens::kNotePx, false);
+  float y = top;
+  for (size_t i = 0; i < rows.size(); ++i) {
+    const Row& r = rows[i];
+    if (i > 0 && draw) {
+      gp::Pen sep(C(P().separator), F(1));
+      gr.DrawLine(&sep, ix, y, ix + iw, y);
     }
-    SectionTitle(gr, L"AVANZADO", x, y + F(13));
-    Text(gr, L"pantalla, puntero, cable USB", gp::RectF(x, y, w - F(26), F(40)), *hint_font, color::kTextMuted,
-         Align::kRight);
-    const float cx = x + w - F(8), cy = y + F(20);
-    gp::Pen arrow(C(color::kAccent), F(1.8f));
-    arrow.SetLineJoin(gp::LineJoinRound);
-    arrow.SetStartCap(gp::LineCapRound);
-    arrow.SetEndCap(gp::LineCapRound);
-    if (g.advanced_open) {
-      const gp::PointF pts[3] = {{cx - F(5), cy + F(2.5f)}, {cx, cy - F(2.5f)}, {cx + F(5), cy + F(2.5f)}};
-      gr.DrawLines(&arrow, pts, 3);
-    } else {
-      const gp::PointF pts[3] = {{cx - F(5), cy - F(2.5f)}, {cx, cy + F(2.5f)}, {cx + F(5), cy - F(2.5f)}};
-      gr.DrawLines(&arrow, pts, 3);
+    const float row_top = y;
+    y += F(10);
+    switch (r.control) {
+      case Control::kSegmented: {
+        const float seg_w = std::min(iw * 0.66f, F(118) * r.options.size());
+        const float label_w = iw - seg_w - F(12);
+        const float lh = std::max(F(30), TextHeight(gr, r.label, *body, label_w));
+        if (draw) {
+          Text(gr, r.label, gp::RectF(ix, y, label_w, lh), *body, P().text);
+          const std::string id = r.id;
+          Segmented(gr, gp::RectF(ix + iw - seg_w, y, seg_w, F(30)), r.options, r.selected,
+                    [id](int k) { OnSegment(id, k); });
+        }
+        y += lh;
+        if (!r.hint.empty()) {
+          y += F(4);
+          const float hh = TextHeight(gr, r.hint, *note, iw);
+          if (draw) Text(gr, r.hint, gp::RectF(ix, y, iw, hh + F(2)), *note, ToneColor(r.hint_tone), Align::kRight, true);
+          y += hh;
+        }
+        break;
+      }
+      case Control::kChoice: {
+        const gp::RectF row(x, row_top, w, F(52));
+        if (draw) {
+          const std::string id = r.id;
+          const float menu_x = ix + iw, menu_y = row_top + F(46);
+          const int hit = AddHit(row, [id, menu_x, menu_y] { OnChoice(id, menu_x, menu_y); });
+          if (Hovered(hit)) FillRound(gr, gp::RectF(x + F(4), row_top + F(3), w - F(8), F(46)), F(6), P().surface_secondary);
+          const float value_w = std::min(iw * 0.55f, TextWidth(gr, r.value, *body) + F(4));
+          Text(gr, r.label, gp::RectF(ix, y, iw - value_w - F(28), F(32)), *body, P().text);
+          Text(gr, r.value, gp::RectF(ix + iw - value_w - F(18), y, value_w, F(32)), *body, P().text_secondary,
+               Align::kRight);
+          Chevron(gr, ix + iw - F(5), y + F(16), true, P().text_secondary);
+        }
+        y += F(32);
+        break;
+      }
+      case Control::kToggle: {
+        const float lh = std::max(F(32), TextHeight(gr, r.label, *body, iw - F(54)));
+        if (draw) {
+          const std::string id = r.id;
+          const int hit = AddHit(gp::RectF(x, row_top, w, lh + F(20)), [id] { OnToggle(id); });
+          Text(gr, r.label, gp::RectF(ix, y, iw - F(54), lh), *body, P().text, Align::kLeft, lh > F(32));
+          Switch(gr, ix + iw - F(38), y + (lh - F(22)) / 2, r.on, Hovered(hit));
+        }
+        y += lh;
+        break;
+      }
+      case Control::kInfo: {
+        if (draw) {
+          Text(gr, r.label, gp::RectF(ix, y, iw * 0.4f, F(32)), *body, P().text);
+          Text(gr, r.value, gp::RectF(ix + iw * 0.4f, y, iw * 0.6f, F(32)), *note, P().text_secondary, Align::kRight);
+        }
+        y += F(32);
+        break;
+      }
+      case Control::kLink: {
+        if (draw) {
+          const int hit = AddHit(gp::RectF(x, row_top, w, F(52)), ShowLog);
+          Text(gr, r.label, gp::RectF(ix, y, iw, F(32)), *body, Hovered(hit) ? P().text : P().accent);
+          Chevron(gr, ix + iw - F(5), y + F(16), false, P().text_secondary);
+        }
+        y += F(32);
+        break;
+      }
     }
-    y += F(48);
+    y += F(10);
   }
-
-  if (g.advanced_open) {
-    row_label(L"Modo", g.driver_installed ? L"" : L"falta el driver de la pantalla extra", color::kWarning);
-    Segmented(gr, gp::RectF(x, y, w, F(36)), {L"Pantalla extra", L"Duplicar un monitor"}, s.virtual_display ? 0 : 1,
-              [](int i) { SetMode(i == 0, false); });
-    y += F(48);
-
-    if (!s.virtual_display) {
-      row_label(L"Monitor que se duplica");
-      const int out = s.output;
-      const std::wstring text =
-          out < static_cast<int>(g.monitors.size()) ? g.monitors[out] : std::to_wstring(out + 1) + L": (no conectado)";
-      gp::RectF r(x, y, w, F(36));
-      Dropdown(gr, r, text, [r] {
-        g.monitors = MonitorNames();
-        const int pick = PickFromMenu(r, g.monitors, g.settings.output);
-        if (pick < 0 || pick == g.settings.output) return;
-        g.settings.output = pick;
-        SettingsChanged();
-      });
-      y += F(48);
-    }
-
-    Toggle(gr, gp::RectF(x, y, w, F(32)), L"Dibujar el puntero del ratón", s.cursor, [] {
-      g.settings.cursor = !g.settings.cursor;
-      SettingsChanged();
-    });
-    y += F(36);
-    Toggle(gr, gp::RectF(x, y, w, F(32)), L"Conexión por cable USB (adb)", s.usb, [] {
-      g.settings.usb = !g.settings.usb;
-      SettingsChanged();
-    });
-    y += F(40);
-    row_label(L"Puerto", Format(L"UDP %d · se cambia en desklink.ini", s.port));
-  }
-
-  *bottom = y + F(8);
+  return y - top;
 }
 
 void Paint(gp::Graphics& gr, float width) {
@@ -1027,92 +976,61 @@ void Paint(gp::Graphics& gr, float width) {
   gr.SetSmoothingMode(gp::SmoothingModeAntiAlias);
   gr.SetTextRenderingHint(gp::TextRenderingHintClearTypeGridFit);
   gr.SetPixelOffsetMode(gp::PixelOffsetModeHalf);
-  gp::SolidBrush bg(C(color::kBackground));
+  gp::SolidBrush bg(C(P().background));
   gr.FillRectangle(&bg, 0.0f, 0.0f, width, 10000.0f);
 
-  // Brillo de fondo muy suave en una esquina: da profundidad sin distraer.
-  {
-    gp::GraphicsPath glow;
-    glow.AddEllipse(-F(160), -F(200), F(520), F(420));
-    gp::PathGradientBrush brush(&glow);
-    brush.SetCenterColor(C(color::kAccent, 22));
-    gp::Color edge = C(color::kAccent, 0);
-    INT count = 1;
-    brush.SetSurroundColors(&edge, &count);
-    gr.FillPath(&brush, &glow);
-  }
+  const View v = BuildView(Input());
+  const float x = F(kMargin), w = width - F(2 * kMargin);
+  float y = F(20);
 
-  PaintHeader(gr);
-
-  // Columna izquierda: estado, botón principal y arranque.
-  const float left_x = F(24), left_w = F(330);
-  const gp::RectF status(left_x, F(84), left_w, F(234));
-  PaintStatusCard(gr, status);
-
-  float y = status.Y + status.Height + F(18);
-  const gp::RectF primary(left_x, y, left_w, F(54));
-  switch (g.state) {
-    case State::kStopped:
-    case State::kError:
-      Button(gr, primary, L"INICIAR", ButtonKind::kPrimary, 16, ToggleHost);
-      break;
-    case State::kStopping:
-      Button(gr, primary, L"DETENIENDO…", ButtonKind::kDisabled, 16, nullptr);
-      break;
-    default:
-      Button(gr, primary, L"DETENER", ButtonKind::kDanger, 16, ToggleHost);
-      break;
-  }
-  y += F(66);
-  if (g.dirty && Running() && g.state != State::kStopping) {
-    Button(gr, gp::RectF(left_x, y, left_w, F(40)), L"Aplicar cambios (reinicia la transmisión)",
-           ButtonKind::kSecondary, 13, ApplyChanges);
-    y += F(52);
-  }
-
-  SectionTitle(gr, L"INICIO", left_x + F(4), y + F(4));
-  y += F(30);
-  Toggle(gr, gp::RectF(left_x + F(4), y, left_w - F(8), F(32)), L"Abrir DeskLink al iniciar Windows", g.autostart, [] {
-    SetStartWithWindows(!g.autostart);
-    g.autostart = StartsWithWindows();
-    Redraw();
-  });
+  auto large = MakeFont(tokens::kLargeTitlePx, true);
+  auto note = MakeFont(tokens::kNotePx, false);
+  auto section = MakeFont(tokens::kSectionPx, true);
+  Text(gr, L"DeskLink", gp::RectF(x, y, w, F(36)), *large, P().text);
   y += F(36);
-  Toggle(gr, gp::RectF(left_x + F(4), y, left_w - F(8), F(32)), L"Transmitir nada más abrir", g.settings.stream_on_open,
-         [] {
-           g.settings.stream_on_open = !g.settings.stream_on_open;
-           SaveSettings(g.settings);  // no afecta al host en marcha
-           Redraw();
-         });
-  y += F(42);
+  Text(gr, L"Tu tablet como segunda pantalla", gp::RectF(x, y, w, F(18)), *note, P().text_secondary);
+  y += F(30);
 
-  // Enlace al registro.
+  // Estado y botón principal.
+  Card(gr, x, &y, w, [&](bool draw, float top) { return StatusContent(gr, v, draw, x, top, w); });
+  y += F(12);
+  Button(gr, gp::RectF(x, y, w, F(40)), v.primary,
+         !v.primary_enabled ? ButtonKind::kDisabled : v.primary_stop ? ButtonKind::kStop : ButtonKind::kPrimary,
+         ToggleHost);
+  y += F(40);
+  if (v.show_apply) {
+    y += F(8);
+    Button(gr, gp::RectF(x, y, w, F(36)), L"Aplicar cambios (reinicia la transmisión)", ButtonKind::kSecondary,
+           ApplyChanges);
+    y += F(36);
+  }
+  y += F(24);
+
+  // Ajustes a la vista.
+  Card(gr, x, &y, w, [&](bool draw, float top) { return RowsContent(gr, v.main, draw, x, top, w); });
+  y += F(16);
+
+  // Configuración avanzada, plegada.
   {
-    auto font = MakeFont(13, false);
-    const gp::RectF link(left_x + F(4), y, F(140), F(22));
-    const int hit = AddHit(link, ShowLog);
-    Text(gr, L"Ver registro  ›", link, *font, Hovered(hit) ? color::kAccent : color::kTextMuted);
-    y += F(30);
+    const gp::RectF head(x, y, w, F(32));
+    const int hit = AddHit(head, [] {
+      g.advanced_open = !g.advanced_open;
+      if (g.advanced_open) {
+        g.monitors = MonitorNames();
+        g.autostart = StartsWithWindows();
+      }
+      Redraw();
+    });
+    const COLORREF c = Hovered(hit) ? P().text : P().accent;
+    Text(gr, L"Configuración avanzada", gp::RectF(x + F(4), y, w - F(30), F(32)), *section, c);
+    Chevron(gr, x + F(4) + TextWidth(gr, L"Configuración avanzada", *section) + F(8), y + F(16), v.advanced_open, c);
+    y += F(36);
   }
-  const float left_bottom = y;
-
-  // Columna derecha: ajustes. El fondo de la tarjeta se pinta con el alto de la pasada anterior y el contenido
-  // encima; si el alto cambió (p. ej. una fila nueva), se repinta.
-  const float right_x = F(378), right_w = width - right_x - F(24);
-  static float settings_bottom = F(560);
-  const gp::RectF card(right_x, F(84), right_w, settings_bottom - F(84));
-  gp::SolidBrush surface(C(color::kSurface));
-  FillRound(gr, card, F(20), surface);
-  gp::Pen pen(C(color::kOutline), F(1));
-  StrokeRound(gr, card, F(20), pen);
-  float bottom = 0;
-  PaintSettingsCard(gr, right_x, F(84), right_w, &bottom);
-  if (std::fabs(bottom - settings_bottom) > 0.5f) {
-    settings_bottom = bottom;
-    Redraw();
+  if (v.advanced_open) {
+    Card(gr, x, &y, w, [&](bool draw, float top) { return RowsContent(gr, v.advanced, draw, x, top, w); });
+    y += F(8);
   }
-
-  g.content_bottom = std::max(left_bottom, settings_bottom) + F(24);
+  g.content_bottom = y + F(16);
 }
 
 void OnPaint(HWND hwnd) {
@@ -1289,7 +1207,7 @@ LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
       } else if (wp == kTimerRefresh && IsWindowVisible(hwnd)) {
         UpdateAddresses();
       } else if (wp == kTimerPulse) {
-        g.pulse += 0.25f;
+        g.pulse += 0.2f;
         RECT r{static_cast<LONG>(g.pulse_rect.X), static_cast<LONG>(g.pulse_rect.Y),
                static_cast<LONG>(g.pulse_rect.X + g.pulse_rect.Width + 1),
                static_cast<LONG>(g.pulse_rect.Y + g.pulse_rect.Height + 1)};
@@ -1300,14 +1218,21 @@ LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
       switch (LOWORD(wp)) {
         case kMenuOpen: ShowMain(); return 0;
         case kMenuToggle: ToggleHost(); return 0;
-        case kMenuVirtual: SetMode(true, true); return 0;
-        case kMenuMirror: SetMode(false, true); return 0;
+        case kMenuVirtual: SetMode(true); return 0;
+        case kMenuMirror: SetMode(false); return 0;
         case kMenuAutostart:
           SetStartWithWindows(!StartsWithWindows());
           g.autostart = StartsWithWindows();
           Redraw();
           return 0;
         case kMenuExit: ExitApp(); return 0;
+      }
+      return 0;
+    case WM_SETTINGCHANGE:
+      // Windows cambió entre claro y oscuro.
+      if (lp && wcscmp(reinterpret_cast<const wchar_t*>(lp), L"ImmersiveColorSet") == 0) {
+        FollowSystemMenus();
+        ApplyTheme();
       }
       return 0;
     case WM_DISPLAYCHANGE:
@@ -1349,12 +1274,13 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd_line, int) {
   const bool tray_only = wcsstr(cmd_line, L"--tray") != nullptr;
 
   SetProcessDPIAware();
-  DarkMenus();
+  FollowSystemMenus();
   g.inst = inst;
   HDC dc = GetDC(nullptr);
   g.dpi = GetDeviceCaps(dc, LOGPIXELSY);
   ReleaseDC(nullptr, dc);
   g.scale = g.dpi / 96.0f;
+  ApplyTheme();
 
   gp::GdiplusStartupInput gdiplus_input;
   gp::GdiplusStartup(&g.gdiplus_token, &gdiplus_input, nullptr);
@@ -1371,19 +1297,19 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd_line, int) {
   g.ui_font = CreateFontIndirectW(&ncm.lfMessageFont);
   g.mono_font = CreateFontW(-MulDiv(9, g.dpi, 72), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, FIXED_PITCH, L"Consolas");
-  g.log_bg = CreateSolidBrush(color::kSurface);
 
-  // Iconos de la bandeja: la tableta en el color del estado.
-  const COLORREF tray_colors[4] = {color::kTextMuted, color::kWarning, color::kSuccess, color::kError};
+  // Iconos de la bandeja: la tableta en el color del estado (los del tema oscuro se ven en las dos barras).
+  const COLORREF tray_colors[4] = {tokens::kDark.text_secondary, tokens::kDark.warning, tokens::kDark.success,
+                                   tokens::kDark.error};
   for (int i = 0; i < 4; ++i) {
     g.tray_icons[i] = CreateTabletIcon(tray_colors[i], tray_colors[i], GetSystemMetrics(SM_CXSMICON));
   }
   g.app_icon = LoadIconW(inst, L"APP");
-  if (!g.app_icon) g.app_icon = CreateTabletIcon(color::kAccent, color::kAccentAlt, GetSystemMetrics(SM_CXICON));
+  if (!g.app_icon) g.app_icon = CreateTabletIcon(tokens::kLight.accent, tokens::kLight.accent, GetSystemMetrics(SM_CXICON));
   g.app_icon_small = static_cast<HICON>(LoadImageW(inst, L"APP", IMAGE_ICON, GetSystemMetrics(SM_CXSMICON),
                                                    GetSystemMetrics(SM_CYSMICON), 0));
   if (!g.app_icon_small) {
-    g.app_icon_small = CreateTabletIcon(color::kAccent, color::kAccentAlt, GetSystemMetrics(SM_CXSMICON));
+    g.app_icon_small = CreateTabletIcon(tokens::kLight.accent, tokens::kLight.accent, GetSystemMetrics(SM_CXSMICON));
   }
 
   WNDCLASSEXW wc{};
@@ -1416,7 +1342,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd_line, int) {
   g.wnd = CreateWindowExW(0, kMainClass, kAppName, style, CW_USEDEFAULT, CW_USEDEFAULT, r.right - r.left,
                           r.bottom - r.top, nullptr, nullptr, inst, nullptr);
   if (!g.wnd) return 1;
-  DarkTitleBar(g.wnd);
+  StyleTitleBar(g.wnd);
 
   // Primera pasada de dibujo fuera de pantalla para saber el alto del contenido y centrar la ventana ya con él.
   {
@@ -1424,7 +1350,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd_line, int) {
     HDC mem = CreateCompatibleDC(screen);
     HBITMAP bmp = CreateCompatibleBitmap(screen, static_cast<int>(F(kClientW)), static_cast<int>(F(900)));
     HGDIOBJ old = SelectObject(mem, bmp);
-    for (int pass = 0; pass < 2; ++pass) {  // la segunda ya usa el alto de la tarjeta de ajustes
+    {
       gp::Graphics gr(mem);
       Paint(gr, F(kClientW));
     }

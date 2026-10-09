@@ -56,6 +56,9 @@ enum class PowerProfile(
         val DEFAULT = EQUILIBRADO
         const val DEFAULT_ADAPT = true
 
+        /** Perfil por su número en el protocolo (la calidad que elige el PC: 0 alta, 1 equilibrada, 2 ahorro). */
+        fun fromWire(wire: Int): PowerProfile = values().firstOrNull { it.wire == wire } ?: DEFAULT
+
         fun fromId(id: String?): PowerProfile = values().firstOrNull { it.id == id && it.selectable } ?: DEFAULT
 
         /**

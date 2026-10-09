@@ -14,6 +14,7 @@
 #include <cstring>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -22,6 +23,7 @@
 #include "capture.h"
 #include "converter.h"
 #include "dlp/packet.h"
+#include "dlp/session.h"
 #include "encoder.h"
 #include "gpu.h"
 #include "history.h"
@@ -209,14 +211,24 @@ void SetDpiAwareness() {
   SetProcessDPIAware();
 }
 
+// El PC es la única fuente de verdad (docs/ajustes.md): la app de bandeja pasa aquí lo que eligió el usuario y lo
+// cambia en marcha por la entrada estándar (@ajustes, ver ApplySettingsLine); la tablet solo dice lo que puede hacer
+// (HELLO) y el host decide con dlp/session.h.
 struct Options {
   uint16_t port = dlp::kDefaultPort;
   int output = 0;
+  // Lo que se usa ahora (lo decide Decide() con lo elegido y lo que dice la tablet).
   UINT fps = 60;
-  UINT bitrate_mbps = 50;
+  UINT bitrate_mbps = 30;
   VideoCodec codec = VideoCodec::kHevc;
+  // Lo elegido en el PC. 0 = automático.
+  UINT user_fps = 0;       // --fps auto|N
+  UINT user_bitrate = 0;   // --bitrate auto|N (Mbps)
+  uint8_t user_codec = 0;  // --codec auto|hevc|h264 (0, 2, 1 como en HelloConfig)
+  bool audio_tablet = false;    // --audio-tablet: el sonido del PC suena en la tablet
+  bool battery_adapt = false;   // --battery-adapt: la tablet puede pedir bajar fps y tasa si su batería no aguanta
   bool cursor = true;    // --no-cursor: no dibuja el cursor en la imagen
-  int input_mode = -1;   // --touch (0) / --mouse (1) solo para esta vez; si no, el guardado (táctil por defecto)
+  int input_mode = -1;   // --touch (0) / --mouse (1) / --view-only (2); si no, el guardado (táctil por defecto)
   bool touch = true;     // --no-touch desactiva el control táctil
   UINT pace_mbps = 100;  // reparte cada frame a esta tasa; 0 = de golpe (el anclaje USB pierde ráfagas)
   bool virtual_display = false;  // --virtual: crea un monitor virtual (driver desklink-idd) y captura ese
@@ -230,27 +242,86 @@ struct Options {
   std::wstring stop_event;       // --stop-event: evento con nombre que, al activarse, cierra el host limpiamente
   bool audio = true;             // --no-audio: nunca envía el sonido del PC (aunque la tablet lo pida)
   UINT audio_kbps = 128;         // --audio-bitrate: kbps de Opus
-  // --profile: perfil de batería si la tablet no manda el suyo (una app antigua). La tablet manda siempre el
-  // que eligió el usuario (o al que bajó sola por la carga) y ese manda; --fps y --bitrate siguen siendo el techo.
+  // --profile alta|equilibrada|ahorro: la calidad elegida en el PC (topes de fps, tasa y escala).
   dlp::Profile profile = dlp::Profile::kMaxQuality;
 };
 
-// Límites efectivos: lo que pide la tablet acotado por las opciones del host.
+// Límites efectivos: la calidad del PC, lo que pida la batería de la tablet (si se permite) y los fps que aguanta
+// la gráfica (governor_fps, 0 = sin tope).
 struct Effective {
   UINT fps;
   UINT bitrate_mbps_x10;
   uint8_t scale_percent;
+  bool battery_reduced;
+  UINT limit_fps;  // fps sin el tope de la gráfica (el objetivo del gobernador)
 };
 
-Effective Apply(const Options& o, const dlp::QualityRequest& q) {
+Effective Apply(const Options& o, const std::optional<dlp::QualityRequest>& tablet, UINT governor_fps) {
+  const dlp::Limits l = dlp::CombineLimits(o.profile, o.fps, o.bitrate_mbps * 1'000'000u, o.battery_adapt, tablet);
   Effective e;
-  e.fps = q.max_fps ? std::min<UINT>(o.fps, q.max_fps) : o.fps;
-  const uint32_t host_bps = o.bitrate_mbps * 1'000'000u;
-  const uint32_t bps = q.max_bitrate_bps ? std::min(host_bps, q.max_bitrate_bps) : host_bps;
-  e.bitrate_mbps_x10 = bps / 100'000u;
-  e.scale_percent = q.scale_percent ? q.scale_percent : 100;
+  e.limit_fps = l.fps;
+  e.fps = governor_fps ? std::min<UINT>(l.fps, governor_fps) : l.fps;
+  e.bitrate_mbps_x10 = l.bitrate_bps / 100'000u;
+  e.scale_percent = l.scale_percent;
+  e.battery_reduced = l.battery_reduced;
   return e;
 }
+
+// Lo que se usa con lo elegido y lo que dijo la tablet: fps, códec, tamaño del monitor virtual y tasa.
+// capture_w x capture_h: tamaño de la captura si no hay monitor virtual (duplicar un monitor).
+void Decide(Options* o, const dlp::HelloConfig& tablet, UINT capture_w, UINT capture_h) {
+  o->fps = dlp::AutoFps(tablet.refresh_hz, o->user_fps);
+  o->codec = dlp::ResolveCodec(o->user_codec, tablet.codec) == dlp::Codec::kHevc ? VideoCodec::kHevc : VideoCodec::kH264;
+  if (o->virtual_display && !o->size_given && tablet.width >= 640 && tablet.height >= 480 && tablet.width <= 7680 &&
+      tablet.height <= 4320) {
+    o->virtual_width = tablet.width;
+    o->virtual_height = tablet.height;
+  }
+  const UINT w = o->virtual_display ? o->virtual_width : capture_w;
+  const UINT h = o->virtual_display ? o->virtual_height : capture_h;
+  o->bitrate_mbps = o->user_bitrate ? o->user_bitrate
+                                    : dlp::AutoBitrateMbps(w ? w : 2944, h ? h : 1840, o->fps,
+                                                           o->codec == VideoCodec::kHevc ? dlp::Codec::kHevc
+                                                                                         : dlp::Codec::kH264);
+}
+
+const char* ProfileArg(dlp::Profile p) {
+  switch (p) {
+    case dlp::Profile::kMaxQuality: return "alta";
+    case dlp::Profile::kBalanced: return "equilibrada";
+    default: return "ahorro";
+  }
+}
+
+bool ParseProfile(const std::string& p, dlp::Profile* out) {
+  if (p == "alta" || p == "maxima") *out = dlp::Profile::kMaxQuality;
+  else if (p == "equilibrada" || p == "equilibrado") *out = dlp::Profile::kBalanced;
+  else if (p == "ahorro") *out = dlp::Profile::kSaver;
+  else return false;
+  return true;
+}
+
+// «auto» o un número; false si no es ninguno.
+bool ParseAutoNumber(const std::string& v, UINT* out) {
+  if (v == "auto" || v == "0") {
+    *out = 0;
+    return true;
+  }
+  const int n = std::atoi(v.c_str());
+  if (n <= 0) return false;
+  *out = static_cast<UINT>(n);
+  return true;
+}
+
+bool ParseCodec(const std::string& v, uint8_t* out) {
+  if (v == "auto") *out = 0;
+  else if (v == "hevc") *out = 2;
+  else if (v == "h264") *out = 1;
+  else return false;
+  return true;
+}
+
+const char* InputArg(int mode) { return mode == 2 ? "solo-ver" : mode == 1 ? "raton" : "tactil"; }
 
 std::wstring Widen(const char* v) {
   const int n = MultiByteToWideChar(CP_ACP, 0, v, -1, nullptr, 0);
@@ -290,10 +361,22 @@ bool ParseArgs(int argc, char** argv, Options* o) {
       o->output = std::atoi(v);
     } else if (a == "--fps") {
       auto v = next("--fps"); if (!v) return false;
-      o->fps = static_cast<UINT>(std::atoi(v));
+      if (!ParseAutoNumber(v, &o->user_fps) || o->user_fps > 240) {
+        std::fprintf(stderr, "--fps debe ser auto o un número de 10 a 240\n");
+        return false;
+      }
     } else if (a == "--bitrate") {
       auto v = next("--bitrate"); if (!v) return false;
-      o->bitrate_mbps = static_cast<UINT>(std::atoi(v));
+      if (!ParseAutoNumber(v, &o->user_bitrate) || o->user_bitrate > 1000) {
+        std::fprintf(stderr, "--bitrate debe ser auto o los Mbps (1 a 1000)\n");
+        return false;
+      }
+    } else if (a == "--audio-tablet") {
+      o->audio_tablet = true;
+    } else if (a == "--battery-adapt") {
+      o->battery_adapt = true;
+    } else if (a == "--view-only") {
+      o->input_mode = 2;
     } else if (a == "--pace") {
       auto v = next("--pace"); if (!v) return false;
       o->pace_mbps = static_cast<UINT>(std::atoi(v));
@@ -321,12 +404,8 @@ bool ParseArgs(int argc, char** argv, Options* o) {
       o->stop_event = Widen(v);
     } else if (a == "--profile") {
       auto v = next("--profile"); if (!v) return false;
-      const std::string p = v;
-      if (p == "ahorro") o->profile = dlp::Profile::kSaver;
-      else if (p == "equilibrado") o->profile = dlp::Profile::kBalanced;
-      else if (p == "maxima") o->profile = dlp::Profile::kMaxQuality;
-      else {
-        std::fprintf(stderr, "--profile debe ser ahorro, equilibrado o maxima\n");
+      if (!ParseProfile(v, &o->profile)) {
+        std::fprintf(stderr, "--profile debe ser alta, equilibrada o ahorro\n");
         return false;
       }
     } else if (a == "--refine") {
@@ -347,18 +426,62 @@ bool ParseArgs(int argc, char** argv, Options* o) {
       o->audio_kbps = static_cast<UINT>(std::atoi(v));
     } else if (a == "--codec") {
       auto v = next("--codec"); if (!v) return false;
-      o->codec = std::string(v) == "h264" ? VideoCodec::kH264 : VideoCodec::kHevc;
+      if (!ParseCodec(v, &o->user_codec)) {
+        std::fprintf(stderr, "--codec debe ser auto, hevc o h264\n");
+        return false;
+      }
     } else {
       std::fprintf(stderr,
-                   "Uso: desklink-host [--port 47800] [--output 0] [--fps 60] [--bitrate 50] "
-                   "[--codec hevc|h264] [--pace Mbps] [--refine 4] [--profile ahorro|equilibrado|maxima] "
-                   "[--no-touch] [--touch|--mouse] [--no-cursor] [--no-audio] [--audio-bitrate 128] "
-                   "[--virtual [--size 2944x1840]] [--no-usb] [--adb ruta\\adb.exe] [--status] [--stop-event nombre]\n");
+                   "Uso: desklink-host [--port 47800] [--output 0] [--fps auto|60] [--bitrate auto|50] "
+                   "[--codec auto|hevc|h264] [--profile alta|equilibrada|ahorro] [--audio-tablet] [--battery-adapt] "
+                   "[--pace Mbps] [--refine 4] [--no-touch] [--touch|--mouse|--view-only] [--no-cursor] [--no-audio] "
+                   "[--audio-bitrate 128] [--virtual [--size 2944x1840]] [--no-usb] [--adb ruta\\adb.exe] [--status] "
+                   "[--stop-event nombre]\n");
       return false;
     }
   }
-  return o->fps > 0 && o->fps <= 240 && o->bitrate_mbps > 0 && o->refine <= 30 && o->audio_kbps >= 32 &&
-         o->audio_kbps <= 256;
+  return o->refine <= 30 && o->audio_kbps >= 32 && o->audio_kbps <= 256;
+}
+
+// Una línea «@ajustes clave=valor ...» de la app de bandeja (entrada estándar): lo que el usuario cambió en la
+// ventana del PC con la transmisión en marcha. Devuelve false si no es una línea de ajustes o trae algo inválido.
+bool ApplySettingsLine(const std::string& line, Options* o) {
+  if (line.rfind("@ajustes", 0) != 0) return false;
+  Options n = *o;
+  size_t pos = 8;
+  while (pos < line.size()) {
+    while (pos < line.size() && line[pos] == ' ') ++pos;
+    size_t end = line.find(' ', pos);
+    if (end == std::string::npos) end = line.size();
+    const std::string kv = line.substr(pos, end - pos);
+    pos = end;
+    const size_t eq = kv.find('=');
+    if (eq == std::string::npos) continue;
+    const std::string k = kv.substr(0, eq), v = kv.substr(eq + 1);
+    bool ok = true;
+    if (k == "calidad") ok = ParseProfile(v, &n.profile);
+    else if (k == "fps") ok = ParseAutoNumber(v, &n.user_fps) && n.user_fps <= 240;
+    else if (k == "mbps") ok = ParseAutoNumber(v, &n.user_bitrate) && n.user_bitrate <= 1000;
+    else if (k == "codec") ok = ParseCodec(v, &n.user_codec);
+    else if (k == "sonido") n.audio_tablet = v == "tablet";
+    else if (k == "bateria") n.battery_adapt = v == "1";
+    else if (k == "tactil") n.input_mode = v == "raton" ? 1 : v == "solo-ver" ? 2 : 0;
+    else if (k == "size") {
+      unsigned w = 0, h = 0;
+      if (v == "auto") {
+        n.size_given = false;
+      } else if (std::sscanf(v.c_str(), "%ux%u", &w, &h) == 2 && w >= 640 && h >= 480 && w <= 7680 && h <= 4320) {
+        n.size_given = true;
+        n.virtual_width = w;
+        n.virtual_height = h;
+      } else {
+        ok = false;
+      }
+    }
+    if (!ok) return false;
+  }
+  *o = n;
+  return true;
 }
 
 }  // namespace
@@ -368,7 +491,6 @@ int Run(int argc, char** argv) {
   if (!ParseArgs(argc, argv, &opt)) return 2;
   SetConsoleOutputCP(CP_UTF8);  // los mensajes llevan tildes
   SingleInstance instance;  // se destruye lo último: el siguiente host entra cuando este ya soltó todo
-  const Options cli = opt;  // lo que se pidió al arrancar; la tablet puede cambiarlo con su HELLO
 
   std::signal(SIGINT, OnSignal);
   std::signal(SIGTERM, OnSignal);
@@ -423,26 +545,57 @@ int Run(int argc, char** argv) {
   dlp::StreamInfo info_current;  // lo que dice info_payload (bajo info_mutex)
   const std::string host_name = ComputerNameUtf8();
 
-  // Perfil de batería que pide la tablet (o el de --profile). Lo escribe el hilo de recepción; el bucle
-  // principal lee los fps y, si cambia la escala, rehace la captura con el tamaño nuevo. Los fps y la tasa de
-  // opt (que la tablet también puede cambiar con su HELLO) se cambian bajo el mismo mutex: son el techo.
+  // Topes de la sesión (Apply): la calidad elegida en el PC, lo que pida la batería de la tablet (solo con
+  // --battery-adapt) y los fps que aguanta la gráfica (fps_gov). Lo escribe el hilo de recepción (petición de la
+  // batería) y el bucle principal (ajustes nuevos, gobernador); los campos de opt que lo deciden se cambian bajo
+  // el mismo mutex.
   std::mutex quality_mutex;
-  dlp::QualityRequest quality = dlp::ProfileDefaults(opt.profile);
-  std::atomic<uint64_t> min_interval_us{1'000'000ull / Apply(opt, quality).fps};
+  std::optional<dlp::QualityRequest> tablet_request;
+  dlp::FpsGovernor fps_gov;
+  std::atomic<uint64_t> min_interval_us{1'000'000ull / 60};
   std::atomic<bool> rescale_requested{false};
   auto current_quality = [&]() {
     std::lock_guard<std::mutex> lock(quality_mutex);
-    return Apply(opt, quality);
+    return Apply(opt, tablet_request, fps_gov.fps());
   };
 
-  // Configuración que pide la tablet en su HELLO (resolución, fps, tasa, códec). El hilo de recepción la deja
-  // aquí y el bucle principal la aplica rehaciendo el pipeline; mientras tanto no se responde a los HELLO
-  // para que la tablet no arranque con el tamaño viejo.
+  // Lo que la tablet dice de sí misma en su HELLO (pantalla, Hz, códecs) y los ajustes que la app de bandeja manda
+  // en marcha (@ajustes por la entrada estándar). El hilo que los recibe los deja aquí y el bucle principal decide
+  // y, si hace falta, rehace el pipeline; mientras tanto no se responde a los HELLO para que la tablet no arranque
+  // con el tamaño viejo.
   std::mutex config_mutex;
   dlp::HelloConfig requested_config;
+  std::vector<std::string> pending_settings;
   std::atomic<uint32_t> config_seq{0};
   std::atomic<bool> reconfiguring{false};
   std::atomic<bool> rate_reset{false};
+  std::atomic<bool> view_only{opt.input_mode == 2};
+  std::atomic<uint32_t> rate_bps{0};
+  std::atomic<bool> rate_reduced{false};
+  if (opt.status) {
+    // Ajustes en vivo desde la ventana del PC. Sin la app (consola) la entrada no trae nada y el hilo termina.
+    std::thread([&config_mutex, &pending_settings, &config_seq] {
+      HANDLE in = GetStdHandle(STD_INPUT_HANDLE);
+      std::string line;
+      char buf[512];
+      DWORD n = 0;
+      while (g_running && in && in != INVALID_HANDLE_VALUE && ReadFile(in, buf, sizeof(buf), &n, nullptr) && n > 0) {
+        for (DWORD i = 0; i < n; ++i) {
+          if (buf[i] == '\r') continue;
+          if (buf[i] != '\n') {
+            line += buf[i];
+            continue;
+          }
+          {
+            std::lock_guard<std::mutex> lock(config_mutex);
+            pending_settings.push_back(line);
+          }
+          ++config_seq;
+          line.clear();
+        }
+      }
+    }).detach();
+  }
 
   auto on_encoded = [&](const uint8_t* data, size_t size, bool keyframe, uint64_t ts_us) {
     auto packets = dlp::PacketizeFrame(data, size, next_frame_id++, keyframe, ts_us);
@@ -460,6 +613,48 @@ int Run(int argc, char** argv) {
     if (keyframe) ++keyframes_sent;
     const uint64_t now = NowUs();
     if (now > ts_us) encode_latency_us += now - ts_us;
+  };
+
+  // SESSION_CONFIG: lo que eligió el PC y por qué la imagen va por debajo, si es así (ver dlp/session.h).
+  // Se manda tras STREAM_INFO, cuando cambia algo y cada 2 s.
+  dlp::SessionConfig last_session{};
+  std::mutex session_mutex;
+  auto make_session = [&]() {
+    dlp::SessionConfig c;
+    std::lock_guard<std::mutex> lock(quality_mutex);
+    const Effective eff = Apply(opt, tablet_request, fps_gov.fps());
+    c.profile = opt.profile;
+    c.flags = (opt.audio && opt.audio_tablet ? dlp::kSessionAudioOnTablet : 0) |
+              (opt.battery_adapt ? dlp::kSessionBatteryAdapt : 0);
+    c.input = view_only ? dlp::SessionInput::kViewOnly
+              : touch_ready && touch.requested() == TouchInjector::Mode::kMouse ? dlp::SessionInput::kMouse
+                                                                                 : dlp::SessionInput::kTouch;
+    c.reduced = eff.battery_reduced ? dlp::Reduced::kBattery
+                : fps_gov.reduced()  ? dlp::Reduced::kLoad
+                : rate_reduced       ? dlp::Reduced::kWifi
+                                     : dlp::Reduced::kNone;
+    c.fps = static_cast<uint16_t>(eff.fps);
+    const uint32_t now_bps = rate_bps.load() ? std::min<uint32_t>(rate_bps.load(), eff.bitrate_mbps_x10 * 100'000u)
+                                             : eff.bitrate_mbps_x10 * 100'000u;
+    c.bitrate_x100kbps = static_cast<uint16_t>(now_bps / 100'000u);
+    c.max_bitrate_x100kbps = static_cast<uint16_t>(eff.bitrate_mbps_x10);
+    return c;
+  };
+  // force: mandar aunque no haya cambiado (la tablet acaba de saludar o toca la repetición periódica).
+  auto send_session = [&](const sockaddr_in* to, bool force) {
+    const dlp::SessionConfig c = make_session();
+    {
+      std::lock_guard<std::mutex> lock(session_mutex);
+      if (!force && c == last_session) return;
+      last_session = c;
+    }
+    const auto payload = dlp::EncodeSessionConfig(c);
+    const auto pkt = dlp::MakeControlPacket(dlp::PacketType::kSessionConfig, payload.data(), payload.size(), NowUs());
+    if (to) {
+      udp.SendTo(*to, pkt);
+    } else if (udp.has_peer()) {
+      udp.SendToPeer(pkt);
+    }
   };
 
   // Crea la GPU, la captura, el conversor y el codificador para el tamaño actual de la salida.
@@ -518,10 +713,26 @@ int Run(int argc, char** argv) {
       if (!opt.size_given && LoadSavedSize(&opt.virtual_width, &opt.virtual_height)) {
         std::printf("Resolución recordada del monitor virtual: %ux%u.\n", opt.virtual_width, opt.virtual_height);
       }
+    }
+    // Hasta que la tablet salude: 60 fps, el códec elegido (HEVC en automático) y la tasa para ese tamaño.
+    {
+      std::lock_guard<std::mutex> lock(quality_mutex);
+      Decide(&opt, dlp::HelloConfig{}, 0, 0);
+      fps_gov.Reset(Apply(opt, tablet_request, 0).limit_fps);
+      min_interval_us = 1'000'000ull / Apply(opt, tablet_request, fps_gov.fps()).fps;
+    }
+    std::printf("Calidad %s · %s · sonido en %s · táctil: %s%s.\n", ProfileArg(opt.profile),
+                opt.user_fps ? "fps fijos" : "fps automáticos", opt.audio_tablet ? "la tablet" : "el PC",
+                InputArg(opt.input_mode < 0 ? 0 : opt.input_mode), opt.battery_adapt ? " · baja si la batería no aguanta" : "");
+    if (opt.virtual_display) {
       if (!virtual_display.Plug(opt.virtual_width, opt.virtual_height, opt.fps)) break;
     }
     pipe = build(10);
     if (!pipe) break;
+    if (!opt.virtual_display) {
+      std::lock_guard<std::mutex> lock(quality_mutex);
+      Decide(&opt, dlp::HelloConfig{}, pipe->w, pipe->h);  // la tasa automática, para el tamaño del monitor
+    }
     {
       std::lock_guard<std::mutex> lock(enc_mutex);
       enc_ptr = pipe->encoder.get();
@@ -529,31 +740,18 @@ int Run(int argc, char** argv) {
     if (opt.virtual_display) SaveSize(pipe->w, pipe->h);
 
     std::atomic<uint32_t> last_client_ip{0};
-    std::atomic<bool> audio_requested{false};  // la tablet tiene activado «sonido del PC» (AUDIO_CONTROL)
     std::atomic<uint64_t> last_keyframe_us{0};
-    // Tasa adaptativa (AIMD): baja un 30 % ante pérdidas (informe de la tablet o petición de frame
-    // clave) y recuerda un techo por debajo de la tasa que falló; sube un 10 % cada 2 s tras 8 s limpios y el
-    // techo se relaja 1 Mbps cada 20 s limpios. Solo se toca desde el hilo de recepción.
-    // El techo es el del perfil de batería (QUALITY_REQUEST) acotado por la tasa del host (que la tablet
-    // puede cambiar con su HELLO); rate_reset avisa de que hay que releerlo.
-    uint32_t max_bps = current_quality().bitrate_mbps_x10 * 100'000u;
-    uint32_t min_bps = std::max<uint32_t>(max_bps / 10, 3'000'000u);
-    uint32_t current_bps = max_bps;
-    uint32_t ceiling_bps = max_bps;
-    uint64_t last_decrease_us = 0;
-    uint64_t last_relax_us = 0;
-    uint64_t last_increase_us = 0;
-    constexpr uint32_t kStartBps = 20'000'000;  // un frame clave de 50 Mbps desborda el enlace al conectar
-    auto decrease_rate = [&](uint64_t now, const char* why) {
-      if (now - last_decrease_us < 1'000'000) return;  // un solo recorte por segundo
-      last_decrease_us = now;
-      last_relax_us = now;
-      ceiling_bps = std::max<uint32_t>(static_cast<uint32_t>(current_bps * 0.9), min_bps);
-      const uint32_t target = std::max<uint32_t>(static_cast<uint32_t>(current_bps * 0.7), min_bps);
-      if (target == current_bps) return;
-      current_bps = target;
-      enc_bitrate(current_bps);
-      std::printf("Tasa adaptada a %.1f Mbps (%s)\n", current_bps / 1e6, why);
+    // Tasa según el enlace (dlp::RateController): por WiFi baja un 15 % si se pierde más del 2 %, nunca por debajo
+    // de la mitad del máximo, y vuelve sola en segundos. Solo se toca desde el hilo de recepción; el máximo es el
+    // de los topes de la sesión y rate_reset avisa de que hay que releerlo.
+    dlp::RateController rate;
+    rate.Reset(current_quality().bitrate_mbps_x10 * 100'000u, true, NowUs());
+    auto publish_rate = [&](const char* why) {
+      enc_bitrate(rate.current_bps());
+      rate_bps = rate.current_bps();
+      rate_reduced = rate.reduced();
+      if (why) std::printf("Tasa adaptada a %.1f Mbps (%s)\n", rate.current_bps() / 1e6, why);
+      send_session(nullptr, false);
     };
     // Dice a la tablet qué modo de táctil se pidió y cuál se usa (distintos si Windows no aceptó los toques).
     auto send_input_mode = [&](const sockaddr_in* to) {
@@ -571,13 +769,9 @@ int Run(int argc, char** argv) {
       auto header = dlp::ParseHeader(data, size);
       if (!header) return;
       if (rate_reset.exchange(false)) {
-        // La tablet cambió la tasa máxima: se vuelve a empezar desde abajo con el máximo nuevo.
-        max_bps = current_quality().bitrate_mbps_x10 * 100'000u;
-        min_bps = std::max<uint32_t>(max_bps / 10, 3'000'000u);
-        current_bps = udp.peer_is_usb() ? max_bps : std::min(max_bps, kStartBps);
-        ceiling_bps = max_bps;
-        last_decrease_us = last_increase_us = NowUs();
-        enc_bitrate(current_bps);
+        // Cambió la tasa elegida o el codificador es nuevo: se vuelve a empezar con el máximo nuevo.
+        rate.Reset(current_quality().bitrate_mbps_x10 * 100'000u, udp.peer_is_usb(), NowUs());
+        publish_rate(nullptr);
       }
       switch (header->type) {
         case dlp::PacketType::kDiscover: {
@@ -605,23 +799,23 @@ int Run(int argc, char** argv) {
               inet_ntop(AF_INET, &from.sin_addr, ip, sizeof(ip));
               std::printf("Cliente conectado: %s:%u\n", ip, ntohs(from.sin_port));
             }
-            audio_requested = false;  // cliente nuevo: hasta que diga si quiere sonido
-            // El perfil se conserva entre reconexiones: la tablet lo repite tras el HELLO (y una app antigua
-            // que no lo manda se queda con el de --profile).
-            Effective eff = current_quality();
-            max_bps = eff.bitrate_mbps_x10 * 100'000u;
-            min_bps = std::max<uint32_t>(max_bps / 10, 3'000'000u);
+            {
+              // Cliente nuevo: lo que pidiera la batería de otra tablet no vale para esta.
+              std::lock_guard<std::mutex> lock(quality_mutex);
+              tablet_request.reset();
+            }
             // Por cable no se pierden paquetes: se empieza ya a la tasa máxima.
-            current_bps = usb ? max_bps : std::min(max_bps, kStartBps);
-            ceiling_bps = max_bps;
-            last_decrease_us = last_increase_us = NowUs();
-            enc_bitrate(current_bps);
+            rate.Reset(current_quality().bitrate_mbps_x10 * 100'000u, usb, NowUs());
+            publish_rate(nullptr);
           }
           udp.SetPeer(from);
           if (!reconfiguring) {
-            std::lock_guard<std::mutex> lock(info_mutex);
-            udp.SendTo(from, dlp::MakeControlPacket(dlp::PacketType::kStreamInfo, info_payload.data(),
-                                                    info_payload.size(), NowUs()));
+            {
+              std::lock_guard<std::mutex> lock(info_mutex);
+              udp.SendTo(from, dlp::MakeControlPacket(dlp::PacketType::kStreamInfo, info_payload.data(),
+                                                      info_payload.size(), NowUs()));
+            }
+            send_session(&from, true);
           }
           send_input_mode(&from);
           last_keyframe_us = NowUs();
@@ -632,19 +826,23 @@ int Run(int argc, char** argv) {
           const auto mode = data[dlp::kHeaderSize] == static_cast<uint8_t>(dlp::InputMode::kMouse)
                                 ? TouchInjector::Mode::kMouse
                                 : TouchInjector::Mode::kTouch;
-          if (mode != touch.requested()) {
+          if (mode != touch.requested() || view_only) {
             touch.SetMode(mode);
             SaveInputMode(mode);
+            view_only = false;
             std::printf("La tablet cambió el táctil a %s.\n", touch.active_name());
+            // La app de bandeja guarda el cambio: el valor es uno solo, el del PC.
+            if (opt.status) std::printf("@ajuste tactil=%s\n", mode == TouchInjector::Mode::kMouse ? "raton" : "tactil");
           }
           send_input_mode(&from);
+          send_session(&from, true);
           break;
         }
         case dlp::PacketType::kKeyframeRequest: {
           // Un frame clave es varias veces más grande que uno normal: si la red pierde paquetes y
           // se piden uno tras otro, la propia petición mantiene la imagen congelada. Se limita a 1/s.
           const uint64_t now = NowUs();
-          decrease_rate(now, "la tablet pide frame clave");
+          if (rate.OnKeyframeRequest(now)) publish_rate("la tablet pide frame clave");
           if (now - last_keyframe_us.load() >= 1'000'000) {
             last_keyframe_us = now;
             enc_keyframe();
@@ -657,48 +855,37 @@ int Run(int argc, char** argv) {
           const uint32_t lost = q[2] | (q[3] << 8);
           tablet_received = q[0] | (q[1] << 8);
           tablet_lost = lost;
-          const uint64_t now = NowUs();
-          if (lost > 0) {
-            decrease_rate(now, "la tablet pierde frames");
-          } else {
-            if (now - last_relax_us >= 20'000'000 && ceiling_bps < max_bps) {
-              ceiling_bps = std::min<uint32_t>(ceiling_bps + 1'000'000, max_bps);
-              last_relax_us = now;
-            }
-            if (now - last_decrease_us >= 8'000'000 && now - last_increase_us >= 2'000'000 && current_bps < ceiling_bps) {
-              last_increase_us = now;
-              current_bps = std::min<uint32_t>(static_cast<uint32_t>(current_bps * 1.1) + 1, ceiling_bps);
-              enc_bitrate(current_bps);
-              std::printf("Tasa adaptada a %.1f Mbps (enlace limpio)\n", current_bps / 1e6);
-            }
+          if (rate.OnReport(tablet_received, lost, NowUs())) {
+            publish_rate(lost ? "la tablet pierde frames" : "enlace limpio");
           }
           break;
         }
         case dlp::PacketType::kQualityRequest: {
+          // Solo cuenta con «bajar si la batería no aguanta» activado en el PC (CombineLimits lo ignora si no).
           auto q = dlp::DecodeQualityRequest(data + dlp::kHeaderSize, header->payload_size);
           if (!q) break;
           Effective before, after;
           {
             std::lock_guard<std::mutex> lock(quality_mutex);
-            before = Apply(opt, quality);
-            const bool same = q->max_fps == quality.max_fps && q->max_bitrate_bps == quality.max_bitrate_bps &&
-                              q->scale_percent == quality.scale_percent && q->profile == quality.profile;
-            quality = *q;
-            after = Apply(opt, quality);
+            before = Apply(opt, tablet_request, fps_gov.fps());
+            const bool same = tablet_request && q->max_fps == tablet_request->max_fps &&
+                              q->max_bitrate_bps == tablet_request->max_bitrate_bps &&
+                              q->scale_percent == tablet_request->scale_percent && q->profile == tablet_request->profile;
+            tablet_request = *q;
+            after = Apply(opt, tablet_request, fps_gov.fps());
             if (same) break;  // la tablet lo repite cada pocos segundos
+            fps_gov.Reset(after.limit_fps);
+            after = Apply(opt, tablet_request, fps_gov.fps());
           }
-          std::printf("Perfil de la tablet: %s · %u fps · %.1f Mbps · %u %%\n", dlp::ProfileName(q->profile), after.fps,
-                      after.bitrate_mbps_x10 / 10.0, after.scale_percent);
-          if (after.bitrate_mbps_x10 != before.bitrate_mbps_x10) {
-            max_bps = after.bitrate_mbps_x10 * 100'000u;
-            min_bps = std::max<uint32_t>(max_bps / 10, 3'000'000u);
-            ceiling_bps = std::min(ceiling_bps, max_bps);
-            // Al subir de perfil se va directo al nuevo techo si el enlace venía limpio; si no, lo sube el AIMD.
-            current_bps = std::clamp(after.bitrate_mbps_x10 > before.bitrate_mbps_x10 && udp.peer_is_usb() ? max_bps : current_bps,
-                                     min_bps, max_bps);
-            if (after.bitrate_mbps_x10 > before.bitrate_mbps_x10) ceiling_bps = max_bps;
-            enc_bitrate(current_bps);
+          if (after.fps != before.fps || after.bitrate_mbps_x10 != before.bitrate_mbps_x10) {
+            std::printf("Batería de la tablet: %s · %u fps · %.1f Mbps\n", dlp::ProfileName(q->profile), after.fps,
+                        after.bitrate_mbps_x10 / 10.0);
           }
+          if (after.bitrate_mbps_x10 != before.bitrate_mbps_x10 &&
+              rate.SetMax(after.bitrate_mbps_x10 * 100'000u, NowUs())) {
+            publish_rate(nullptr);
+          }
+          send_session(nullptr, false);
           if (after.fps != before.fps) {
             min_interval_us = 1'000'000ull / after.fps;
             // Se avisa a la tablet (ajusta la frecuencia de su pantalla); el decodificador no se rehace.
@@ -712,7 +899,7 @@ int Run(int argc, char** argv) {
           break;
         }
         case dlp::PacketType::kTouch: {
-          if (!touch_ready || header->payload_size < 1) break;
+          if (!touch_ready || view_only || header->payload_size < 1) break;
           const uint8_t* q = data + dlp::kHeaderSize;
           const size_t n = std::min<size_t>({q[0], dlp::kMaxTouchContacts,
                                               (header->payload_size - 1u) / dlp::kTouchContactSize});
@@ -731,10 +918,7 @@ int Run(int argc, char** argv) {
           break;
         }
         case dlp::PacketType::kAudioControl:
-          if (header->payload_size >= dlp::kAudioControlSize) {
-            audio_requested = data[dlp::kHeaderSize] != 0;
-          }
-          break;
+          break;  // las tablets de antes pedían aquí el sonido; ahora se elige en el PC (--audio-tablet)
         case dlp::PacketType::kNack: {
           // La tablet reclama paquetes concretos de un frame: se reenvían (rápido y sin esperar a un frame clave).
           const uint8_t* q = data + dlp::kHeaderSize;
@@ -791,7 +975,9 @@ int Run(int argc, char** argv) {
     if (opt.touch) {
       // Los toques caen sobre el monitor que se captura (el virtual con --virtual).
       const RECT r = pipe->gpu.desktop_rect;
-      const auto mode = opt.input_mode >= 0 ? static_cast<TouchInjector::Mode>(opt.input_mode) : LoadInputMode();
+      const auto mode = opt.input_mode == 0   ? TouchInjector::Mode::kTouch
+                        : opt.input_mode == 1 ? TouchInjector::Mode::kMouse
+                                              : LoadInputMode();
       touch_ready = touch.Init(r, mode);
       if (touch_ready) {
         std::printf("Táctil: %s (pantalla de %ldx%ld en %ld,%ld).\n", touch.active_name(), r.right - r.left,
@@ -815,7 +1001,7 @@ int Run(int argc, char** argv) {
       audio_prev.assign(frame, frame + size);
     };
     auto update_audio = [&]() {
-      const bool want = opt.audio && udp.has_peer() && audio_requested;
+      const bool want = opt.audio && opt.audio_tablet && udp.has_peer();
       if (want == audio.running()) return;
       if (want) {
         audio_prev.clear();
@@ -839,6 +1025,7 @@ int Run(int argc, char** argv) {
     uint64_t last_bytes = 0, last_encoded = 0, last_latency = 0, last_captured = 0, last_keyframes = 0, last_retransmits = 0, last_touch = 0;
     bool failed = false;
     uint32_t applied_seq = 0;
+    uint32_t session_ticks = 0;
 
     // Rehace el pipeline (y el monitor virtual si cambia su modo) con la configuración actual de opt.
     // Si el monitor no acepta el modo nuevo se vuelve a fallback_w x fallback_h.
@@ -878,53 +1065,82 @@ int Run(int argc, char** argv) {
 
     while (g_running) {
       if (config_seq.load() != applied_seq) {
-        // La tablet pidió otra resolución, fps, tasa o códec en su HELLO. 0 = lo que se dijo al arrancar.
-        dlp::HelloConfig want;
+        // La tablet saludó (su pantalla, Hz y códecs) o el usuario cambió algo en la ventana del PC: se decide de
+        // nuevo y, si cambia el tamaño, los fps del monitor o el códec, se rehace el pipeline.
+        dlp::HelloConfig caps;
+        std::vector<std::string> lines;
         {
           std::lock_guard<std::mutex> lock(config_mutex);
-          want = requested_config;
+          caps = requested_config;
+          lines.swap(pending_settings);
           applied_seq = config_seq.load();
         }
         const Options before = opt;
+        Effective eff_before, eff_after;
         {
           std::lock_guard<std::mutex> lock(quality_mutex);
-          opt.fps = want.fps > 0 && want.fps <= 240 ? want.fps : cli.fps;
-          opt.bitrate_mbps = want.bitrate_mbps > 0 && want.bitrate_mbps <= 1000 ? want.bitrate_mbps : cli.bitrate_mbps;
-          min_interval_us = 1'000'000ull / Apply(opt, quality).fps;
+          eff_before = Apply(opt, tablet_request, fps_gov.fps());
+          for (const auto& line : lines) {
+            if (!ApplySettingsLine(line, &opt)) std::printf("Ajustes no válidos de la ventana: %s\n", line.c_str());
+          }
+          Decide(&opt, caps, pipe->w, pipe->h);
+          fps_gov.Reset(Apply(opt, tablet_request, 0).limit_fps);
+          eff_after = Apply(opt, tablet_request, fps_gov.fps());
+          min_interval_us = 1'000'000ull / eff_after.fps;
         }
-        opt.codec = want.codec == 1 ? VideoCodec::kH264 : want.codec == 2 ? VideoCodec::kHevc : cli.codec;
-        // --size al arrancar manda sobre la tablet; si no, el monitor virtual toma la resolución de la tablet.
-        if (opt.virtual_display && !opt.size_given && want.width >= 640 && want.height >= 480 &&
-            want.width <= 7680 && want.height <= 4320) {
-          opt.virtual_width = want.width;
-          opt.virtual_height = want.height;
+        if (!lines.empty()) {
+          std::printf("Ajustes del PC: calidad %s, fps %s, %s Mbps, sonido en %s, táctil: %s%s.\n", ProfileArg(opt.profile),
+                      opt.user_fps ? std::to_string(opt.user_fps).c_str() : "auto",
+                      opt.user_bitrate ? std::to_string(opt.user_bitrate).c_str() : "auto",
+                      opt.audio_tablet ? "la tablet" : "el PC", InputArg(opt.input_mode < 0 ? 0 : opt.input_mode),
+                      opt.battery_adapt ? ", baja si la batería no aguanta" : "");
+        }
+        // Táctil elegido en el PC.
+        if (opt.input_mode != before.input_mode && opt.input_mode >= 0) {
+          view_only = opt.input_mode == 2;
+          if (touch_ready && opt.input_mode < 2) {
+            const auto mode = opt.input_mode == 1 ? TouchInjector::Mode::kMouse : TouchInjector::Mode::kTouch;
+            touch.SetMode(mode);
+            SaveInputMode(mode);
+          }
+          if (view_only) touch.ReleaseAll();
         }
         const bool replug = opt.virtual_display &&
                             (opt.virtual_width != before.virtual_width || opt.virtual_height != before.virtual_height ||
                              opt.fps != before.fps);
-        const bool rebuild_needed = replug || opt.fps != before.fps || opt.codec != before.codec;
-        if (opt.bitrate_mbps != before.bitrate_mbps) rate_reset = true;
+        const bool rebuild_needed = replug || opt.fps != before.fps || opt.codec != before.codec ||
+                                    eff_after.scale_percent != pipe->scale_percent;
+        if (eff_after.bitrate_mbps_x10 != eff_before.bitrate_mbps_x10) rate_reset = true;
         if (rebuild_needed) {
-          std::printf("La tablet pide %s%ux%u a %u fps, %u Mbps, %s.\n",
-                      opt.virtual_display ? "un monitor de " : "(captura de la pantalla actual) ",
+          std::printf("Monitor %s%ux%u a %u fps, %u Mbps, %s.\n",
+                      opt.virtual_display ? "virtual de " : "(captura de la pantalla actual) ",
                       opt.virtual_display ? opt.virtual_width : pipe->w,
                       opt.virtual_display ? opt.virtual_height : pipe->h, opt.fps, opt.bitrate_mbps,
                       opt.codec == VideoCodec::kHevc ? "HEVC" : "H.264");
           if (!rebuild(replug, before.virtual_width, before.virtual_height)) {
-            std::fprintf(stderr, "Error: no se pudo aplicar la configuración de la tablet.\n");
+            std::fprintf(stderr, "Error: no se pudo aplicar la configuración nueva.\n");
             failed = true;
             break;
           }
           if (opt.virtual_display) SaveSize(pipe->w, pipe->h);
-          if (opt.bitrate_mbps == before.bitrate_mbps) rate_reset = true;  // codificador nuevo: tasa desde abajo
+          rate_reset = true;  // codificador nuevo: la tasa vuelve a empezar
+        } else if (eff_after.fps != eff_before.fps) {
+          // Solo cambian los fps (otra calidad): la tablet ajusta su pantalla y el decodificador sigue.
+          std::lock_guard<std::mutex> lock(info_mutex);
+          info_current.fps = static_cast<uint16_t>(eff_after.fps);
+          info_payload = dlp::EncodeStreamInfo(info_current);
         }
         if (config_seq.load() == applied_seq) reconfiguring = false;
         if (udp.has_peer()) {
-          std::lock_guard<std::mutex> lock(info_mutex);
-          udp.SendToPeer(dlp::MakeControlPacket(dlp::PacketType::kStreamInfo, info_payload.data(),
-                                                info_payload.size(), NowUs()));
+          {
+            std::lock_guard<std::mutex> lock(info_mutex);
+            udp.SendToPeer(dlp::MakeControlPacket(dlp::PacketType::kStreamInfo, info_payload.data(),
+                                                  info_payload.size(), NowUs()));
+          }
+          send_session(nullptr, true);
+          if (touch_ready) send_input_mode(nullptr);
         }
-        enc_keyframe();
+        if (rebuild_needed) enc_keyframe();
         continue;
       }
 
@@ -1007,7 +1223,6 @@ int Run(int argc, char** argv) {
         last_client_ip = 0;
         rtt_us = 0;
         tablet_received = tablet_lost = 0;
-        audio_requested = false;
         std::printf("Cliente desconectado (sin respuesta durante 5 s). Esperando cliente.\n");
       }
 
@@ -1083,6 +1298,30 @@ int Run(int argc, char** argv) {
         const double secs = (t - last_stats_us) / 1e6;
         const uint64_t enc = frames_encoded - last_encoded;
         const uint64_t lat = encode_latency_us - last_latency;
+        // Fluidez: si la gráfica no llega a codificar a tiempo con estos fps, se bajan un escalón, y vuelven a
+        // subir solos cuando hay holgura (dlp::FpsGovernor).
+        if (udp.has_peer()) {
+          UINT new_fps = 0;
+          bool slower = false;
+          {
+            std::lock_guard<std::mutex> lock(quality_mutex);
+            if (fps_gov.Update(enc ? lat / 1000.0 / enc : 0.0, t)) {
+              new_fps = Apply(opt, tablet_request, fps_gov.fps()).fps;
+              slower = fps_gov.reduced();
+              min_interval_us = 1'000'000ull / new_fps;
+            }
+          }
+          if (new_fps) {
+            std::printf("Fluidez: %u fps (%s).\n", new_fps, slower ? "la gráfica no llega a más" : "vuelve a subir");
+            std::lock_guard<std::mutex> lock(info_mutex);
+            info_current.fps = static_cast<uint16_t>(new_fps);
+            info_payload = dlp::EncodeStreamInfo(info_current);
+            udp.SendToPeer(dlp::MakeControlPacket(dlp::PacketType::kStreamInfo, info_payload.data(),
+                                                  info_payload.size(), NowUs()));
+          }
+          // Se repite cada 2 s por si se perdió (UDP) y se manda en cuanto cambia.
+          send_session(nullptr, (++session_ticks % 2) == 0);
+        }
         if (opt.status) {
           // Una línea por segundo para la app de bandeja: clave=valor separados por espacios.
           const bool peer = udp.has_peer();
@@ -1094,13 +1333,21 @@ int Run(int argc, char** argv) {
           }
           // PING del host: la tablet que lo conteste con PONG da el RTT visto desde el PC.
           if (peer) udp.SendToPeer(dlp::MakeControlPacket(dlp::PacketType::kPing, nullptr, 0, NowUs()));
+          const dlp::SessionConfig session = make_session();
+          const char* reduced = session.reduced == dlp::Reduced::kWifi      ? "wifi"
+                                : session.reduced == dlp::Reduced::kBattery ? "bateria"
+                                : session.reduced == dlp::Reduced::kLoad    ? "carga"
+                                                                            : "no";
           std::printf("@estado enlace=%s ip=%s capturados=%.1f codificados=%.1f mbps=%.1f cod_ms=%.1f rtt_ms=%.1f "
-                      "recibidos=%u perdidos=%u reenvios=%llu size=%ux%u fps_max=%u adb=%d adb_pendientes=%d\n",
+                      "recibidos=%u perdidos=%u reenvios=%llu size=%ux%u fps_max=%u fps_obj=%u mbps_obj=%.1f "
+                      "codec=%s reducido=%s adb=%d adb_pendientes=%d\n",
                       !peer ? "ninguno" : udp.peer_is_usb() ? "usb" : "wifi", ip,
                       (captured - last_captured) / secs, enc / secs, (bytes_sent - last_bytes) * 8 / secs / 1e6,
                       enc ? lat / 1000.0 / enc : 0.0, rtt_us.load() / 1000.0, tablet_received.load(),
                       tablet_lost.load(), static_cast<unsigned long long>(retransmits.load() - last_retransmits),
-                      pipe->w, pipe->h, opt.fps, opt.usb ? adb.ready() : -1, opt.usb ? adb.unauthorized() : 0);
+                      pipe->w, pipe->h, opt.fps, session.fps, session.bitrate_x100kbps / 10.0,
+                      opt.codec == VideoCodec::kHevc ? "hevc" : "h264", reduced, opt.usb ? adb.ready() : -1,
+                      opt.usb ? adb.unauthorized() : 0);
         } else {
           std::printf("capturados %.0f/s | codificados %.0f/s | %.1f Mbps | codificación %.1f ms | claves %llu | conv %.1f ms | buzón %.1f ms | errores de envío %llu | reenvíos %llu | toques %llu%s\n",
                       (captured - last_captured) / secs, enc / secs,

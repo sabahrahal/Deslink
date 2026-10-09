@@ -53,6 +53,10 @@ android {
     buildFeatures {
         compose = true
     }
+    testOptions {
+        // Las pruebas de pantalla (Compose) corren en el ordenador con Robolectric, sin tablet.
+        unitTests.isIncludeAndroidResources = true
+    }
     composeOptions {
         // Debe ir a la par con la versión de Kotlin (1.9.24 -> 1.5.14).
         kotlinCompilerExtensionVersion = "1.5.14"
@@ -67,4 +71,10 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.12.2")
+    testImplementation("androidx.test.ext:junit:1.1.5")
+    testImplementation(composeBom)
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    // La actividad vacía donde corren las pruebas de pantalla: solo en debug (las pruebas corren en esa variante).
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

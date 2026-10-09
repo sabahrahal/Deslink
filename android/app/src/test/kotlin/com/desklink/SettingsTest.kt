@@ -3,8 +3,6 @@ package com.desklink
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -44,59 +42,18 @@ class SettingsTest {
     }
 
     @Test
-    fun helloConfigFromSettings() {
-        val s = AppSettings(resolution = ResolutionScale.BALANCED, quality = Quality.BALANCED, fps = 60, codec = CodecChoice.AUTO)
-        val c = s.toHelloConfig(tablet, hevcSupported = true)
-        assertEquals(Dlp.HelloConfig(2208, 1380, 60, 30, 0, 320, 90), c)
+    fun helloSaysWhatTheTabletCanDoAndLeavesTheRestToThePc() {
+        // Pantalla completa, su frecuencia y si decodifica HEVC; fps y tasa a 0: los decide el PC.
+        assertEquals(Dlp.HelloConfig(2944, 1840, 0, 0, Dlp.CAN_DECODE_HEVC, 320, 90), AppSettings.hello(tablet, hevcSupported = true))
+        assertEquals(Dlp.CAN_DECODE_H264_ONLY, AppSettings.hello(tablet, hevcSupported = false).codec)
     }
 
     @Test
-    fun withoutHevcTheTabletAsksForH264() {
-        assertEquals(Dlp.CODEC_H264, AppSettings().toHelloConfig(tablet, hevcSupported = false).codec)
-        assertEquals(Dlp.CODEC_H264, AppSettings(codec = CodecChoice.HEVC).toHelloConfig(tablet, false).codec)
-        assertEquals(0, AppSettings().toHelloConfig(tablet, hevcSupported = true).codec)
-    }
-
-    @Test
-    fun fpsOptionsFollowTheScreen() {
-        assertEquals(listOf(0, 30, 60, 90), AppSettings.fpsOptions(90))
-        assertEquals(listOf(0, 30, 60), AppSettings.fpsOptions(60))
-        assertEquals(listOf(0, 30, 60, 90, 120, 144), AppSettings.fpsOptions(144))
-    }
-
-    /** fps y Mbps máximos (en unidades de 100 kbps) del QUALITY_REQUEST. */
-    private fun caps(packet: ByteArray): Pair<Int, Int> {
-        val b = ByteBuffer.wrap(packet).order(ByteOrder.LITTLE_ENDIAN)
-        return b.getShort(Dlp.HEADER_SIZE).toInt() to b.getShort(Dlp.HEADER_SIZE + 2).toInt()
-    }
-
-    @Test
-    fun withAutomaticValuesTheProfileDecides() {
-        val s = AppSettings(power = PowerChoice.SAVER)
-        assertFalse(s.hasAdvancedOverrides)
-        assertEquals(30 to 120, caps(s.qualityRequest(PowerProfile.AHORRO, 1)))
-    }
-
-    @Test
-    fun fixedAdvancedValuesWinOverTheChosenProfile() {
-        val s = AppSettings(power = PowerChoice.BALANCED, fps = 120, quality = Quality.ULTRA)
-        assertTrue(s.hasAdvancedOverrides)
-        assertEquals(0 to 0, caps(s.qualityRequest(PowerProfile.EQUILIBRADO, 1)))
-        // Solo la calidad fijada: el tope de fps del perfil sigue.
-        assertEquals(60 to 0, caps(AppSettings(power = PowerChoice.BALANCED, quality = Quality.ULTRA).qualityRequest(PowerProfile.EQUILIBRADO, 1)))
-    }
-
-    @Test
-    fun chargeAdaptationStillCapsFixedValues() {
-        // «Adaptar a la carga» bajó de Equilibrado a Ahorro: la batería va primero.
-        val s = AppSettings(power = PowerChoice.BALANCED, fps = 120, quality = Quality.ULTRA)
-        assertEquals(30 to 120, caps(s.qualityRequest(PowerProfile.AHORRO, 1)))
-    }
-
-    @Test
-    fun touchChoicesMapToTheHostModes() {
-        assertEquals(Dlp.INPUT_TOUCH, AppSettings().touch.wire)
-        assertEquals(Dlp.INPUT_MOUSE, TouchChoice.MOUSE.wire)
-        assertNull(TouchChoice.OFF.wire)
+    fun batteryRequestCarriesTheProfileCaps() {
+        val p = Dlp.qualityRequest(PowerProfile.AHORRO, 1)
+        val b = ByteBuffer.wrap(p).order(ByteOrder.LITTLE_ENDIAN)
+        assertEquals(30, b.getShort(Dlp.HEADER_SIZE).toInt())
+        assertEquals(120, b.getShort(Dlp.HEADER_SIZE + 2).toInt())
+        assertEquals(PowerProfile.AHORRO.wire, p[Dlp.HEADER_SIZE + 5].toInt())
     }
 }

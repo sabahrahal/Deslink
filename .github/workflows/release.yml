@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  VERSION: 0.1.${{ github.run_number }}
+  VERSION: 0.2.${{ github.run_number }}
 
 jobs:
   android:
@@ -58,7 +58,9 @@ jobs:
           DESKLINK_KEYSTORE_PASSWORD: ${{ secrets.DESKLINK_KEYSTORE_PASSWORD || 'desklink-dev' }}
           DESKLINK_KEY_PASSWORD: ${{ secrets.DESKLINK_KEY_PASSWORD || secrets.DESKLINK_KEYSTORE_PASSWORD || 'desklink-dev' }}
         run: |
-          ./gradlew :app:testReleaseUnitTest :app:assembleRelease --no-daemon
+          # Las pruebas corren en la variante debug: las de pantalla (Robolectric) necesitan la actividad de pruebas de
+          # Compose, que solo va en debug para no meterla en la APK publicada. La release no tiene código propio.
+          ./gradlew :app:testDebugUnitTest :app:assembleRelease --no-daemon
           cp app/build/outputs/apk/release/app-release.apk ../DeskLink.apk
       - uses: actions/upload-artifact@v4
         with:

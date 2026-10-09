@@ -174,7 +174,7 @@ HICON CreateTabletIcon(COLORREF from, COLORREF to, int size) {
   if (!color_bmp) return nullptr;
 
   // Cuerpo en degradado y pantalla oscura (el fondo de la app, docs/design.md); 4x4 muestras por píxel.
-  constexpr float kScreen[3] = {10, 14, 23};
+  constexpr float kScreen[3] = {28, 28, 30};  // background oscuro de design/tokens.json
   const float s = static_cast<float>(size);
   auto* px = static_cast<uint32_t*>(bits);
   for (int y = 0; y < size; ++y) {

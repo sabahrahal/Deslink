@@ -1,46 +1,52 @@
 # Ajustes: dónde se elige cada cosa
 
-**Todo se elige en la tablet.** La app de Android es el único sitio con ajustes de imagen, sonido y táctil; al
-conectar los manda al PC. La app del PC enseña el estado y guarda solo lo que la tablet no puede saber.
+**El PC manda.** La ventana de DeskLink en el PC es el único sitio donde se eligen la imagen, el sonido y el táctil.
+La tablet dice al conectar lo que puede hacer (su pantalla, su frecuencia y si decodifica HEVC) y enseña lo que el
+PC decide. Así no hay dos sitios con la misma opción ni ajustes que se pisan.
 
-## En la tablet (Ajustes)
+## En el PC (desklink.exe)
 
 A la vista, lo que casi todo el mundo toca:
 
 | Ajuste | Opciones | Qué hace |
 | --- | --- | --- |
-| Perfil | Calidad · Equilibrado (de serie) · Ahorro | fps, Mbps y escala de la imagen, y lo que gasta la tablet (brillo, WiFi, CPU). Ver [batería](battery.md) |
-| Sonido | sí / no (de serie, no) | El sonido del PC suena en la tablet |
+| Modo | Pantalla extra (de serie) · Duplicar | Monitor virtual a la medida de la tablet, o copia de un monitor |
+| Calidad | Alta (de serie) · Equilibrada · Ahorro | Alta: los fps y la tasa más altos que aguanten tablet y PC. Equilibrada: hasta 60 fps y 30 Mbps. Ahorro: 30 fps, gasta menos en la tablet |
+| Sonido | En el PC (de serie) · En la tablet | Dónde suena el PC |
 | Táctil | Táctil (de serie) · Ratón · Solo ver | Toques reales de Windows, el dedo mueve el puntero, o los toques no llegan al PC |
 
-Plegado en **Avanzado**:
+En **Configuración avanzada**: resolución de la pantalla extra, fluidez (fps), calidad de vídeo (Mbps), códec (todo
+«Automático» de serie), el monitor que se duplica, «bajar la calidad si la batería de la tablet no aguanta» (de
+serie, no), dibujar el puntero, cable USB, abrir con Windows, transmitir nada más abrir, el puerto y el registro.
 
-- **Imagen**: resolución del monitor (Nativa, Equilibrada, Ligera), calidad (Mbps), fluidez (fps) y códec. En
-  «Automática» decide el perfil. Un valor fijo manda sobre el perfil, salvo cuando «adaptar a la carga» baja a un
-  perfil menor que el elegido: entonces vuelven los topes de ese perfil para no descargar la batería por cable.
-  «Volver a lo automático» lo deja todo como de serie.
-- **Batería**: adaptar a la carga por USB.
-- **Pantalla y conexión**: estadísticas, mantener la pantalla encendida, conectar solo al abrir.
+Casi todo se aplica en marcha, sin cortar la imagen. Solo el modo (se reinicia solo), el monitor, el puntero y el
+cable USB reinician la transmisión; para esos aparece «Aplicar cambios».
 
-## En el PC (desklink.exe)
+### Qué es «Automático»
 
-La ventana dice que los ajustes están en la tablet y, conectada, enseña lo que pide («Equilibrado · 60 fps ·
-30.0 Mbps · 100 %»). Plegado en **Avanzado**: pantalla extra o duplicar un monitor, qué monitor, dibujar el puntero,
-cable USB y el puerto.
+- **Fluidez**: 120 fps si la tablet llega a 120 Hz, 90 si llega a 90, si no 60.
+- **Calidad de vídeo**: unos 0,08 bits por píxel en HEVC (0,12 en H.264), entre 20 y 100 Mbps. 2944×1840 a 120 fps
+  en HEVC son unos 52 Mbps.
+- **Códec**: HEVC si la tablet lo decodifica, si no H.264.
+- **Resolución**: la de la pantalla de la tablet.
 
-`desklink.ini` admite además `fps`, `bitrate`, `codec` y `size` para fijarlos desde el PC (mandan sobre la tablet);
-si están puestos, la ventana lo avisa en ámbar.
+## En la tablet
 
-## Cómo viaja cada ajuste
+La pantalla de inicio enseña una tarjeta por PC; si llega por cable USB y por Wi-Fi a la vez, la misma tarjeta tiene
+las dos opciones (de serie, el cable). En **Configuración avanzada** solo está lo que es de la tablet: conectar solo
+al abrir, escribir la IP del PC, estadísticas, mantener la pantalla encendida y el diagnóstico.
 
-| Ajuste de la tablet | Paquete | Cuándo |
+Durante la sesión, tocar con **cuatro dedos a la vez** abre el menú rápido: táctil o ratón (el PC lo recuerda),
+estadísticas y desconectar.
+
+## Cómo viaja cada cosa
+
+| Qué | Paquete | Cuándo |
 | --- | --- | --- |
-| Resolución, fps, Mbps, códec | HELLO (payload) | Cada HELLO; el host solo rehace el pipeline si cambia |
-| Perfil (topes de fps, Mbps y escala) | QUALITY_REQUEST | Tras el HELLO, al cambiar de perfil y cada 5 s. Con fps o Mbps fijos en Avanzado, ese tope va a 0 |
-| Sonido | AUDIO_CONTROL | Tras el HELLO y cada segundo |
-| Táctil (Táctil o Ratón) | INPUT_MODE | Tras el HELLO y cada 5 s. «Solo ver» no manda nada y la tablet no envía toques |
+| Lo que puede la tablet (pantalla, Hz, dpi, HEVC) | HELLO (payload) | Cada HELLO |
+| Lo que decide el PC (calidad, sonido, táctil, batería, fps y tasa de ahora, si va reducida) | SESSION_CONFIG (17) | Tras el STREAM_INFO, al cambiar y cada 2 s |
+| Ajustes cambiados en la ventana del PC | línea `@ajustes …` por la entrada del host | Al cambiarlos |
+| Táctil o ratón desde el menú rápido | INPUT_MODE | Al tocarlo; el host avisa a la ventana con `@ajuste tactil=…` |
+| Batería de la tablet (si en el PC está activado) | QUALITY_REQUEST | Al cambiar y cada 5 s |
 
-No hay paquetes nuevos: la APK y el host de la misma versión se entienden, y con un host anterior la tablet sigue
-funcionando (INPUT_MODE lo ignora un host que no lo conoce).
-
-Sin `--fps`, `--bitrate` ni `--codec`, el host parte de 60 fps, 50 Mbps y HEVC, y la tablet los cambia en el HELLO.
+Ver [el protocolo](protocol-dlp.md) y [la fluidez automática](battery.md#fluidez-automática).

@@ -14,15 +14,8 @@ class StreamSession(
     private val host: String,
     private val surface: Surface,
     private val listener: Listener,
-    /** Lo que se pide al PC en cada HELLO (resolución, fps, tasa, códec); null = HELLO vacío. */
+    /** Lo que la tablet dice de sí misma en cada HELLO (pantalla, frecuencia, HEVC); null = HELLO vacío. */
     private val helloConfig: Dlp.HelloConfig? = null,
-    /** Pide al host el sonido del PC y lo reproduce (ver [AudioPlayer]). */
-    private val audioEnabled: Boolean = false,
-    initialProfile: PowerProfile = PowerProfile.DEFAULT,
-    /** Modo del táctil que se pide al PC al conectar ([Dlp.INPUT_TOUCH] o [Dlp.INPUT_MOUSE]); null = no se pide. */
-    private val requestedInputMode: Int? = null,
-    /** QUALITY_REQUEST para un perfil (ver [AppSettings.qualityRequest]: lo fijado en Avanzado quita topes). */
-    private val qualityRequest: (PowerProfile, Long) -> ByteArray = { p, t -> Dlp.qualityRequest(p, t) },
 ) {
     /** En qué punto está la conexión, para la pantalla de estado. */
     enum class Phase { CONNECTING, NO_ANSWER, STREAMING, RECONNECTING, FAILED }
@@ -37,6 +30,8 @@ class StreamSession(
         fun onRoute(route: Route?) = Unit
         /** Modo del táctil en el PC (ver [Dlp.InputModeState]); llega al conectar y cada vez que cambia. */
         fun onInputMode(state: Dlp.InputModeState) = Unit
+        /** Lo que decidió el PC (calidad, sonido, táctil…); llega al conectar y cuando cambia. */
+        fun onSessionConfig(config: Dlp.SessionConfig) = Unit
     }
 
     @Volatile private var phase: Phase? = null
@@ -56,8 +51,10 @@ class StreamSession(
     @Volatile private var lastRxUs = 0L
     @Volatile var inputMode: Dlp.InputModeState? = null
         private set
-    /** Perfil de batería que se pide al host (lo cambia el modo «adaptar a la carga»). */
-    @Volatile private var profile = initialProfile
+    /** Perfil que pide la tablet para no gastar batería; null = no pide nada (lo que decida el PC). */
+    @Volatile private var batteryProfile: PowerProfile? = null
+    @Volatile var sessionConfig: Dlp.SessionConfig? = null
+        private set
 
     @Volatile private var link: Link? = null
     @Volatile private var audio: AudioPlayer? = null
@@ -132,9 +129,7 @@ class StreamSession(
             }
             reported = false
             l.send(hello())
-            l.send(Dlp.audioControl(audioEnabled, nowUs()))
-            l.send(qualityRequest(profile, nowUs()))
-            requestedInputMode?.let { l.send(Dlp.inputMode(it, nowUs())) }
+            batteryProfile?.let { l.send(Dlp.qualityRequest(it, nowUs())) }
             while (running) {
                 // Con frames a medias se despierta a menudo para reclamar paquetes perdidos y entregar frames;
                 // con el escritorio quieto no llega nada y despertar 250 veces por segundo solo gasta batería.
@@ -168,6 +163,7 @@ class StreamSession(
                         listener.onInputMode(it)
                     }
                     Dlp.TYPE_AUDIO -> onAudio(buf, header, cable)
+                    Dlp.TYPE_SESSION_CONFIG -> Dlp.parseSessionConfig(buf, header)?.let { onSessionConfig(it) }
                 }
             }
             l.close()
@@ -187,16 +183,30 @@ class StreamSession(
         return running
     }
 
-    /** Cambia el perfil de batería; se manda al host en el acto (y se repite cada pocos segundos). */
-    fun setProfile(p: PowerProfile) {
-        if (p == profile) return
-        profile = p
+    /**
+     * Pide al PC bajar a [p] porque la batería no aguanta (null = lo que decida el PC). El PC solo lo atiende si allí
+     * está activado; se manda en el acto y se repite cada pocos segundos.
+     */
+    fun setBatteryProfile(p: PowerProfile?) {
+        if (p == batteryProfile) return
+        batteryProfile = p
+        val request = p ?: return
         // Android no deja enviar por red desde el hilo de la interfaz.
         try {
-            touchExecutor.execute { send(qualityRequest(p, nowUs())) }
+            touchExecutor.execute { send(Dlp.qualityRequest(request, nowUs())) }
         } catch (_: java.util.concurrent.RejectedExecutionException) {
             // Sesión ya parada.
         }
+    }
+
+    private fun onSessionConfig(config: Dlp.SessionConfig) {
+        val previous = sessionConfig
+        sessionConfig = config
+        if (!config.audioOnTablet) {
+            audio?.stop()
+            audio = null
+        }
+        if (config != previous) listener.onSessionConfig(config)
     }
 
     private fun onStreamInfo(buf: ByteArray, header: Dlp.Header) {
@@ -220,12 +230,13 @@ class StreamSession(
             listener.onStreamInfo(info)
             setPhase(Phase.STREAMING)
         } catch (e: Exception) {
-            setPhase(Phase.FAILED, "Esta tablet no pudo abrir el vídeo (${e.message}). Prueba con el códec H.264 en Ajustes > Avanzado.")
+            setPhase(Phase.FAILED, "Esta tablet no pudo abrir el vídeo (${e.message}). Prueba el códec H.264 en la Configuración avanzada del PC.")
         }
     }
 
     private fun onAudio(buf: ByteArray, header: Dlp.Header, cable: Boolean) {
-        if (!audioEnabled || !running) return
+        // El PC solo manda sonido si eligió que suene en la tablet.
+        if (!running || sessionConfig?.audioOnTablet == false) return
         val player = audio ?: AudioPlayer(cable).also {
             it.start()
             audio = it
@@ -318,12 +329,9 @@ class StreamSession(
             // Si el host dejó de oírnos (p. ej. un corte de red) nos habrá olvidado: un HELLO lo reengancha.
             val silent = info != null && nowUs() - lastRxUs > 3_000_000
             send(if (info == null || silent) hello() else Dlp.controlPacket(Dlp.TYPE_PING, nowUs()))
-            // Se repite cada segundo: por UDP se puede perder, y un host reiniciado no lo sabría.
-            send(Dlp.audioControl(audioEnabled, nowUs()))
-            // El perfil y el táctil se repiten cada 5 s por si se perdieron o el host se reinició.
+            // La petición de batería se repite cada 5 s por si se perdió o el PC se reinició.
             if (info == null || silent || ticks++ % 5 == 0) {
-                send(qualityRequest(profile, nowUs()))
-                requestedInputMode?.let { send(Dlp.inputMode(it, nowUs())) }
+                batteryProfile?.let { send(Dlp.qualityRequest(it, nowUs())) }
             }
             if (silent && phase == Phase.STREAMING) {
                 setPhase(Phase.RECONNECTING, "El PC no responde. Reintentando…")
@@ -355,8 +363,9 @@ class StreamSession(
             val decoded = decoder?.decodedFrames ?: 0L
             val mbps = (bytesReceived - lastBytes) * 8 / secs / 1e6
             val rtt = rttUs
+            val target = sessionConfig?.let { " · objetivo ${it.fps} fps ${"%.0f".format(it.bitrateX100kbps / 10.0)} Mbps" } ?: ""
             listener.onStats(
-                "$routeLabel${info.width}x${info.height} · recibidos ${"%.0f".format((framesReceived - lastFrames) / secs)}/s" +
+                "$routeLabel${info.width}x${info.height}$target · recibidos ${"%.0f".format((framesReceived - lastFrames) / secs)}/s" +
                     " · decodificados ${"%.0f".format((decoded - lastDecoded) / secs)}/s" +
                     " · ${"%.1f".format(mbps)} Mbps" +
                     (if (rtt >= 0) " · RTT ${"%.1f".format(rtt / 1000.0)} ms" else "") +

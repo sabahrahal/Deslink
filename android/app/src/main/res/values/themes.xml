@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Fondo oscuro desde el primer fotograma (sin destello blanco al abrir). Colores: docs/design.md -->
-    <style name="Theme.DeskLink" parent="@android:style/Theme.Material.NoActionBar">
+    <!-- Fondo del tema (claro u oscuro, como el sistema) desde el primer fotograma. Colores: docs/design.md -->
+    <style name="Theme.DeskLink" parent="@android:style/Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@color/dl_background</item>
         <item name="android:colorAccent">@color/dl_accent</item>
         <item name="android:statusBarColor">@android:color/transparent</item>

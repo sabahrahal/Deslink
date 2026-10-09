@@ -55,7 +55,10 @@ class VideoDecoder(
 
             override fun onOutputBufferAvailable(c: MediaCodec, index: Int, bufferInfo: MediaCodec.BufferInfo) {
                 try {
-                    c.releaseOutputBuffer(index, true) // se pinta ya, sin esperar al vsync de un temporizador
+                    // Con la hora de ahora: se pinta en el próximo refresco de pantalla y, si en ese refresco ya hay
+                    // otro frame más nuevo, Android descarta el viejo en vez de encolarlo. Así no se acumula
+                    // retraso cuando llegan dos frames juntos (Wi-Fi a ráfagas) y el movimiento va más fluido.
+                    c.releaseOutputBuffer(index, System.nanoTime())
                     decodedFrames++
                 } catch (_: IllegalStateException) {
                     // El códec se cerró mientras se entregaba la salida.
