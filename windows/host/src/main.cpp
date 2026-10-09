@@ -137,30 +137,49 @@ std::wstring ConfigPath(const wchar_t* name) {
   return std::wstring(base) + L"\\DeskLink\\" + name;
 }
 
-// Última resolución del monitor virtual (la que el usuario dejó en Windows), para la próxima vez.
+// Resolución que el usuario dejó en Configuración de pantalla de Windows para el monitor virtual, y la tablet para la
+// que la eligió (su resolución nativa). Manda sobre la de la tablet mientras sea la misma tablet: así no hay dos
+// sitios que se pisen (DeskLink ya no tiene ajuste de resolución propio).
+struct SavedSize {
+  bool ok = false;
+  UINT w = 0, h = 0;
+  UINT tablet_w = 0, tablet_h = 0;  // 0: guardada por una versión anterior, sin tablet
+};
+
 std::wstring SizeFilePath() { return ConfigPath(L"virtual-size.txt"); }
 
-bool LoadSavedSize(UINT* w, UINT* h) {
-  const std::wstring path = SizeFilePath();
-  if (path.empty()) return false;
-  FILE* f = _wfopen(path.c_str(), L"r");
-  if (!f) return false;
-  unsigned a = 0, b = 0;
-  const bool ok = std::fscanf(f, "%ux%u", &a, &b) == 2 && a >= 640 && b >= 480 && a <= 7680 && b <= 4320;
-  std::fclose(f);
-  if (ok) {
-    *w = a;
-    *h = b;
-  }
-  return ok;
+SavedSize& CachedSize() {
+  static SavedSize saved = [] {
+    SavedSize s;
+    const std::wstring path = SizeFilePath();
+    FILE* f = path.empty() ? nullptr : _wfopen(path.c_str(), L"r");
+    if (!f) return s;
+    unsigned a = 0, b = 0, c = 0, d = 0;
+    const int n = std::fscanf(f, "%ux%u %ux%u", &a, &b, &c, &d);
+    std::fclose(f);
+    if (n >= 2 && a >= 640 && b >= 480 && a <= 7680 && b <= 4320) {
+      s = {true, a, b, n == 4 ? c : 0, n == 4 ? d : 0};
+    }
+    return s;
+  }();
+  return saved;
 }
 
-void SaveSize(UINT w, UINT h) {
+bool LoadSavedSize(UINT* w, UINT* h) {
+  const SavedSize& s = CachedSize();
+  if (!s.ok) return false;
+  *w = s.w;
+  *h = s.h;
+  return true;
+}
+
+void SaveSize(UINT w, UINT h, UINT tablet_w, UINT tablet_h) {
+  CachedSize() = {true, w, h, tablet_w, tablet_h};
   const std::wstring path = SizeFilePath();
   if (path.empty()) return;
   CreateDirectoryW(path.substr(0, path.find_last_of(L'\\')).c_str(), nullptr);
   if (FILE* f = _wfopen(path.c_str(), L"w")) {
-    std::fprintf(f, "%ux%u\n", w, h);
+    std::fprintf(f, "%ux%u %ux%u\n", w, h, tablet_w, tablet_h);
     std::fclose(f);
   }
 }
@@ -236,6 +255,7 @@ struct Options {
   UINT virtual_height = 1840;
   bool size_given = false;       // si no se pasa --size, se usa la última resolución recordada
   bool usb = true;               // --no-usb: sin cable USB (TCP por adb reverse)
+  bool open_tablet = true;       // --no-open-tablet: no abrir DeskLink en la tablet al enchufarla
   std::wstring adb_path;         // --adb: ruta de adb.exe (si no, se busca)
   UINT refine = 4;               // --refine: repeticiones extra al quedarse quieta la imagen para afinar la calidad
   bool status = false;           // --status: líneas «@...» para la app de bandeja (desklink.exe) en vez de las estadísticas
@@ -274,8 +294,10 @@ void Decide(Options* o, const dlp::HelloConfig& tablet, UINT capture_w, UINT cap
   o->codec = dlp::ResolveCodec(o->user_codec, tablet.codec) == dlp::Codec::kHevc ? VideoCodec::kHevc : VideoCodec::kH264;
   if (o->virtual_display && !o->size_given && tablet.width >= 640 && tablet.height >= 480 && tablet.width <= 7680 &&
       tablet.height <= 4320) {
-    o->virtual_width = tablet.width;
-    o->virtual_height = tablet.height;
+    const SavedSize& saved = CachedSize();
+    const bool chosen = saved.ok && saved.tablet_w == tablet.width && saved.tablet_h == tablet.height;
+    o->virtual_width = chosen ? saved.w : tablet.width;
+    o->virtual_height = chosen ? saved.h : tablet.height;
   }
   const UINT w = o->virtual_display ? o->virtual_width : capture_w;
   const UINT h = o->virtual_display ? o->virtual_height : capture_h;
@@ -394,6 +416,8 @@ bool ParseArgs(int argc, char** argv, Options* o) {
       o->size_given = true;
     } else if (a == "--no-usb") {
       o->usb = false;
+    } else if (a == "--no-open-tablet") {
+      o->open_tablet = false;
     } else if (a == "--adb") {
       auto v = next("--adb"); if (!v) return false;
       o->adb_path = Widen(v);
@@ -435,7 +459,7 @@ bool ParseArgs(int argc, char** argv, Options* o) {
                    "Uso: desklink-host [--port 47800] [--output 0] [--fps auto|60] [--bitrate auto|50] "
                    "[--codec auto|hevc|h264] [--profile alta|equilibrada|ahorro] [--audio-tablet] [--battery-adapt] "
                    "[--pace Mbps] [--refine 4] [--no-touch] [--touch|--mouse|--view-only] [--no-cursor] [--no-audio] "
-                   "[--audio-bitrate 128] [--virtual [--size 2944x1840]] [--no-usb] [--adb ruta\\adb.exe] [--status] "
+                   "[--audio-bitrate 128] [--virtual [--size 2944x1840]] [--no-usb] [--no-open-tablet] [--adb ruta\\adb.exe] [--status] "
                    "[--stop-event nombre]\n");
       return false;
     }
@@ -466,6 +490,7 @@ bool ApplySettingsLine(const std::string& line, Options* o) {
     else if (k == "sonido") n.audio_tablet = v == "tablet";
     else if (k == "bateria") n.battery_adapt = v == "1";
     else if (k == "tactil") n.input_mode = v == "raton" ? 1 : v == "solo-ver" ? 2 : 0;
+    else if (k == "abrir_tablet") n.open_tablet = v == "1";
     else if (k == "size") {
       unsigned w = 0, h = 0;
       if (v == "auto") {
@@ -523,6 +548,8 @@ int Run(int argc, char** argv) {
   std::atomic<uint64_t> bytes_sent{0}, frames_encoded{0}, encode_latency_us{0}, keyframes_sent{0}, retransmits{0}, touch_packets{0};
   // Para --status: último informe de la tablet y RTT medido con PING del host (0 = la tablet no contesta).
   std::atomic<uint32_t> tablet_received{0}, tablet_lost{0};
+  std::atomic<int> tablet_decoded{-1};  // frames que mostró la tablet el último segundo (-1: tablet antigua)
+  std::atomic<bool> peer_tether{false};  // la tablet llega por su anclaje USB (red sobre el cable)
   std::atomic<uint64_t> rtt_us{0};
   PacketHistory history;
   TouchInjector touch;
@@ -737,7 +764,6 @@ int Run(int argc, char** argv) {
       std::lock_guard<std::mutex> lock(enc_mutex);
       enc_ptr = pipe->encoder.get();
     }
-    if (opt.virtual_display) SaveSize(pipe->w, pipe->h);
 
     std::atomic<uint32_t> last_client_ip{0};
     std::atomic<uint64_t> last_keyframe_us{0};
@@ -792,8 +818,11 @@ int Run(int argc, char** argv) {
           }
           if (last_client_ip.exchange(from.sin_addr.s_addr) != from.sin_addr.s_addr) {
             const bool usb = UdpEndpoint::IsUsb(from);
+            peer_tether = !usb && IsUsbTetherAddress(from.sin_addr);
             if (usb) {
               std::printf("Cliente conectado por cable USB.\n");
+            } else if (peer_tether) {
+              std::printf("Cliente conectado por el anclaje USB de la tablet.\n");
             } else {
               char ip[INET_ADDRSTRLEN] = {};
               inet_ntop(AF_INET, &from.sin_addr, ip, sizeof(ip));
@@ -855,6 +884,8 @@ int Run(int argc, char** argv) {
           const uint32_t lost = q[2] | (q[3] << 8);
           tablet_received = q[0] | (q[1] << 8);
           tablet_lost = lost;
+          // Desde la 0.2.x la tablet añade los frames que sacó su decodificador.
+          tablet_decoded = header->payload_size >= dlp::kRateReportSize + 2 ? (q[4] | (q[5] << 8)) : -1;
           if (rate.OnReport(tablet_received, lost, NowUs())) {
             publish_rate(lost ? "la tablet pierde frames" : "enlace limpio");
           }
@@ -989,7 +1020,10 @@ int Run(int argc, char** argv) {
     if (!udp.Bind(opt.port, on_packet, opt.usb, [&opt] { return StopAdbServer(opt.adb_path); })) break;
     std::printf("Escuchando en UDP %u. Abre DeskLink en la tablet y pulsa Conectar (por cable USB no hace falta IP ni anclaje).\n",
                 opt.port);
-    if (opt.usb) adb.Start(opt.port, opt.adb_path);
+    if (opt.usb) {
+    adb.set_open_app(opt.open_tablet);
+    adb.Start(opt.port, opt.adb_path);
+  }
     if (opt.status) std::printf("@listo puerto=%u\n", opt.port);
 
     // Cada trozo Opus sale en su propio paquete, con el trozo anterior repetido: por WiFi, si se pierde
@@ -1020,7 +1054,7 @@ int Run(int argc, char** argv) {
     int flush_left = 0;      // repeticiones pendientes para vaciar el codificador
     UINT refine_left = 0;    // repeticiones lentas pendientes para afinar la calidad de la imagen quieta
     uint64_t captured = 0, composed = 0, last_composed = 0, last_stats_us = NowUs();
-    uint64_t convert_us = 0, last_convert = 0, last_fed = 0, last_mailbox = 0;
+    uint64_t convert_us = 0, last_convert = 0, last_fed = 0, last_mailbox = 0, last_submitted = 0, last_dropped = 0;
     TouchInjector::Mode last_input_mode = touch.active();
     uint64_t last_bytes = 0, last_encoded = 0, last_latency = 0, last_captured = 0, last_keyframes = 0, last_retransmits = 0, last_touch = 0;
     bool failed = false;
@@ -1059,7 +1093,7 @@ int Run(int argc, char** argv) {
       dirty = false;
       flush_left = 0;
       refine_left = 0;
-      last_fed = last_mailbox = 0;
+      last_fed = last_mailbox = last_submitted = last_dropped = 0;
       return true;
     };
 
@@ -1084,6 +1118,7 @@ int Run(int argc, char** argv) {
             if (!ApplySettingsLine(line, &opt)) std::printf("Ajustes no válidos de la ventana: %s\n", line.c_str());
           }
           Decide(&opt, caps, pipe->w, pipe->h);
+          adb.set_open_app(opt.open_tablet);
           fps_gov.Reset(Apply(opt, tablet_request, 0).limit_fps);
           eff_after = Apply(opt, tablet_request, fps_gov.fps());
           min_interval_us = 1'000'000ull / eff_after.fps;
@@ -1122,7 +1157,6 @@ int Run(int argc, char** argv) {
             failed = true;
             break;
           }
-          if (opt.virtual_display) SaveSize(pipe->w, pipe->h);
           rate_reset = true;  // codificador nuevo: la tasa vuelve a empezar
         } else if (eff_after.fps != eff_before.fps) {
           // Solo cambian los fps (otra calidad): la tablet ajusta su pantalla y el decodificador sigue.
@@ -1202,7 +1236,18 @@ int Run(int argc, char** argv) {
           failed = true;
           break;
         }
-        if (opt.virtual_display) SaveSize(pipe->w, pipe->h);
+        if (opt.virtual_display) {
+          // La eligió el usuario en Windows: se recuerda para esta tablet y manda sobre su resolución nativa.
+          dlp::HelloConfig caps;
+          {
+            std::lock_guard<std::mutex> lock(config_mutex);
+            caps = requested_config;
+          }
+          SaveSize(pipe->w, pipe->h, caps.width, caps.height);
+          std::lock_guard<std::mutex> lock(quality_mutex);
+          opt.virtual_width = pipe->w;
+          opt.virtual_height = pipe->h;
+        }
         if (udp.has_peer()) {
           std::lock_guard<std::mutex> lock(info_mutex);
           udp.SendToPeer(dlp::MakeControlPacket(dlp::PacketType::kStreamInfo, info_payload.data(),
@@ -1223,6 +1268,7 @@ int Run(int argc, char** argv) {
         last_client_ip = 0;
         rtt_us = 0;
         tablet_received = tablet_lost = 0;
+        tablet_decoded = -1;
         std::printf("Cliente desconectado (sin respuesta durante 5 s). Esperando cliente.\n");
       }
 
@@ -1298,14 +1344,17 @@ int Run(int argc, char** argv) {
         const double secs = (t - last_stats_us) / 1e6;
         const uint64_t enc = frames_encoded - last_encoded;
         const uint64_t lat = encode_latency_us - last_latency;
-        // Fluidez: si la gráfica no llega a codificar a tiempo con estos fps, se bajan un escalón, y vuelven a
+        // Fluidez: si el codificador no da abasto con estos fps (descarta frames), se bajan un escalón, y vuelven a
         // subir solos cuando hay holgura (dlp::FpsGovernor).
+        adb.set_busy(udp.has_peer());
+        const uint64_t submitted = pipe->encoder->submitted_frames - last_submitted;
+        const uint64_t dropped = pipe->encoder->dropped_frames - last_dropped;
         if (udp.has_peer()) {
           UINT new_fps = 0;
           bool slower = false;
           {
             std::lock_guard<std::mutex> lock(quality_mutex);
-            if (fps_gov.Update(enc ? lat / 1000.0 / enc : 0.0, t)) {
+            if (fps_gov.Update(static_cast<uint32_t>(submitted), static_cast<uint32_t>(dropped))) {
               new_fps = Apply(opt, tablet_request, fps_gov.fps()).fps;
               slower = fps_gov.reduced();
               min_interval_us = 1'000'000ull / new_fps;
@@ -1323,6 +1372,8 @@ int Run(int argc, char** argv) {
           send_session(nullptr, (++session_ticks % 2) == 0);
         }
         if (opt.status) {
+          char tablet_fps_text[16] = "-";
+          if (tablet_decoded.load() >= 0) std::snprintf(tablet_fps_text, sizeof(tablet_fps_text), "%d", tablet_decoded.load());
           // Una línea por segundo para la app de bandeja: clave=valor separados por espacios.
           const bool peer = udp.has_peer();
           char ip[INET_ADDRSTRLEN] = "-";
@@ -1340,14 +1391,14 @@ int Run(int argc, char** argv) {
                                                                             : "no";
           std::printf("@estado enlace=%s ip=%s capturados=%.1f codificados=%.1f mbps=%.1f cod_ms=%.1f rtt_ms=%.1f "
                       "recibidos=%u perdidos=%u reenvios=%llu size=%ux%u fps_max=%u fps_obj=%u mbps_obj=%.1f "
-                      "codec=%s reducido=%s adb=%d adb_pendientes=%d\n",
-                      !peer ? "ninguno" : udp.peer_is_usb() ? "usb" : "wifi", ip,
+                      "codec=%s reducido=%s adb=%d adb_pendientes=%d enviados=%.1f descartados=%.1f tablet_fps=%s\n",
+                      !peer ? "ninguno" : udp.peer_is_usb() ? "usb" : peer_tether ? "anclaje" : "wifi", ip,
                       (captured - last_captured) / secs, enc / secs, (bytes_sent - last_bytes) * 8 / secs / 1e6,
                       enc ? lat / 1000.0 / enc : 0.0, rtt_us.load() / 1000.0, tablet_received.load(),
                       tablet_lost.load(), static_cast<unsigned long long>(retransmits.load() - last_retransmits),
                       pipe->w, pipe->h, opt.fps, session.fps, session.bitrate_x100kbps / 10.0,
                       opt.codec == VideoCodec::kHevc ? "hevc" : "h264", reduced, opt.usb ? adb.ready() : -1,
-                      opt.usb ? adb.unauthorized() : 0);
+                      opt.usb ? adb.unauthorized() : 0, submitted / secs, dropped / secs, tablet_fps_text);
         } else {
           std::printf("capturados %.0f/s | codificados %.0f/s | %.1f Mbps | codificación %.1f ms | claves %llu | conv %.1f ms | buzón %.1f ms | errores de envío %llu | reenvíos %llu | toques %llu%s\n",
                       (captured - last_captured) / secs, enc / secs,
@@ -1372,6 +1423,8 @@ int Run(int argc, char** argv) {
         last_composed = composed;
         last_fed = pipe->encoder->fed_frames;
         last_mailbox = pipe->encoder->mailbox_wait_us;
+        last_submitted = pipe->encoder->submitted_frames;
+        last_dropped = pipe->encoder->dropped_frames;
       }
     }
     // Los hilos usan variables de este bloque: se paran antes de salir de él.

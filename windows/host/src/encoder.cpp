@@ -266,6 +266,8 @@ void MfEncoder::CaptureSequenceHeader() {
 void MfEncoder::Submit(ID3D11Texture2D* nv12, uint64_t timestamp_us) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
+    ++submitted_frames;
+    if (has_pending_) ++dropped_frames;
     pending_.texture = nv12;
     pending_.timestamp_us = timestamp_us;
     has_pending_ = true;

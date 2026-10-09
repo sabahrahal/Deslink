@@ -5,6 +5,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <cwctype>
 #include <string>
 #include <vector>
 
@@ -55,6 +56,29 @@ DWORD UdpPortOwner(uint16_t port) {
 }
 
 std::string DescribeProcess(DWORD pid) { return pid ? ProcessName(pid) : std::string("otro programa"); }
+
+bool IsUsbTetherAddress(const in_addr& ip) {
+  DWORD index = 0;
+  if (GetBestInterface(ip.s_addr, &index) != NO_ERROR) return false;
+  ULONG size = 16 * 1024;
+  std::vector<uint8_t> buf(size);
+  const ULONG flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER;
+  ULONG rc = GetAdaptersAddresses(AF_INET, flags, nullptr, reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buf.data()), &size);
+  if (rc == ERROR_BUFFER_OVERFLOW) {
+    buf.resize(size);
+    rc = GetAdaptersAddresses(AF_INET, flags, nullptr, reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buf.data()), &size);
+  }
+  if (rc != NO_ERROR) return false;
+  for (auto* a = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buf.data()); a; a = a->Next) {
+    if (a->IfIndex != index) continue;
+    // El anclaje de Android aparece como «Remote NDIS based Internet Sharing Device» (RNDIS) o como NCM.
+    std::wstring d = a->Description ? a->Description : L"";
+    for (auto& c : d) c = static_cast<wchar_t>(towlower(c));
+    return d.find(L"ndis") != std::wstring::npos || d.find(L"ncm") != std::wstring::npos ||
+           d.find(L"android") != std::wstring::npos || d.find(L"usb") != std::wstring::npos;
+  }
+  return false;
+}
 
 UdpEndpoint::~UdpEndpoint() { Stop(); }
 

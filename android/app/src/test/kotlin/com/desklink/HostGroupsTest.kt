@@ -12,6 +12,8 @@ class HostGroupsTest {
     private val usbCable = Found(Link.CABLE_HOST, null, "ESCRITORIO", acceptsConfig = true)
     private val pcWifi = Found("192.168.1.20", wifi, "ESCRITORIO", acceptsConfig = true)
     private val laptop = Found("192.168.1.31", wifi, "PORTATIL", acceptsConfig = true)
+    private val rndis = Route("rndis0", InetAddress.getByName("192.168.42.129"), Transport.USB)
+    private val pcTether = Found("192.168.42.10", rndis, "ESCRITORIO", acceptsConfig = true)
 
     @Test
     fun usbAndWifiOfTheSamePcAreOneCard() {
@@ -47,5 +49,50 @@ class HostGroupsTest {
     fun pcsWithoutNameAreKeptApart() {
         val pcs = HostGroups.group(listOf(Found("10.0.0.2", wifi), Found("10.0.0.3", wifi)))
         assertEquals(2, pcs.size)
+    }
+
+    @Test
+    fun usbTetheringIsCableNotWifi() {
+        val pc = HostGroups.group(listOf(pcWifi, pcTether)).single()
+        // El anclaje de red por USB va como opción de cable; la lista de red queda solo con el Wi-Fi.
+        assertEquals("192.168.42.10", pc.usb?.ip)
+        assertEquals(listOf("192.168.1.20"), pc.network.map { it.ip })
+        assertTrue(pc.hasBoth)
+        assertEquals("192.168.42.10", pc.route().ip)
+        assertEquals("Por cable USB (anclaje de red) · 192.168.42.10", HostGroups.describe(pcTether))
+    }
+
+    @Test
+    fun adbCableBeatsTethering() {
+        val pc = HostGroups.group(listOf(pcTether, pcWifi, usbCable)).single()
+        assertEquals(Link.CABLE_HOST, pc.usb?.ip)
+        assertEquals(listOf("192.168.1.20"), pc.network.map { it.ip })
+    }
+
+    @Test
+    fun autoConnectPrefersCableEvenIfLastWasWifi() {
+        val found = listOf(pcWifi, usbCable)
+        // Por la dirección del Wi-Fi o por el nombre: el mismo PC, y por cable desde la primera búsqueda.
+        assertEquals(Link.CABLE_HOST, HostGroups.autoTarget(found, "192.168.1.20", "ESCRITORIO", scans = 1)?.ip)
+        assertEquals(Link.CABLE_HOST, HostGroups.autoTarget(found, "192.168.1.99", "escritorio", scans = 1)?.ip)
+        assertEquals(Link.CABLE_HOST, HostGroups.autoTarget(found, Link.CABLE_HOST, "", scans = 1)?.ip)
+    }
+
+    @Test
+    fun autoConnectWaitsASecondScanBeforeUsingTheNetwork() {
+        val found = listOf(pcWifi, laptop)
+        // En la primera búsqueda el cable aún puede estar respondiendo: no se elige la red todavía.
+        assertNull(HostGroups.autoTarget(found, "192.168.1.20", "ESCRITORIO", scans = 1))
+        assertEquals("192.168.1.20", HostGroups.autoTarget(found, "192.168.1.20", "ESCRITORIO", scans = 2)?.ip)
+        // El anclaje USB también espera, pero gana al Wi-Fi.
+        assertEquals("192.168.42.10", HostGroups.autoTarget(found + pcTether, "192.168.1.20", null, scans = 2)?.ip)
+    }
+
+    @Test
+    fun autoConnectNeedsALastHost() {
+        val found = listOf(pcWifi, usbCable)
+        assertNull(HostGroups.autoTarget(found, null, "ESCRITORIO", scans = 5))
+        assertNull(HostGroups.autoTarget(found, "10.0.0.9", "OTRO", scans = 5))
+        assertEquals("192.168.1.31", HostGroups.autoTarget(found + laptop, "192.168.1.31", "PORTATIL", scans = 2)?.ip)
     }
 }

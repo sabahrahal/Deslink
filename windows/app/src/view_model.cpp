@@ -132,8 +132,16 @@ View BuildView(const ViewInput& in) {
       v.dot = Tone::kWarning;
       break;
     case State::kConnected:
-      v.title = link == L"usb" ? L"Conectado por cable USB" : L"Conectado por Wi-Fi";
-      v.detail = link == L"usb" ? L"La conexión más rápida." : L"Tablet " + Stat(in, L"ip") + L".";
+      if (link == L"usb") {
+        v.title = L"Conectado por cable USB";
+        v.detail = L"La conexión más rápida.";
+      } else if (link == L"anclaje") {
+        v.title = L"Conectado por cable USB (anclaje de red)";
+        v.detail = L"Funciona, pero con la depuración USB va más fluido y no hay que activar el anclaje cada vez.";
+      } else {
+        v.title = L"Conectado por Wi-Fi";
+        v.detail = L"Tablet " + Stat(in, L"ip") + L".";
+      }
       if (!Stat(in, L"size").empty()) v.detail += L" Pantalla de " + Stat(in, L"size") + L".";
       v.dot = Tone::kSuccess;
       break;
@@ -160,10 +168,23 @@ View BuildView(const ViewInput& in) {
     v.stats = fps < 1 ? std::wstring(L"Imagen quieta") : Fmt(L"%.0f fps", fps);
     v.stats += L" · " + Fmt(L"%.1f Mbps", StatNum(in, L"mbps"));
     if (StatNum(in, L"rtt_ms") > 0) v.stats += L" · " + Fmt(L"%.0f ms", StatNum(in, L"rtt_ms"));
+    // Por dónde se pierden los fps, de punta a punta: lo que da Windows, lo que sale del codificador y lo que muestra
+    // la tablet (si su versión lo cuenta).
+    if (fps >= 1) {
+      v.fluency = Fmt(L"Captura %.0f", StatNum(in, L"capturados")) + L" · " + Fmt(L"Codificación %.0f", fps);
+      const std::wstring tablet = Stat(in, L"tablet_fps");
+      if (!tablet.empty() && tablet != L"-") v.fluency += L" · " + Fmt(L"Tablet %.0f", StatNum(in, L"tablet_fps"));
+      v.fluency += L" fps";
+    }
     const std::wstring reduced = Stat(in, L"reducido");
     if (reduced == L"wifi") v.notice = {L"Calidad reducida un momento: el Wi-Fi va justo.", Tone::kWarning};
     else if (reduced == L"bateria") v.notice = {L"Fluidez reducida: la batería de la tablet no aguanta.", Tone::kWarning};
     else if (reduced == L"carga") v.notice = {L"Fluidez reducida: la gráfica del PC va cargada.", Tone::kWarning};
+    const std::wstring tablet = Stat(in, L"tablet_fps");
+    if (v.notice.text.empty() && fps >= 20 && !tablet.empty() && tablet != L"-" &&
+        StatNum(in, L"tablet_fps") < 0.8 * fps) {
+      v.notice = {L"La tablet muestra menos imágenes de las que recibe: su decodificador no da abasto.", Tone::kWarning};
+    }
   }
 
   // Por dónde puede llegar la tablet: el cable USB y el Wi-Fi, los dos a la vez si los hay.
@@ -227,7 +248,12 @@ View BuildView(const ViewInput& in) {
   v.advanced_open = in.advanced_open;
   if (in.advanced_open) {
     if (s.virtual_display) {
-      v.advanced.push_back(Choice("resolucion", L"Resolución de la pantalla extra", SizeLabel(s.size)));
+      // Un solo sitio para la resolución: la de Windows. DeskLink la recuerda para esta tablet.
+      Row resolution;
+      resolution.id = "resolucion";
+      resolution.control = Control::kLink;
+      resolution.label = L"Cambiar la resolución en Windows";
+      v.advanced.push_back(resolution);
     } else {
       const std::wstring monitor = s.output < static_cast<int>(in.monitors.size())
                                        ? in.monitors[s.output]
@@ -240,6 +266,7 @@ View BuildView(const ViewInput& in) {
     v.advanced.push_back(Toggle("bateria", L"Bajar la calidad si la batería de la tablet no aguanta", s.battery_adapt));
     v.advanced.push_back(Toggle("puntero", L"Dibujar el puntero del ratón", s.cursor));
     v.advanced.push_back(Toggle("usb", L"Conexión por cable USB", s.usb));
+    if (s.usb) v.advanced.push_back(Toggle("abrir_tablet", L"Abrir DeskLink en la tablet al enchufarla", s.open_tablet));
     v.advanced.push_back(Toggle("autostart", L"Abrir DeskLink al iniciar Windows", in.autostart));
     v.advanced.push_back(Toggle("abrir", L"Transmitir nada más abrir", s.stream_on_open));
     Row port;

@@ -16,10 +16,16 @@
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
-            android:exported="true">
+            android:exported="true"
+            android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- El PC abre la app al enchufar la tablet: adb shell am start -a com.desklink.action.USB_ATTACHED -->
+            <intent-filter>
+                <action android:name="com.desklink.action.USB_ATTACHED" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
 

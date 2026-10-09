@@ -54,6 +54,7 @@ bool LoadSettings(Settings* s) {
   s->cursor = ReadInt(path, L"cursor", s->cursor) != 0;
   s->usb = ReadInt(path, L"usb", s->usb) != 0;
   s->stream_on_open = ReadInt(path, L"stream_on_open", s->stream_on_open) != 0;
+  s->open_tablet = ReadInt(path, L"open_tablet", s->open_tablet) != 0;
   s->port = ReadInt(path, L"port", s->port);
   s->adb = ReadString(path, L"adb");
   s->extra = ReadString(path, L"extra");
@@ -91,6 +92,7 @@ void SaveSettings(const Settings& s) {
   WriteInt(path, L"cursor", s.cursor);
   WriteInt(path, L"usb", s.usb);
   WriteInt(path, L"stream_on_open", s.stream_on_open);
+  WriteInt(path, L"open_tablet", s.open_tablet);
   WriteInt(path, L"port", s.port);
   WriteString(path, L"adb", s.adb);
   WriteString(path, L"extra", s.extra);

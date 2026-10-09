@@ -11,8 +11,11 @@ El PC decide y ajusta la imagen solo, sin que haya que tocar nada (lógica en `p
   nunca por debajo de la mitad de la elegida, y vuelve a subir un 10 % por segundo tras 3 s sin pérdidas. Por cable
   USB no baja nunca. Antes se bajaba un 30 % por cada pérdida hasta el 10 % y tardaba mucho en volver: esa era la
   caída de calidad repentina.
-- **Gráfica del PC cargada** (`FpsGovernor`): si codificar un frame tarda más del 85 % del tiempo de un frame durante
-  3 s, baja un escalón de fps (120, 90, 60, 45, 30); si sobra (menos del 50 % durante 10 s), vuelve a subir.
+- **Gráfica del PC cargada** (`FpsGovernor`): si el codificador descarta más del 10 % de los frames (aún estaba con
+  el anterior) durante 3 s, baja un escalón de fps (120, 90, 60, 45, 30); tras 10 s sin descartes prueba a subir, y si
+  vuelve a no dar abasto enseguida, la siguiente prueba espera el doble (hasta 160 s). En la 0.2.28 se medía el retraso
+  del codificador, que incluye los frames que retiene por diseño: bajaba a 30 fps sin motivo.
+- **Decodificador de la tablet sin buffer libre**: espera hasta 20 ms en vez de tirar el frame y pedir uno clave.
 - **En la tablet**: cada frame se pinta en el siguiente refresco de pantalla y, si llega otro antes, se descarta el
   viejo (`VideoDecoder.kt`): no se acumula retraso con el Wi-Fi a ráfagas.
 

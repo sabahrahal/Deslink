@@ -322,7 +322,14 @@ void AdbReverse::Loop() {
           if (Run(L"-s \"" + Widen(serial) + L"\" reverse " + tunnel, nullptr)) {
             reversed_.insert(serial);
             warned_.erase(serial);
-            std::printf("Tablet %s conectada por USB (ADB). Abre DeskLink en ella y pulsa Conectar.\n", serial.c_str());
+            // Se abre la app en la tablet, que conecta sola por el cable. Si no está instalada, am start falla y
+            // no pasa nada. A diferencia del modo accesorio USB, no deja nada registrado en la tablet.
+            const bool opened = open_app_ && !busy_ &&
+                                Run(L"-s \"" + Widen(serial) + L"\" shell am start -n com.desklink/.MainActivity "
+                                    L"-a com.desklink.action.USB_ATTACHED", nullptr, 5000);
+            std::printf(opened ? "Tablet %s conectada por USB (ADB): abro DeskLink en ella.\n"
+                               : "Tablet %s conectada por USB (ADB). Abre DeskLink en ella y pulsa Conectar.\n",
+                        serial.c_str());
           }
         } else if (state == "unauthorized") {
           ++unauthorized;

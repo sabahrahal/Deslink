@@ -33,12 +33,6 @@ namespace {
 
 const wchar_t* TouchArg(int touch) { return touch == 1 ? L"raton" : touch == 2 ? L"solo-ver" : L"tactil"; }
 
-std::wstring SizeArg(const Settings& s) {
-  unsigned w, h;
-  if (ParseSize(s.size, &w, &h)) return std::to_wstring(w) + L"x" + std::to_wstring(h);
-  return L"auto";
-}
-
 }  // namespace
 
 std::wstring HostArguments(const Settings& s) {
@@ -50,15 +44,15 @@ std::wstring HostArguments(const Settings& s) {
   if (s.audio_tablet) a += L" --audio-tablet";
   a += s.touch == 1 ? L" --mouse" : s.touch == 2 ? L" --view-only" : L" --touch";
   if (s.battery_adapt) a += L" --battery-adapt";
+  // Sin --size: la resolución de la pantalla extra es la de la tablet o la que el usuario deje en Windows.
   if (s.virtual_display) {
     a += L" --virtual";
-    const std::wstring size = SizeArg(s);
-    if (size != L"auto") a += L" --size " + size;
   } else {
     a += L" --output " + std::to_wstring(s.output);
   }
   if (!s.cursor) a += L" --no-cursor";
   if (!s.usb) a += L" --no-usb";
+  if (!s.open_tablet) a += L" --no-open-tablet";
   if (!s.adb.empty()) a += L" --adb \"" + s.adb + L"\"";
   if (!s.extra.empty()) a += L" " + s.extra;
   return a;
@@ -72,7 +66,7 @@ std::wstring LiveSettingsLine(const Settings& s) {
   l += L" sonido=" + std::wstring(s.audio_tablet ? L"tablet" : L"pc");
   l += L" tactil=" + std::wstring(TouchArg(s.touch));
   l += L" bateria=" + std::wstring(s.battery_adapt ? L"1" : L"0");
-  l += L" size=" + SizeArg(s);
+  l += L" abrir_tablet=" + std::wstring(s.open_tablet ? L"1" : L"0");
   return l;
 }
 
