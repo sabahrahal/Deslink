@@ -20,6 +20,7 @@ class VirtualDisplay {
 
  private:
   bool Ioctl(DWORD code, const void* in, DWORD in_size);
+  void EnsureMode(UINT width, UINT height, UINT refresh_hz);
 
   HANDLE device_ = INVALID_HANDLE_VALUE;
   std::wstring gdi_name_;

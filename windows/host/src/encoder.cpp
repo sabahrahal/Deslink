@@ -143,6 +143,7 @@ bool MfEncoder::Init(Gpu& gpu, VideoCodec codec, UINT width, UINT height, UINT f
   }
 
   thread_ = std::thread([this] { EventLoop(); });
+  pump_ = std::thread([this] { EventPump(); });
   return true;
 }
 
@@ -277,34 +278,59 @@ void MfEncoder::Submit(ID3D11Texture2D* nv12, uint64_t timestamp_us) {
 
 void MfEncoder::Stop() {
   if (!thread_.joinable()) return;
-  stop_ = true;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    stop_ = true;
+  }
   cv_.notify_all();
-  if (mft_) mft_->ProcessMessage(MFT_MESSAGE_COMMAND_DRAIN, 0);  // despierta GetEvent
   thread_.join();
+  if (mft_) mft_->ProcessMessage(MFT_MESSAGE_COMMAND_DRAIN, 0);  // despierta GetEvent
+  if (pump_.joinable()) pump_.join();
+}
+
+void MfEncoder::EventPump() {
+  while (!stop_) {
+    ComPtr<IMFMediaEvent> event;
+    MediaEventType type = MEUnknown;
+    const bool ok = SUCCEEDED(events_->GetEvent(0, &event));
+    if (ok) event->GetType(&type);
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (ok) events_queue_.push_back(type);
+      if (!ok || type == METransformDrainComplete) pump_done_ = true;
+    }
+    cv_.notify_one();
+    if (!ok || type == METransformDrainComplete) break;
+  }
 }
 
 void MfEncoder::EventLoop() {
-  while (!stop_) {
-    ComPtr<IMFMediaEvent> event;
-    if (FAILED(events_->GetEvent(0, &event))) break;
-    MediaEventType type = MEUnknown;
-    event->GetType(&type);
-
-    if (type == METransformNeedInput) {
-      PendingFrame frame;
-      {
-        std::unique_lock<std::mutex> lock(mutex_);
-        cv_.wait(lock, [this] { return has_pending_ || stop_; });
-        if (stop_) break;
-        frame = std::move(pending_);
-        has_pending_ = false;
+  while (true) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    cv_.wait(lock, [this] {
+      return stop_ || !events_queue_.empty() || pump_done_ || (need_input_ > 0 && has_pending_);
+    });
+    if (stop_) break;
+    // Primero las salidas ya listas: cada frame codificado sale en cuanto el MFT lo tiene.
+    if (!events_queue_.empty()) {
+      const MediaEventType type = events_queue_.front();
+      events_queue_.pop_front();
+      if (type == METransformNeedInput) {
+        ++need_input_;
+      } else if (type == METransformHaveOutput) {
+        lock.unlock();
+        DrainOutput();
+      } else if (type == METransformDrainComplete) {
+        break;
       }
-      if (!FeedInput(frame)) break;
-    } else if (type == METransformHaveOutput) {
-      DrainOutput();
-    } else if (type == METransformDrainComplete) {
-      break;
+      continue;
     }
+    if (pump_done_) break;
+    PendingFrame frame = std::move(pending_);
+    has_pending_ = false;
+    --need_input_;
+    lock.unlock();
+    if (!FeedInput(frame)) break;
   }
 }
 

@@ -1361,7 +1361,10 @@ int Run(int argc, char** argv) {
             }
           }
           if (new_fps) {
-            std::printf("Fluidez: %u fps (%s).\n", new_fps, slower ? "la gráfica no llega a más" : "vuelve a subir");
+            std::printf("Fluidez: %u fps (%s; último segundo: %llu de %llu frames descartados, codificación %.1f ms).\n",
+                        new_fps, slower ? "la gráfica no llega a más" : "vuelve a subir",
+                        static_cast<unsigned long long>(dropped), static_cast<unsigned long long>(submitted),
+                        enc ? lat / 1000.0 / enc : 0.0);
             std::lock_guard<std::mutex> lock(info_mutex);
             info_current.fps = static_cast<uint16_t>(new_fps);
             info_payload = dlp::EncodeStreamInfo(info_current);
