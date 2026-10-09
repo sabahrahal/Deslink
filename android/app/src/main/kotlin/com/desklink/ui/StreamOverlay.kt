@@ -1,18 +1,21 @@
 package com.desklink.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -23,20 +26,18 @@ import com.desklink.StreamSession.Phase
 /** Pantalla de estado sobre el vídeo mientras no hay imagen: conectando, sin respuesta, reconectando o error. */
 @Composable
 fun StreamOverlay(phase: Phase, detail: String, hostName: String, onRetry: () -> Unit, onBack: () -> Unit) {
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Color(0xE60A0E17)),
-        contentAlignment = Alignment.Center,
-    ) {
-        NeonCard(Modifier.widthIn(max = 460.dp).padding(24.dp), glow = phase == Phase.CONNECTING) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                val color = when (phase) {
-                    Phase.FAILED -> Palette.Error
-                    Phase.NO_ANSWER, Phase.RECONNECTING -> Palette.Warning
-                    else -> Palette.Accent
+    Box(Modifier.fillMaxSize().background(palette.background), contentAlignment = Alignment.Center) {
+        DlCard(Modifier.widthIn(max = 440.dp).padding(24.dp), padding = 24.dp) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                if (phase == Phase.FAILED) {
+                    StatusDot(palette.error, "Error")
+                } else {
+                    CircularProgressIndicator(
+                        Modifier.size(28.dp),
+                        color = if (phase == Phase.CONNECTING) palette.accent else palette.warning,
+                        strokeWidth = 2.5.dp,
+                    )
                 }
-                Radar(Modifier.size(72.dp), color = color, active = phase != Phase.FAILED)
                 VSpace(16.dp)
                 Text(
                     when (phase) {
@@ -46,20 +47,82 @@ fun StreamOverlay(phase: Phase, detail: String, hostName: String, onRetry: () ->
                         Phase.FAILED -> "No se pudo conectar"
                         Phase.STREAMING -> ""
                     },
-                    style = MaterialTheme.typography.titleLarge,
+                    style = DlText.Title,
                     textAlign = TextAlign.Center,
                 )
                 VSpace(8.dp)
                 Text(
-                    detail.ifBlank { if (phase == Phase.CONNECTING) "Preparando el monitor a la medida de esta pantalla…" else "" },
-                    color = Palette.TextMuted,
+                    detail.ifBlank { if (phase == Phase.CONNECTING) "Preparando la pantalla a la medida de esta tablet…" else "" },
+                    style = DlText.Body,
+                    color = palette.textSecondary,
                     textAlign = TextAlign.Center,
-                    style = MaterialTheme.typography.bodyMedium,
                 )
                 VSpace(20.dp)
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = onBack) { Text(if (phase == Phase.FAILED) "Volver" else "Cancelar", color = Palette.TextMuted) }
-                    if (phase == Phase.FAILED || phase == Phase.NO_ANSWER) GlowButton("Reintentar", onRetry)
+                    SecondaryButton(if (phase == Phase.FAILED) "Volver" else "Cancelar", onBack)
+                    if (phase == Phase.FAILED || phase == Phase.NO_ANSWER) PrimaryButton("Reintentar", onRetry)
+                }
+            }
+        }
+    }
+}
+
+/** Qué decidió el PC, para el menú rápido. */
+data class SessionSummary(
+    val quality: String = "",
+    val details: String = "",
+    /** 0 táctil, 1 ratón, 2 solo ver. */
+    val input: Int = 0,
+    val reduced: String = "",
+)
+
+/**
+ * Menú rápido (cuatro dedos a la vez sobre el vídeo): táctil o ratón, estadísticas y desconectar. Lo demás se
+ * cambia en el PC.
+ */
+@Composable
+fun QuickMenu(
+    summary: SessionSummary,
+    statsVisible: Boolean,
+    onInput: (Int) -> Unit,
+    onStats: () -> Unit,
+    onDisconnect: () -> Unit,
+    onClose: () -> Unit,
+) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.45f))
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClose),
+        contentAlignment = Alignment.Center,
+    ) {
+        DlCard(
+            Modifier
+                .widthIn(max = 420.dp)
+                .padding(24.dp)
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
+            padding = 20.dp,
+        ) {
+            Column {
+                Text("DeskLink", style = DlText.Title)
+                if (summary.quality.isNotBlank()) {
+                    Text("Calidad ${summary.quality} · ${summary.details}", style = DlText.Note, color = palette.textSecondary)
+                }
+                if (summary.reduced.isNotBlank()) Text(summary.reduced, style = DlText.Note, color = palette.warning)
+                VSpace(16.dp)
+                if (summary.input == 2) {
+                    Text("Solo ver: los toques no llegan al PC. Se cambia en el PC.", style = DlText.Note, color = palette.textSecondary)
+                } else {
+                    Text("Táctil", style = DlText.Section, color = palette.textSecondary)
+                    VSpace(6.dp)
+                    Segmented(listOf("Táctil", "Ratón"), summary.input, onInput, Modifier.fillMaxWidth())
+                }
+                VSpace(12.dp)
+                SwitchRow("Estadísticas", null, statsVisible) { onStats() }
+                VSpace(8.dp)
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    SecondaryButton("Desconectar", onDisconnect, Modifier.weight(1f), destructive = true)
+                    PrimaryButton("Seguir", onClose, Modifier.weight(1f))
                 }
             }
         }

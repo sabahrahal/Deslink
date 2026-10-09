@@ -26,6 +26,8 @@ static void TestSessionConfigRoundtrip() {
   c.max_bitrate_x100kbps = 520;
   const auto payload = EncodeSessionConfig(c);
   CHECK(payload.size() == kSessionConfigSize);
+  // Mismos bytes que comprueba la tablet (android/.../SessionConfigTest.kt).
+  CHECK((payload == std::vector<uint8_t>{1, 3, 2, 1, 120, 0, 0x9C, 0x01, 0x08, 0x02}));
   const auto pkt = MakeControlPacket(PacketType::kSessionConfig, payload.data(), payload.size(), 9);
   const auto h = ParseHeader(pkt.data(), pkt.size());
   CHECK(h && h->type == PacketType::kSessionConfig);

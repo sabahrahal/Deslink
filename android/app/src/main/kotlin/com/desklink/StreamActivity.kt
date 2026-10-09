@@ -30,6 +30,8 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.desklink.ui.DeskLinkTheme
+import com.desklink.ui.QuickMenu
+import com.desklink.ui.SessionSummary
 import com.desklink.ui.StreamOverlay
 
 class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSession.Listener {
@@ -46,15 +48,16 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
     private lateinit var host: String
     private lateinit var settings: AppSettings
     private var helloConfig: Dlp.HelloConfig? = null
-    private var legacyWarned = false
     private var lastBackMs = 0L
     private val probe by lazy { DeviceProbe(this) }
     private var touchFallbackShown = false
 
-    // Perfil de batería (ver PowerProfile y docs/battery.md): el elegido en ajustes y, con cable, el que
-    // decide el modo «adaptar a la carga».
-    private lateinit var governor: ChargeGovernor
-    private lateinit var profile: PowerProfile
+    // Lo decide el PC (SESSION_CONFIG): la calidad es el perfil base y, si allí está activado «bajar si la batería
+    // no aguanta», el gobernador de carga puede pedir uno menor (ver PowerProfile y docs/battery.md).
+    private var config: Dlp.SessionConfig? = null
+    private var governor = ChargeGovernor(PowerProfile.MAXIMA, false)
+    private var profile = PowerProfile.MAXIMA
+    @Volatile private var viewOnly = false
     private lateinit var badgeView: TextView
     @Volatile private var streamFps = 0
     private var badgeUntilMs = 0L
@@ -64,6 +67,9 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
     private var phase by mutableStateOf(StreamSession.Phase.CONNECTING)
     private var phaseDetail by mutableStateOf("")
     private var hostName by mutableStateOf("")
+    private var menuOpen by mutableStateOf(false)
+    private var summary by mutableStateOf(SessionSummary())
+    private var statsShown by mutableStateOf(false)
 
     // Pantalla encendida mientras hay conexión; sin PC durante 2 minutos se deja apagar.
     private val ui = Handler(Looper.getMainLooper())
@@ -95,10 +101,8 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         hostName = intent.getStringExtra(EXTRA_HOST_NAME) ?: host
         settings = SettingsStore(this).load()
         statsVisible = settings.showStats
-        helloConfig = settings.toHelloConfig(Device.display(this), Device.hevcSupported)
-        val base = PowerProfile.fromId(settings.power.id)
-        governor = ChargeGovernor(base, settings.powerAdapt)
-        profile = base
+        statsShown = statsVisible
+        helloConfig = AppSettings.hello(Device.display(this), Device.hevcSupported)
 
         if (settings.keepScreenOn) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         // Los botones de volumen controlan el sonido del PC (multimedia), no el del timbre.
@@ -124,7 +128,18 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         overlay = ComposeView(this).apply {
             setContent {
                 DeskLinkTheme {
-                    StreamOverlay(phase, phaseDetail, hostName, onRetry = { restartSession() }, onBack = { finish() })
+                    if (phase != StreamSession.Phase.STREAMING) {
+                        StreamOverlay(phase, phaseDetail, hostName, onRetry = { restartSession() }, onBack = { finish() })
+                    } else if (menuOpen) {
+                        QuickMenu(
+                            summary = summary,
+                            statsVisible = statsShown,
+                            onInput = { mode -> setTouchMode(mode) },
+                            onStats = { toggleStats() },
+                            onDisconnect = { finish() },
+                            onClose = { setMenu(false) },
+                        )
+                    }
                 }
             }
         }
@@ -143,7 +158,6 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         setContentView(root)
         hideSystemBars()
         applyProfile(profile)
-        showBadge(BADGE_MS)
 
         // Atrás dos veces para desconectar: con la pantalla completa es fácil tocarlo sin querer.
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -159,11 +173,12 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         })
     }
 
-    /** Lo que el perfil cambia en la tablet; lo que cambia en el PC se manda con [StreamSession.setProfile]. */
+    /** Lo que el perfil cambia en la tablet; lo que cambia en el PC se pide con [StreamSession.setBatteryProfile]. */
     private fun applyProfile(p: PowerProfile) {
         val wifiModeChanged = p.lowLatencyWifi != profile.lowLatencyWifi
         profile = p
-        session?.setProfile(p)
+        val adapt = config?.batteryAdapt == true
+        session?.setBatteryProfile(if (adapt && p != governorBase()) p else null)
         // Rendimiento sostenido: frecuencias estables (sin tirones por calor) a costa de no dejar bajar del todo.
         window.setSustainedPerformanceMode(p.sustainedPerformance)
         val lp = window.attributes
@@ -205,8 +220,85 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         return modes.first { it.refreshRate == rate }.modeId
     }
 
+    private fun governorBase() = PowerProfile.fromWire(config?.profile ?: 0)
+
     private fun showBadge(ms: Long) {
         badgeUntilMs = SystemClock.elapsedRealtime() + ms
+    }
+
+    private fun setMenu(open: Boolean) {
+        menuOpen = open
+        overlay.visibility = if (open || phase != StreamSession.Phase.STREAMING) View.VISIBLE else View.GONE
+        if (!open) hideSystemBars()
+    }
+
+    private fun toggleStats() {
+        statsVisible = !statsVisible
+        statsShown = statsVisible
+        statsView.visibility = if (statsVisible) View.VISIBLE else View.GONE
+    }
+
+    /** Táctil (0) o ratón (1) desde el menú rápido: se pide al PC, que lo recuerda en sus ajustes. */
+    private fun setTouchMode(mode: Int) {
+        session?.setInputMode(if (mode == 1) Dlp.INPUT_MOUSE else Dlp.INPUT_TOUCH)
+        summary = summary.copy(input = mode)
+    }
+
+    /** Lo que decidió el PC: calidad, sonido, táctil y si va reducida. */
+    override fun onSessionConfig(config: Dlp.SessionConfig) {
+        runOnUiThread {
+            val previous = this.config
+            this.config = config
+            viewOnly = config.viewOnly
+            if (previous == null || previous.profile != config.profile || previous.batteryAdapt != config.batteryAdapt) {
+                val base = PowerProfile.fromWire(config.profile)
+                governor = ChargeGovernor(base, config.batteryAdapt)
+                applyProfile(base)
+            }
+            val quality = when (config.profile) {
+                0 -> "alta"
+                1 -> "equilibrada"
+                else -> "ahorro"
+            }
+            val reduced = when (config.reduced) {
+                Dlp.REDUCED_WIFI -> "Calidad reducida un momento: el Wi-Fi va justo"
+                Dlp.REDUCED_BATTERY -> "Fluidez reducida para no gastar la batería"
+                Dlp.REDUCED_LOAD -> "Fluidez reducida: la gráfica del PC va cargada"
+                else -> ""
+            }
+            summary = SessionSummary(
+                quality = quality,
+                details = "${config.fps} fps · ${"%.0f".format(config.maxBitrateX100kbps / 10.0)} Mbps",
+                input = config.input,
+                reduced = reduced,
+            )
+            if (previous == null) {
+                badgeView.text = "Calidad $quality · ${config.fps} fps · toca con 4 dedos para el menú"
+                showBadge(BADGE_MS)
+            }
+            updateBadge()
+        }
+    }
+
+    /** Aviso arriba a la derecha: por qué va reducida, la batería si se descarga, o el resumen de los primeros segundos. */
+    private fun updateBadge() {
+        val state = governor.state
+        val adapt = config?.batteryAdapt == true
+        val batteryAlert = adapt && (state == ChargeState.DRAINING || state == ChargeState.ADAPTING)
+        val reduced = summary.reduced
+        when {
+            batteryAlert -> {
+                badgeView.text = governor.indicator()
+                badgeView.setBackgroundColor(if (state == ChargeState.DRAINING) 0xCCB00020.toInt() else 0xCCA84B00.toInt())
+            }
+            reduced.isNotEmpty() -> {
+                badgeView.text = reduced
+                badgeView.setBackgroundColor(0xCCA84B00.toInt())
+            }
+            else -> badgeView.setBackgroundColor(0x99000000.toInt())
+        }
+        badgeView.visibility =
+            if (batteryAlert || reduced.isNotEmpty() || SystemClock.elapsedRealtime() < badgeUntilMs) View.VISIBLE else View.GONE
     }
 
     override fun onDestroy() {
@@ -216,14 +308,17 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
     }
 
     private fun onSurfaceTouch(event: MotionEvent): Boolean {
-        // Cuatro dedos a la vez: mostrar u ocultar las estadísticas (el toque normal va al PC).
+        // Cuatro dedos a la vez: menú rápido (el toque normal va al PC). Se sueltan los dedos que ya iban al PC.
         if (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN && event.pointerCount == 4) {
-            statsVisible = statsView.visibility != View.VISIBLE
-            statsView.visibility = if (statsVisible) View.VISIBLE else View.GONE
+            if (touchCount > 0) {
+                touchCount = 0
+                session?.sendTouch(touchState, 0)
+            }
+            setMenu(true)
             return true
         }
-        // «Solo ver»: los toques se quedan en la tablet.
-        if (settings.touch == TouchChoice.OFF) return true
+        // «Solo ver» (lo elige el PC): los toques se quedan en la tablet.
+        if (viewOnly || menuOpen) return true
         // Cada muestra del táctil sale en cuanto llega, sin esperar a agruparlas con el refresco de pantalla
         // (Android las junta por vsync): unos ms menos de retraso al arrastrar.
         if (event.actionMasked == MotionEvent.ACTION_DOWN) surfaceView.requestUnbufferedDispatch(event)
@@ -318,12 +413,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         phase = StreamSession.Phase.CONNECTING
         phaseDetail = ""
         overlay.visibility = View.VISIBLE
-        val current = settings
-        session = StreamSession(
-            host, s, this, helloConfig, current.audio, profile,
-            requestedInputMode = current.touch.wire,
-            qualityRequest = current::qualityRequest,
-        ).also { it.start() }
+        session = StreamSession(host, s, this, helloConfig).also { it.start() }
     }
 
     private fun stopSession() {
@@ -343,7 +433,8 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
             this.phase = phase
             phaseDetail = detail
             val streaming = phase == StreamSession.Phase.STREAMING
-            overlay.visibility = if (streaming) View.GONE else View.VISIBLE
+            if (!streaming) menuOpen = false
+            overlay.visibility = if (streaming && !menuOpen) View.GONE else View.VISIBLE
             if (settings.keepScreenOn) {
                 ui.removeCallbacks(releaseScreen)
                 if (streaming || phase == StreamSession.Phase.CONNECTING) {
@@ -367,15 +458,6 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
             // Con los perfiles de ahorro además se fija el modo de pantalla (p. ej. 60 Hz en vez de 144 Hz).
             streamFps = info.fps
             if (profile.lowRefreshMode) applyProfile(profile)
-            val want = helloConfig
-            if (!legacyWarned && !info.acceptsHelloConfig && want != null && (info.width != want.width || info.height != want.height)) {
-                legacyWarned = true
-                Toast.makeText(
-                    this,
-                    "El DeskLink del PC es antiguo y no ajusta el monitor a esta pantalla. Actualízalo para verlo a ${want.width}×${want.height}.",
-                    Toast.LENGTH_LONG,
-                ).show()
-            }
         }
     }
 
@@ -403,14 +485,15 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
     override fun onStats(text: String) {
         val b = probe.sampleBattery()
         runOnUiThread {
-            val changed = governor.update(SystemClock.elapsedRealtime(), b.pluggedUsbOrAc, b.netMilliwatts, b.percent)
+            // Solo si en el PC está activado «bajar la calidad si la batería de la tablet no aguanta».
+            val adapt = config?.batteryAdapt == true
+            val changed = adapt && governor.update(SystemClock.elapsedRealtime(), b.pluggedUsbOrAc, b.netMilliwatts, b.percent)
             if (changed) {
                 probe.restartWindow()
                 applyProfile(governor.current)
-                showBadge(BADGE_MS)
             }
             val state = governor.state
-            if (state == ChargeState.DRAINING && !warnedDrain) {
+            if (adapt && state == ChargeState.DRAINING && !warnedDrain) {
                 warnedDrain = true
                 Toast.makeText(
                     this,
@@ -419,17 +502,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
                     Toast.LENGTH_LONG,
                 ).show()
             }
-            val alert = state == ChargeState.DRAINING || state == ChargeState.ADAPTING
-            badgeView.text = governor.indicator()
-            badgeView.setBackgroundColor(
-                when (state) {
-                    ChargeState.DRAINING -> 0xCCB00020.toInt()
-                    ChargeState.ADAPTING -> 0xCCB26A00.toInt()
-                    ChargeState.CHARGING -> 0x9900701A.toInt()
-                    else -> 0x99000000.toInt()
-                },
-            )
-            badgeView.visibility = if (alert || SystemClock.elapsedRealtime() < badgeUntilMs) View.VISIBLE else View.GONE
+            updateBadge()
             if (statsVisible) {
                 val level = if (b.percent >= 0) " ${b.percent} %" else ""
                 val watts = b.netMilliwatts?.let { " ${"%+.1f".format(it / 1000)} W" } ?: " (midiendo…)"
@@ -441,6 +514,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
     }
 
     override fun onInputMode(state: Dlp.InputModeState) {
+        runOnUiThread { if (summary.input != Dlp.INPUT_VIEW_ONLY) summary = summary.copy(input = state.active) }
         if (state.requested == Dlp.INPUT_TOUCH && state.active == Dlp.INPUT_MOUSE && !touchFallbackShown) {
             touchFallbackShown = true
             onError("El PC no aceptó el táctil directo: los toques mueven el ratón")

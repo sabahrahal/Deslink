@@ -2,8 +2,6 @@ package com.desklink.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,33 +15,25 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.desklink.Found
+import com.desklink.HostGroups
+import com.desklink.Link
+import com.desklink.PcEntry
 import com.desklink.Transport
 
 /** Lo que muestra la pantalla de inicio; lo calcula MainActivity con cada búsqueda. */
@@ -56,221 +46,159 @@ data class HomeState(
     val networks: String = "",
     /** PC al que se va a conectar solo (se puede cancelar). */
     val autoConnecting: Found? = null,
-)
+) {
+    /** Un PC por tarjeta, con el cable USB y el Wi-Fi juntos. */
+    val pcs: List<PcEntry> get() = HostGroups.group(hosts)
+}
 
+/**
+ * Inicio: el nombre de la app, una tarjeta por PC encontrado (con «Cable USB» y «Wi-Fi» como dos opciones de la
+ * misma tarjeta) y un enlace a Configuración avanzada. Nada más: calidad, sonido y táctil se eligen en el PC.
+ */
 @Composable
 fun HomeScreen(
     state: HomeState,
     onConnect: (Found) -> Unit,
     onConnectAddress: (String) -> Unit,
     onCancelAuto: () -> Unit,
-    onOpenSettings: () -> Unit,
+    onOpenAdvanced: () -> Unit,
 ) {
-    var manual by remember { mutableStateOf(false) }
+    // Camino elegido en cada tarjeta (true = cable USB). De serie, el cable.
+    val preferUsb = remember { mutableStateMapOf<String, Boolean>() }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         Column(
             Modifier
-                .widthIn(max = 720.dp)
+                .widthIn(max = 640.dp)
                 .fillMaxWidth()
                 .safeDrawingPadding()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 16.dp)
+                .padding(horizontal = 20.dp, vertical = 24.dp)
                 .animateContentSize(),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        "DESKLINK",
-                        style = TextStyle(brush = Palette.AccentGradient, fontSize = 30.sp, fontWeight = FontWeight.Black, letterSpacing = 4.sp),
-                    )
-                    Text("Tu tablet, segunda pantalla de tu PC", color = Palette.TextMuted)
-                }
-                IconButton(onClick = onOpenSettings) {
-                    Icon(Icons.Filled.Settings, contentDescription = "Ajustes", tint = Palette.Text)
-                }
-            }
+            Text("DeskLink", style = DlText.LargeTitle)
+            Text("Tu tablet como segunda pantalla", style = DlText.Body, color = palette.textSecondary)
             VSpace(24.dp)
 
-            StatusHeader(state)
-            VSpace(16.dp)
-
+            val pcs = state.pcs
             state.autoConnecting?.let { f ->
-                NeonCard(glow = true) {
+                DlCard {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Radar(Modifier.size(40.dp))
-                        Spacer(Modifier.width(14.dp))
+                        CircularProgressIndicator(Modifier.size(20.dp), color = palette.accent, strokeWidth = 2.dp)
+                        Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
-                            Text("Conectando con ${f.title}…", style = MaterialTheme.typography.titleMedium)
-                            Text("Es el último PC que usaste", color = Palette.TextMuted, style = MaterialTheme.typography.bodySmall)
+                            Text("Conectando con ${f.title}…", style = DlText.Headline)
+                            Text("Es el último PC que usaste", style = DlText.Note, color = palette.textSecondary)
                         }
-                        TextButton(onClick = onCancelAuto) { Text("Cancelar", color = Palette.TextMuted) }
+                        SecondaryButton("Cancelar", onCancelAuto)
                     }
                 }
                 VSpace(12.dp)
             }
 
-            for (host in state.hosts) {
-                HostCard(host, isLast = host.ip == state.lastHost, onConnect = { onConnect(host) })
-                VSpace(12.dp)
+            if (pcs.isEmpty()) {
+                Searching(state)
+            } else {
+                SectionHeader(if (pcs.size == 1) "Tu PC" else "Tus PC")
+                for (pc in pcs) {
+                    val usb = preferUsb[pc.key] ?: true
+                    PcCard(
+                        pc = pc,
+                        isLast = pc.matches(state.lastHost),
+                        useUsb = usb,
+                        onChooseUsb = { preferUsb[pc.key] = it },
+                        onConnect = { onConnect(pc.route(usb)) },
+                    )
+                    VSpace(12.dp)
+                }
             }
 
             val last = state.lastHost
-            if (last != null && state.hosts.none { it.ip == last } && state.scans > 0) {
+            if (last != null && pcs.none { it.matches(last) } && state.scans > 0) {
+                VSpace(4.dp)
                 LastHostCard(last, state.lastHostName, onConnect = { onConnectAddress(last) })
-                VSpace(12.dp)
             }
 
-            AnimatedVisibility(state.hosts.isEmpty() && state.scans >= 2, enter = fadeIn(), exit = fadeOut()) {
-                HelpCard(state.networks)
-            }
-
-            VSpace(8.dp)
-            TextButton(onClick = { manual = true }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                Text("Conectar escribiendo la IP del PC", color = Palette.Accent)
-            }
+            VSpace(20.dp)
+            LinkText("Configuración avanzada", onOpenAdvanced, Modifier.align(Alignment.CenterHorizontally))
         }
-    }
-    if (manual) {
-        ManualDialog(onDismiss = { manual = false }, onConnect = {
-            manual = false
-            onConnectAddress(it)
-        })
     }
 }
 
 @Composable
-private fun StatusHeader(state: HomeState) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Radar(Modifier.size(44.dp), active = state.scanning || state.hosts.isEmpty())
-        Spacer(Modifier.width(12.dp))
+private fun Searching(state: HomeState) {
+    var help by rememberSaveable { mutableStateOf(false) }
+    DlCard {
         Column {
-            val n = state.hosts.size
-            Text(
-                when {
-                    n == 1 -> "PC encontrado"
-                    n > 1 -> "$n PCs encontrados"
-                    else -> "Buscando tu PC…"
-                },
-                style = MaterialTheme.typography.titleLarge,
-            )
-            Text(
-                if (n > 0) "Toca uno para usar esta pantalla como monitor" else "Por cable USB y en tu red WiFi",
-                color = Palette.TextMuted,
-                style = MaterialTheme.typography.bodyMedium,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(20.dp), color = palette.accent, strokeWidth = 2.dp)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Buscando tu PC…", style = DlText.Headline)
+                    Text("Por cable USB y en tu red Wi-Fi", style = DlText.Note, color = palette.textSecondary)
+                }
+            }
+            if (state.scans >= 2) {
+                VSpace(8.dp)
+                LinkText(if (help) "Ocultar ayuda" else "¿No aparece?", { help = !help })
+                AnimatedVisibility(help) {
+                    Column(Modifier.padding(start = 8.dp, top = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("1. Abre DeskLink en el PC y pulsa Iniciar.", style = DlText.Body)
+                        Text("2. Por cable: conecta el USB y acepta «Permitir depuración USB» en la tablet.", style = DlText.Body)
+                        Text("3. Por Wi-Fi: PC y tablet en la misma red, y DeskLink permitido en el cortafuegos de Windows.", style = DlText.Body)
+                        Text("Redes de esta tablet: ${state.networks}", style = DlText.Note, color = palette.textSecondary)
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun HostCard(host: Found, isLast: Boolean, onConnect: () -> Unit) {
-    val cable = host.isCable
-    val icon = when (host.transport) {
-        Transport.CABLE, Transport.USB -> DlIcons.Usb
-        Transport.WIFI -> DlIcons.Wifi
-        Transport.ETHERNET -> DlIcons.Lan
-        Transport.OTHER -> DlIcons.Desktop
-    }
-    NeonCard(glow = isLast || cable, onClick = onConnect) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconBadge(icon, if (cable) Palette.Success else Palette.Accent)
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+private fun PcCard(pc: PcEntry, isLast: Boolean, useUsb: Boolean, onChooseUsb: (Boolean) -> Unit, onConnect: () -> Unit) {
+    val route = pc.route(useUsb)
+    DlCard(Modifier.testTag("pc:${pc.key}")) {
+        Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(pc.name, style = DlText.Headline, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
-                        host.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
+                        HostGroups.describe(route) + if (isLast) " · el último que usaste" else "",
+                        style = DlText.Note,
+                        color = palette.textSecondary,
                     )
-                    if (cable) Pill("Recomendado", Palette.Success)
-                    if (isLast) Pill("Último", Palette.Accent)
+                    if (!route.acceptsConfig) {
+                        Text("El DeskLink del PC es antiguo: actualízalo.", style = DlText.Note, color = palette.warning)
+                    }
                 }
-                Text(
-                    buildString {
-                        append(host.transport.label)
-                        if (!cable) append(" · ").append(host.ip)
-                        if (cable) append(" · menos retardo y carga la tablet")
-                        if (!host.acceptsConfig) append(" · DeskLink antiguo en el PC")
-                    },
-                    color = Palette.TextMuted,
-                    style = MaterialTheme.typography.bodySmall,
+                Spacer(Modifier.width(12.dp))
+                PrimaryButton("Conectar", onConnect)
+            }
+            if (pc.hasBoth) {
+                VSpace(12.dp)
+                val network = pc.network.first().transport
+                Segmented(
+                    options = listOf("Cable USB", if (network == Transport.WIFI) "Wi-Fi" else "Red"),
+                    selected = if (useUsb) 0 else 1,
+                    onSelect = { onChooseUsb(it == 0) },
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
-            Spacer(Modifier.width(12.dp))
-            GlowButton("Conectar", onConnect)
         }
     }
 }
 
 @Composable
 private fun LastHostCard(address: String, name: String?, onConnect: () -> Unit) {
-    NeonCard(onClick = onConnect) {
+    DlCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconBadge(DlIcons.Desktop, Palette.TextMuted)
-            Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
-                Text(name?.takeIf { it.isNotBlank() } ?: if (address == com.desklink.Link.CABLE_HOST) "PC por cable USB" else address,
-                    style = MaterialTheme.typography.titleMedium)
-                Text("Último PC usado · ahora no responde a la búsqueda", color = Palette.TextMuted, style = MaterialTheme.typography.bodySmall)
-            }
-            TextButton(onClick = onConnect) { Text("Probar", color = Palette.Accent) }
-        }
-    }
-}
-
-@Composable
-private fun HelpCard(networks: String) {
-    NeonCard {
-        Column {
-            Text("No encuentro tu PC", style = MaterialTheme.typography.titleMedium, color = Palette.Warning)
-            VSpace(10.dp)
-            HelpStep("1", "Abre DeskLink en el PC.")
-            HelpStep("2", "Por cable: conecta el USB y acepta «Permitir depuración USB» en la tablet.")
-            HelpStep("3", "Por WiFi: PC y tablet en la misma red, y permite DeskLink en el cortafuegos de Windows.")
-            VSpace(8.dp)
-            Text("Redes de esta tablet: $networks", color = Palette.TextMuted, style = MaterialTheme.typography.bodySmall)
-            Text("Sigo buscando…", color = Palette.TextMuted, style = MaterialTheme.typography.bodySmall)
-        }
-    }
-}
-
-@Composable
-private fun HelpStep(n: String, text: String) {
-    Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.Top) {
-        Text(n, color = Palette.Accent, fontWeight = FontWeight.Black, modifier = Modifier.width(22.dp))
-        Text(text, style = MaterialTheme.typography.bodyMedium)
-    }
-}
-
-@Composable
-private fun ManualDialog(onDismiss: () -> Unit, onConnect: (String) -> Unit) {
-    var text by remember { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Palette.Surface,
-        title = { Text("IP del PC") },
-        text = {
-            Column {
                 Text(
-                    "La ves en la ventana de DeskLink del PC (por ejemplo 192.168.1.20).",
-                    color = Palette.TextMuted,
-                    style = MaterialTheme.typography.bodySmall,
+                    name?.takeIf { it.isNotBlank() } ?: if (address == Link.CABLE_HOST) "PC por cable USB" else address,
+                    style = DlText.Headline,
                 )
-                VSpace(12.dp)
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it.trim() },
-                    singleLine = true,
-                    placeholder = { Text("192.168.1.20") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Palette.Accent, cursorColor = Palette.Accent),
-                    textStyle = TextStyle(textAlign = TextAlign.Start, color = Palette.Text, fontSize = 18.sp),
-                )
+                Text("Último PC usado · ahora no responde", style = DlText.Note, color = palette.textSecondary)
             }
-        },
-        confirmButton = { GlowButton("Conectar", { onConnect(text) }, enabled = text.isNotBlank()) },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar", color = Palette.TextMuted) } },
-    )
+            SecondaryButton("Probar", onConnect)
+        }
+    }
 }

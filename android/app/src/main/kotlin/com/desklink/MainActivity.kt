@@ -23,7 +23,7 @@ import androidx.compose.ui.Modifier
 import com.desklink.ui.DeskLinkTheme
 import com.desklink.ui.HomeScreen
 import com.desklink.ui.HomeState
-import com.desklink.ui.Palette
+import com.desklink.ui.palette
 import com.desklink.ui.SettingsScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -96,17 +96,21 @@ class MainActivity : ComponentActivity() {
                     connect(target)
                 }
 
-                Box(Modifier.fillMaxSize().background(Palette.BackgroundGradient)) {
+                Box(Modifier.fillMaxSize().background(palette.background)) {
                     AnimatedContent(showSettings, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "screen") { inSettings ->
                         if (inSettings) {
                             SettingsScreen(
                                 settings = settings,
                                 display = display,
-                                hevcSupported = Device.hevcSupported,
                                 versionName = version,
                                 onChange = {
                                     settings = it
                                     store.save(it)
+                                },
+                                onConnectAddress = {
+                                    autoDone = true
+                                    showSettings = false
+                                    connect(Found(it, null))
                                 },
                                 onOpenDiagnostics = { openDiagnostics() },
                                 onBack = { showSettings = false },
@@ -126,7 +130,7 @@ class MainActivity : ComponentActivity() {
                                     autoDone = true
                                     home = home.copy(autoConnecting = null)
                                 },
-                                onOpenSettings = {
+                                onOpenAdvanced = {
                                     autoDone = true
                                     home = home.copy(autoConnecting = null)
                                     showSettings = true

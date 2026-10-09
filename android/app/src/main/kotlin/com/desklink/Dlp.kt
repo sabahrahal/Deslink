@@ -38,6 +38,20 @@ object Dlp {
     const val AUDIO_FRAME_SAMPLES = 480
 
     const val TYPE_QUALITY_REQUEST = 16
+    /** Host -> tablet: lo que el PC decidió para la sesión (ver [SessionConfig]). */
+    const val TYPE_SESSION_CONFIG = 17
+    const val SESSION_CONFIG_SIZE = 10
+    const val INPUT_VIEW_ONLY = 2
+
+    /** [HelloConfig.codec] en el HELLO: qué puede decodificar la tablet. */
+    const val CAN_DECODE_H264_ONLY = 1
+    const val CAN_DECODE_HEVC = 2
+
+    /** Por qué la imagen va por debajo de lo elegido en el PC ([SessionConfig.reduced]). */
+    const val REDUCED_NONE = 0
+    const val REDUCED_WIFI = 1
+    const val REDUCED_BATTERY = 2
+    const val REDUCED_LOAD = 3
 
     const val FLAG_KEYFRAME = 1
     const val FLAG_LAST_PACKET = 2
@@ -97,6 +111,54 @@ object Dlp {
             b.putShort(12, refreshHz.toShort())
             return b.array()
         }
+    }
+
+    /**
+     * Lo que el PC decidió para la sesión (SESSION_CONFIG, ver dlp/session.h): calidad ([profile], el número de
+     * [PowerProfile.wire]), sonido en la tablet, «bajar si la batería no aguanta», táctil, por qué va reducida y los
+     * fps y la tasa de ahora. Llega al conectar, cada vez que cambia y cada 2 s.
+     */
+    data class SessionConfig(
+        val profile: Int,
+        val flags: Int,
+        val input: Int,
+        val reduced: Int,
+        val fps: Int,
+        val bitrateX100kbps: Int,
+        val maxBitrateX100kbps: Int,
+    ) {
+        val audioOnTablet: Boolean get() = flags and 1 != 0
+        val batteryAdapt: Boolean get() = flags and 2 != 0
+        val viewOnly: Boolean get() = input == INPUT_VIEW_ONLY
+
+        fun encode(): ByteArray {
+            val b = ByteBuffer.allocate(SESSION_CONFIG_SIZE).order(ByteOrder.LITTLE_ENDIAN)
+            b.put(0, profile.toByte())
+            b.put(1, flags.toByte())
+            b.put(2, input.toByte())
+            b.put(3, reduced.toByte())
+            b.putShort(4, fps.toShort())
+            b.putShort(6, bitrateX100kbps.toShort())
+            b.putShort(8, maxBitrateX100kbps.toShort())
+            return b.array()
+        }
+    }
+
+    /** Null si el payload es corto. Valores desconocidos se acotan como en el PC. */
+    fun parseSessionConfig(data: ByteArray, header: Header): SessionConfig? {
+        if (header.type != TYPE_SESSION_CONFIG || header.payloadSize < SESSION_CONFIG_SIZE) return null
+        val o = HEADER_SIZE
+        fun u8(i: Int) = data[o + i].toInt() and 0xFF
+        fun u16(i: Int) = u8(i) or (u8(i + 1) shl 8)
+        return SessionConfig(
+            profile = u8(0).takeIf { it <= 3 } ?: 1,
+            flags = u8(1),
+            input = u8(2).takeIf { it <= INPUT_VIEW_ONLY } ?: INPUT_TOUCH,
+            reduced = u8(3).takeIf { it <= REDUCED_LOAD } ?: REDUCED_NONE,
+            fps = u16(4),
+            bitrateX100kbps = u16(6),
+            maxBitrateX100kbps = u16(8),
+        )
     }
 
     /** Un trozo Opus de 10 ms; [seq] cuenta trozos desde que el host empezó a enviar sonido. */
@@ -264,13 +326,10 @@ object Dlp {
 
     /**
      * Límites del perfil de batería: fps máx. u16, Mbps máx. en unidades de 100 kbps u16, escala % u8, perfil u8.
-     * 0 = sin límite. El host los acota con sus opciones (ver docs/battery.md).
+     * 0 = sin límite. El PC solo lo tiene en cuenta si allí está activado «bajar la calidad si la batería de la
+     * tablet no aguanta», y nunca baja por él la resolución (ver docs/battery.md).
      */
-    /**
-     * Topes del perfil para el host. [liftFps]/[liftBitrate] mandan 0 (sin tope) en ese campo: el usuario fijó
-     * ese valor en Ajustes > Avanzado y va en el HELLO (ver [AppSettings.qualityRequest]).
-     */
-    fun qualityRequest(profile: PowerProfile, timestampUs: Long, liftFps: Boolean = false, liftBitrate: Boolean = false): ByteArray {
+    fun qualityRequest(profile: PowerProfile, timestampUs: Long): ByteArray {
         val b = ByteBuffer.allocate(HEADER_SIZE + 6).order(ByteOrder.LITTLE_ENDIAN)
         b.putShort(0, MAGIC.toShort())
         b.put(2, VERSION.toByte())
@@ -278,8 +337,8 @@ object Dlp {
         b.putShort(12, 1)
         b.putLong(14, timestampUs)
         b.putShort(22, 6)
-        b.putShort(HEADER_SIZE, (if (liftFps) 0 else profile.maxFps).toShort())
-        b.putShort(HEADER_SIZE + 2, (if (liftBitrate) 0 else profile.maxBitrateMbps * 10).toShort())
+        b.putShort(HEADER_SIZE, profile.maxFps.toShort())
+        b.putShort(HEADER_SIZE + 2, (profile.maxBitrateMbps * 10).toShort())
         b.put(HEADER_SIZE + 4, profile.scalePercent.toByte())
         b.put(HEADER_SIZE + 5, profile.wire.toByte())
         return b.array()

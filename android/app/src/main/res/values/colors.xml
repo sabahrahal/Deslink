@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="dl_background">#FF0A0E17</color>
-    <color name="dl_accent">#FF00E5FF</color>
-    <color name="dl_accent_alt">#FFFF2BD6</color>
+    <!-- Los de design/tokens.json en modo claro; values-night/colors.xml tiene los del modo oscuro. -->
+    <color name="dl_background">#FFF5F5F7</color>
+    <color name="dl_accent">#FF0066CC</color>
+    <!-- Segundo color del icono -->
+    <color name="dl_accent_alt">#FF1D1D1F</color>
 </resources>

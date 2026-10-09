@@ -1,0 +1,22 @@
+name: design
+
+# Los colores y textos salen de design/tokens.json: comprueba que Tokens.kt y tokens.h están al día y que el texto
+# se lee (contraste AA), y prueba que la ventana del PC enseña cada cosa donde debe (sin Windows).
+on:
+  push:
+    paths: ['design/**', 'tools/design/**', 'android/app/src/main/kotlin/com/desklink/ui/Tokens.kt', 'windows/app/**', '.github/workflows/design.yml']
+  pull_request:
+    paths: ['design/**', 'tools/design/**', 'android/app/src/main/kotlin/com/desklink/ui/Tokens.kt', 'windows/app/**', '.github/workflows/design.yml']
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Colores generados al día y contraste
+        run: python3 tools/design/gen_tokens.py --check
+      - name: Pruebas de la ventana del PC
+        run: |
+          cmake -S windows/app -B build/app
+          cmake --build build/app
+          ctest --test-dir build/app --output-on-failure
