@@ -7,6 +7,7 @@
 #include <functional>
 #include <mutex>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include <mfapi.h>
@@ -46,6 +47,9 @@ class MfEncoder {
   std::atomic<uint64_t> submitted_frames{0};
   std::atomic<uint64_t> dropped_frames{0};
   std::atomic<uint64_t> mailbox_wait_us{0};
+  // Tiempo que el MFT tarda de verdad en codificar: desde ProcessInput hasta que sale ese mismo frame.
+  std::atomic<uint64_t> encode_us{0};
+  std::atomic<uint64_t> encode_count{0};
 
   void Stop();
 
@@ -86,6 +90,7 @@ class MfEncoder {
   bool pump_done_ = false;  // GetEvent falló o acabó el vaciado: no llegarán más eventos
   bool has_pending_ = false;
   PendingFrame pending_;
+  std::deque<std::pair<uint64_t, uint64_t>> in_flight_;  // (timestamp del frame, cuándo entró al MFT)
   std::atomic<bool> stop_{false};
   std::atomic<uint32_t> bitrate_request_{0};
   std::atomic<bool> keyframe_requested_{true};  // el primer frame es clave

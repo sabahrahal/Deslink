@@ -1055,6 +1055,7 @@ int Run(int argc, char** argv) {
     UINT refine_left = 0;    // repeticiones lentas pendientes para afinar la calidad de la imagen quieta
     uint64_t captured = 0, composed = 0, last_composed = 0, last_stats_us = NowUs();
     uint64_t convert_us = 0, last_convert = 0, last_fed = 0, last_mailbox = 0, last_submitted = 0, last_dropped = 0;
+    uint64_t last_encode_us = 0, last_encode_count = 0;
     TouchInjector::Mode last_input_mode = touch.active();
     uint64_t last_bytes = 0, last_encoded = 0, last_latency = 0, last_captured = 0, last_keyframes = 0, last_retransmits = 0, last_touch = 0;
     bool failed = false;
@@ -1093,7 +1094,7 @@ int Run(int argc, char** argv) {
       dirty = false;
       flush_left = 0;
       refine_left = 0;
-      last_fed = last_mailbox = last_submitted = last_dropped = 0;
+      last_fed = last_mailbox = last_submitted = last_dropped = last_encode_us = last_encode_count = 0;
       return true;
     };
 
@@ -1361,10 +1362,15 @@ int Run(int argc, char** argv) {
             }
           }
           if (new_fps) {
-            std::printf("Fluidez: %u fps (%s; último segundo: %llu de %llu frames descartados, codificación %.1f ms).\n",
+            const uint64_t mft_n = pipe->encoder->encode_count - last_encode_count;
+            const uint64_t fed_n = pipe->encoder->fed_frames - last_fed;
+            std::printf("Fluidez: %u fps (%s; último segundo: %llu de %llu frames descartados, total %.1f ms: "
+                        "en cola %.1f ms, codificador %.1f ms).\n",
                         new_fps, slower ? "la gráfica no llega a más" : "vuelve a subir",
                         static_cast<unsigned long long>(dropped), static_cast<unsigned long long>(submitted),
-                        enc ? lat / 1000.0 / enc : 0.0);
+                        enc ? lat / 1000.0 / enc : 0.0,
+                        fed_n ? (pipe->encoder->mailbox_wait_us - last_mailbox) / 1000.0 / fed_n : 0.0,
+                        mft_n ? (pipe->encoder->encode_us - last_encode_us) / 1000.0 / mft_n : 0.0);
             std::lock_guard<std::mutex> lock(info_mutex);
             info_current.fps = static_cast<uint16_t>(new_fps);
             info_payload = dlp::EncodeStreamInfo(info_current);
@@ -1426,6 +1432,8 @@ int Run(int argc, char** argv) {
         last_composed = composed;
         last_fed = pipe->encoder->fed_frames;
         last_mailbox = pipe->encoder->mailbox_wait_us;
+        last_encode_us = pipe->encoder->encode_us;
+        last_encode_count = pipe->encoder->encode_count;
         last_submitted = pipe->encoder->submitted_frames;
         last_dropped = pipe->encoder->dropped_frames;
       }
