@@ -134,6 +134,37 @@ static void TestRateControllerUsbAndMax() {
   CHECK(w.current_bps() == 60'000'000);
 }
 
+static void TestRateControllerUsbLink() {
+  RateController r;
+  uint64_t t = 1'000'000;
+  r.Reset(40'000'000, true, t);
+  // Envío holgado: no cambia nada.
+  CHECK(!r.OnLinkLoad(23'000'000, 0.4, t += 1'000'000));
+  CHECK(r.current_bps() == 40'000'000);
+  // El cable pasa 23 Mbps y va saturado: baja al 80 % de eso (no por debajo de la mitad del máximo).
+  CHECK(r.OnLinkLoad(23'000'000, 0.95, t += 1'000'000));
+  CHECK(r.current_bps() == 20'000'000 && r.reduced());
+  r.Reset(26'000'000, true, t);
+  CHECK(r.OnLinkLoad(23'000'000, 0.95, t += 1'000'000));
+  CHECK(r.current_bps() == 18'400'000);
+  // Con el enlace limpio no vuelve a subir por encima de lo que aguanta el cable.
+  for (int i = 0; i < 20; ++i) {
+    r.OnReport(60, 0, t += 1'000'000);
+    r.OnLinkLoad(18'400'000, 0.6, t);
+  }
+  CHECK(r.current_bps() == 18'400'000);
+  // Tras 30 s holgados prueba un 10 % más.
+  for (int i = 0; i < 40; ++i) {
+    r.OnReport(60, 0, t += 1'000'000);
+    r.OnLinkLoad(18'400'000, 0.3, t);
+  }
+  CHECK(r.current_bps() > 18'400'000 && r.current_bps() <= 26'000'000);
+  // Otra calidad con más tasa no se salta el tope del cable.
+  CHECK(r.OnLinkLoad(23'000'000, 0.95, t += 1'000'000));
+  CHECK(r.SetMax(40'000'000, t += 1'000'000));
+  CHECK(r.current_bps() == 20'000'000);
+}
+
 static void TestFpsGovernor() {
   FpsGovernor g;
   g.Reset(120);
@@ -173,6 +204,7 @@ int main() {
   TestCombineLimits();
   TestRateControllerWifi();
   TestRateControllerUsbAndMax();
+  TestRateControllerUsbLink();
   TestFpsGovernor();
   std::puts("dlp_session_tests: OK");
   return 0;

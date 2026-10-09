@@ -102,6 +102,8 @@ void RateController::Reset(uint32_t max_bps, bool usb, uint64_t now_us) {
   current_ = usb ? max_ : std::min(max_, kStartBps);
   current_ = std::max(current_, min_bps());
   ceiling_ = max_;
+  link_cap_ = UINT32_MAX;
+  link_idle_since_us_ = 0;
   last_decrease_us_ = 0;
   last_increase_us_ = now_us;
   last_relax_us_ = now_us;
@@ -126,7 +128,7 @@ bool RateController::OnReport(uint32_t received, uint32_t lost, uint64_t now_us)
   if (lost > 0) return false;
   bool changed = false;
   if (now_us - last_relax_us_ >= 3'000'000 && ceiling_ < max_) {
-    ceiling_ = std::min<uint32_t>(ceiling_ + 5'000'000, max_);
+    ceiling_ = std::min<uint32_t>({ceiling_ + 5'000'000, max_, std::max(link_cap_, min_bps())});
     last_relax_us_ = now_us;
   }
   const bool clean_for_a_while = !last_decrease_us_ || now_us - last_decrease_us_ >= 3'000'000;
@@ -151,7 +153,34 @@ bool RateController::SetMax(uint32_t max_bps, uint64_t now_us) {
   max_ = max_bps;
   ceiling_ = up ? max_ : std::min(ceiling_, max_);
   current_ = (up && (usb_ || clean)) ? max_ : std::clamp(current_, min_bps(), max_);
+  current_ = std::min(current_, std::max(link_cap_, min_bps()));
+  ceiling_ = std::min(ceiling_, std::max(link_cap_, min_bps()));
   return true;
+}
+
+bool RateController::OnLinkLoad(uint32_t link_bps, double busy_fraction, uint64_t now_us) {
+  if (busy_fraction > 0.8 && link_bps > 0) {
+    link_idle_since_us_ = 0;
+    if (last_decrease_us_ && now_us - last_decrease_us_ < 1'000'000) return false;
+    const uint32_t target = std::clamp<uint32_t>(static_cast<uint32_t>(link_bps * 0.8), min_bps(), current_);
+    link_cap_ = target;
+    ceiling_ = target;
+    last_decrease_us_ = now_us;
+    last_relax_us_ = now_us;
+    if (target == current_) return false;
+    current_ = target;
+    return true;
+  }
+  if (busy_fraction < 0.5 && link_cap_ != UINT32_MAX) {
+    if (!link_idle_since_us_) link_idle_since_us_ = now_us;
+    if (now_us - link_idle_since_us_ >= 30'000'000) {
+      link_idle_since_us_ = now_us;
+      link_cap_ = link_cap_ >= max_ ? UINT32_MAX : static_cast<uint32_t>(link_cap_ * 1.1);
+    }
+  } else {
+    link_idle_since_us_ = 0;
+  }
+  return false;
 }
 
 void FpsGovernor::Reset(uint32_t target_fps) {
