@@ -26,6 +26,8 @@ class HostProcess {
   void RequestStop();
   // Para cerrar la app: pide parar, espera hasta ms y si no ha terminado lo cierra a la fuerza.
   void StopAndWait(DWORD ms);
+  // Manda una línea al host por su entrada estándar («@ajustes …»: ajustes que se aplican sin reiniciar).
+  bool Send(const std::wstring& line);
   bool running() const;
   unsigned generation() const { return generation_; }
   DWORD pid() const { return pid_; }
@@ -36,6 +38,7 @@ class HostProcess {
   HANDLE job_ = nullptr;
   HANDLE process_ = nullptr;
   HANDLE stop_event_ = nullptr;
+  HANDLE stdin_ = nullptr;
   DWORD pid_ = 0;
   unsigned generation_ = 0;
 };

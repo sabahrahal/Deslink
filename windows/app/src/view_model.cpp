@@ -1,0 +1,257 @@
+#include "view_model.h"
+
+#include <cstdio>
+#include <cwchar>
+
+namespace {
+
+std::wstring Stat(const ViewInput& in, const wchar_t* key) {
+  const auto it = in.stats.find(key);
+  return it == in.stats.end() ? std::wstring() : it->second;
+}
+
+double StatNum(const ViewInput& in, const wchar_t* key) {
+  const std::wstring v = Stat(in, key);
+  return v.empty() ? 0.0 : std::wcstod(v.c_str(), nullptr);
+}
+
+int StatInt(const ViewInput& in, const wchar_t* key, int def) {
+  const std::wstring v = Stat(in, key);
+  return v.empty() ? def : static_cast<int>(std::wcstol(v.c_str(), nullptr, 10));
+}
+
+std::wstring Fmt(const wchar_t* fmt, double v) {
+  wchar_t buf[64];
+  std::swprintf(buf, 64, fmt, v);
+  std::wstring s = buf;
+  for (auto& c : s) {
+    if (c == L'.') c = L',';  // coma decimal, como escribe el usuario
+  }
+  return s;
+}
+
+Row Segmented(const char* id, const std::wstring& label, std::vector<std::wstring> options, int selected) {
+  Row r;
+  r.id = id;
+  r.control = Control::kSegmented;
+  r.label = label;
+  r.options = std::move(options);
+  r.selected = selected;
+  return r;
+}
+
+Row Choice(const char* id, const std::wstring& label, const std::wstring& value) {
+  Row r;
+  r.id = id;
+  r.control = Control::kChoice;
+  r.label = label;
+  r.value = value;
+  return r;
+}
+
+Row Toggle(const char* id, const std::wstring& label, bool on) {
+  Row r;
+  r.id = id;
+  r.control = Control::kToggle;
+  r.label = label;
+  r.on = on;
+  return r;
+}
+
+}  // namespace
+
+const std::vector<int>& FpsChoices() {
+  static const std::vector<int> v = {0, 30, 60, 90, 120};
+  return v;
+}
+
+const std::vector<int>& BitrateChoices() {
+  static const std::vector<int> v = {0, 20, 30, 50, 80};
+  return v;
+}
+
+const std::vector<std::wstring>& SizeChoices() {
+  static const std::vector<std::wstring> v = {L"", L"3840x2400", L"2944x1840", L"2560x1600", L"1920x1200", L"1920x1080"};
+  return v;
+}
+
+const std::vector<std::wstring>& CodecChoices() {
+  static const std::vector<std::wstring> v = {L"", L"hevc", L"h264"};
+  return v;
+}
+
+std::wstring FpsLabel(int fps) {
+  return fps > 0 ? std::to_wstring(fps) + L" fps" : L"Automática (lo máximo que aguanten tablet y PC)";
+}
+
+std::wstring BitrateLabel(int mbps) {
+  return mbps > 0 ? std::to_wstring(mbps) + L" Mbps" : L"Automática (según resolución y fps)";
+}
+
+std::wstring SizeLabel(const std::wstring& size) {
+  unsigned w, h;
+  if (ParseSize(size, &w, &h)) return std::to_wstring(w) + L" × " + std::to_wstring(h);
+  return L"Automática (la de la tablet)";
+}
+
+std::wstring CodecLabel(const std::wstring& codec) {
+  if (codec == L"hevc") return L"HEVC";
+  if (codec == L"h264") return L"H.264";
+  return L"Automático (HEVC si la tablet puede)";
+}
+
+int QualityIndex(const std::wstring& quality) {
+  if (quality == L"equilibrada") return 1;
+  if (quality == L"ahorro") return 2;
+  return 0;
+}
+
+std::wstring QualityAt(int index) {
+  return index == 1 ? L"equilibrada" : index == 2 ? L"ahorro" : L"alta";
+}
+
+View BuildView(const ViewInput& in) {
+  View v;
+  const Settings& s = in.settings;
+  const std::wstring link = Stat(in, L"enlace");
+  const bool connected = in.state == State::kConnected;
+
+  switch (in.state) {
+    case State::kStopped:
+      v.title = L"Detenido";
+      v.detail = L"Pulsa Iniciar para usar la tablet como pantalla.";
+      break;
+    case State::kStarting:
+      v.title = L"Iniciando…";
+      v.detail = s.virtual_display ? L"Creando la pantalla extra…" : L"Preparando la captura…";
+      v.dot = Tone::kWarning;
+      break;
+    case State::kWaiting:
+      v.title = L"Esperando a la tablet";
+      v.detail = L"Abre DeskLink en la tablet y pulsa Conectar.";
+      v.dot = Tone::kWarning;
+      break;
+    case State::kConnected:
+      v.title = link == L"usb" ? L"Conectado por cable USB" : L"Conectado por Wi-Fi";
+      v.detail = link == L"usb" ? L"La conexión más rápida." : L"Tablet " + Stat(in, L"ip") + L".";
+      if (!Stat(in, L"size").empty()) v.detail += L" Pantalla de " + Stat(in, L"size") + L".";
+      v.dot = Tone::kSuccess;
+      break;
+    case State::kStopping:
+      v.title = L"Deteniendo…";
+      v.detail = L"Quitando la pantalla extra y el túnel USB…";
+      v.dot = Tone::kWarning;
+      break;
+    case State::kRestarting:
+      v.title = L"Reiniciando…";
+      v.detail = L"Se cerró la transmisión; vuelvo a arrancarla.";
+      v.dot = Tone::kWarning;
+      break;
+    case State::kError:
+      v.title = L"No se pudo transmitir";
+      v.detail = L"Corrige esto y pulsa Iniciar:";
+      v.dot = Tone::kError;
+      break;
+  }
+  if (!in.error.empty() && (in.state == State::kError || in.state == State::kRestarting)) v.error = in.error;
+
+  if (connected) {
+    const double fps = StatNum(in, L"codificados");
+    v.stats = fps < 1 ? std::wstring(L"Imagen quieta") : Fmt(L"%.0f fps", fps);
+    v.stats += L" · " + Fmt(L"%.1f Mbps", StatNum(in, L"mbps"));
+    if (StatNum(in, L"rtt_ms") > 0) v.stats += L" · " + Fmt(L"%.0f ms", StatNum(in, L"rtt_ms"));
+    const std::wstring reduced = Stat(in, L"reducido");
+    if (reduced == L"wifi") v.notice = {L"Calidad reducida un momento: el Wi-Fi va justo.", Tone::kWarning};
+    else if (reduced == L"bateria") v.notice = {L"Fluidez reducida: la batería de la tablet no aguanta.", Tone::kWarning};
+    else if (reduced == L"carga") v.notice = {L"Fluidez reducida: la gráfica del PC va cargada.", Tone::kWarning};
+  }
+
+  // Por dónde puede llegar la tablet: el cable USB y el Wi-Fi, los dos a la vez si los hay.
+  if (in.state == State::kWaiting || in.state == State::kStarting || in.state == State::kStopped ||
+      in.state == State::kError) {
+    if (!s.usb) {
+      v.connection.push_back({L"Cable USB: desactivado en Configuración avanzada.", Tone::kSecondary});
+    } else if (in.state != State::kWaiting || in.stats.find(L"adb") == in.stats.end()) {
+      v.connection.push_back({L"Cable USB: se activa al iniciar.", Tone::kSecondary});
+    } else {
+      const int ready = StatInt(in, L"adb", 0);
+      const int pending = StatInt(in, L"adb_pendientes", 0);
+      if (ready < 0) {
+        v.connection.push_back({L"Cable USB: falta adb.exe junto a desklink.exe.", Tone::kWarning});
+      } else if (pending > 0) {
+        v.connection.push_back({L"Cable USB: acepta «¿Permitir depuración USB?» en la tablet.", Tone::kWarning});
+      } else if (ready > 0) {
+        v.connection.push_back({L"Cable USB: tablet enchufada y lista.", Tone::kSuccess});
+      } else {
+        v.connection.push_back({L"Cable USB: sin tablet enchufada (activa la depuración USB).", Tone::kSecondary});
+      }
+    }
+    v.connection.push_back(in.addresses.empty()
+                               ? Line{L"Wi-Fi: este PC no tiene red.", Tone::kWarning}
+                               : Line{L"Wi-Fi: misma red que la tablet (IP de este PC: " + in.addresses + L").",
+                                      Tone::kSecondary});
+  }
+
+  switch (in.state) {
+    case State::kStopped:
+    case State::kError:
+      v.primary = L"Iniciar";
+      break;
+    case State::kStopping:
+      v.primary = L"Deteniendo…";
+      v.primary_enabled = false;
+      break;
+    default:
+      v.primary = L"Detener";
+      v.primary_stop = true;
+      break;
+  }
+  v.show_apply = in.dirty && in.state != State::kStopped && in.state != State::kError && in.state != State::kStopping;
+
+  // A la vista: lo que casi todo el mundo toca.
+  Row mode = Segmented("modo", L"Modo", {L"Pantalla extra", L"Duplicar"}, s.virtual_display ? 0 : 1);
+  if (s.virtual_display && !in.driver_installed) {
+    mode.hint = L"Falta el driver de la pantalla extra";
+    mode.hint_tone = Tone::kWarning;
+  }
+  v.main.push_back(mode);
+  Row quality = Segmented("calidad", L"Calidad", {L"Alta", L"Equilibrada", L"Ahorro"}, QualityIndex(s.quality));
+  const wchar_t* quality_hints[] = {L"La mejor imagen y la máxima fluidez", L"Hasta 60 fps y 30 Mbps",
+                                    L"30 fps: gasta menos en la tablet"};
+  quality.hint = quality_hints[quality.selected];
+  v.main.push_back(quality);
+  v.main.push_back(Segmented("sonido", L"Sonido", {L"En el PC", L"En la tablet"}, s.audio_tablet ? 1 : 0));
+  v.main.push_back(Segmented("tactil", L"Táctil", {L"Táctil", L"Ratón", L"Solo ver"}, s.touch));
+
+  // Configuración avanzada, plegada.
+  v.advanced_open = in.advanced_open;
+  if (in.advanced_open) {
+    if (s.virtual_display) {
+      v.advanced.push_back(Choice("resolucion", L"Resolución de la pantalla extra", SizeLabel(s.size)));
+    } else {
+      const std::wstring monitor = s.output < static_cast<int>(in.monitors.size())
+                                       ? in.monitors[s.output]
+                                       : std::to_wstring(s.output + 1) + L": (no conectado)";
+      v.advanced.push_back(Choice("monitor", L"Monitor que se duplica", monitor));
+    }
+    v.advanced.push_back(Choice("fps", L"Fluidez", FpsLabel(s.fps)));
+    v.advanced.push_back(Choice("mbps", L"Calidad de vídeo", BitrateLabel(s.bitrate)));
+    v.advanced.push_back(Choice("codec", L"Códec", CodecLabel(s.codec)));
+    v.advanced.push_back(Toggle("bateria", L"Bajar la calidad si la batería de la tablet no aguanta", s.battery_adapt));
+    v.advanced.push_back(Toggle("puntero", L"Dibujar el puntero del ratón", s.cursor));
+    v.advanced.push_back(Toggle("usb", L"Conexión por cable USB", s.usb));
+    v.advanced.push_back(Toggle("autostart", L"Abrir DeskLink al iniciar Windows", in.autostart));
+    v.advanced.push_back(Toggle("abrir", L"Transmitir nada más abrir", s.stream_on_open));
+    Row port;
+    port.id = "puerto";
+    port.label = L"Puerto";
+    port.value = L"UDP " + std::to_wstring(s.port) + L" · se cambia en desklink.ini";
+    v.advanced.push_back(port);
+    Row log;
+    log.id = "registro";
+    log.control = Control::kLink;
+    log.label = L"Ver registro";
+    v.advanced.push_back(log);
+  }
+  return v;
+}

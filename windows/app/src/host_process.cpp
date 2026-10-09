@@ -102,8 +102,10 @@ HostProcess::~HostProcess() {
 void HostProcess::CloseHandles() {
   if (process_) CloseHandle(process_);
   if (stop_event_) CloseHandle(stop_event_);
+  if (stdin_) CloseHandle(stdin_);
   process_ = nullptr;
   stop_event_ = nullptr;
+  stdin_ = nullptr;
   pid_ = 0;
 }
 
@@ -119,22 +121,22 @@ bool HostProcess::Start(HWND hwnd, const std::wstring& exe, const std::wstring& 
   stop_event_ = CreateEventW(nullptr, TRUE, FALSE, event_name.c_str());
 
   SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
-  HANDLE out_r = nullptr, out_w = nullptr, err_r = nullptr, err_w = nullptr;
-  if (!CreatePipe(&out_r, &out_w, &sa, 0) || !CreatePipe(&err_r, &err_w, &sa, 0)) {
-    *error = L"No se pudo crear la tubería para leer el host.";
-    for (HANDLE h : {out_r, out_w, err_r, err_w}) {
+  HANDLE out_r = nullptr, out_w = nullptr, err_r = nullptr, err_w = nullptr, in_r = nullptr, in_w = nullptr;
+  if (!CreatePipe(&out_r, &out_w, &sa, 0) || !CreatePipe(&err_r, &err_w, &sa, 0) || !CreatePipe(&in_r, &in_w, &sa, 0)) {
+    *error = L"No se pudo crear la tubería para hablar con el host.";
+    for (HANDLE h : {out_r, out_w, err_r, err_w, in_r, in_w}) {
       if (h) CloseHandle(h);
     }
     return false;
   }
   SetHandleInformation(out_r, HANDLE_FLAG_INHERIT, 0);
   SetHandleInformation(err_r, HANDLE_FLAG_INHERIT, 0);
-  HANDLE nul = CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING, 0, nullptr);
+  SetHandleInformation(in_w, HANDLE_FLAG_INHERIT, 0);
 
   STARTUPINFOW si{};
   si.cb = sizeof(si);
   si.dwFlags = STARTF_USESTDHANDLES;
-  si.hStdInput = nul;
+  si.hStdInput = in_r;
   si.hStdOutput = out_w;
   si.hStdError = err_w;
   std::wstring cmd = L"\"" + exe + L"\" " + args + L" --status --stop-event " + event_name;
@@ -145,10 +147,11 @@ bool HostProcess::Start(HWND hwnd, const std::wstring& exe, const std::wstring& 
   const DWORD create_error = GetLastError();
   CloseHandle(out_w);
   CloseHandle(err_w);
-  if (nul != INVALID_HANDLE_VALUE) CloseHandle(nul);
+  CloseHandle(in_r);
   if (!ok) {
     CloseHandle(out_r);
     CloseHandle(err_r);
+    CloseHandle(in_w);
     *error = create_error == ERROR_FILE_NOT_FOUND
                  ? L"No encuentro desklink-host.exe: debe estar en la misma carpeta que desklink.exe."
                  : L"No se pudo abrir desklink-host.exe (error " + std::to_wstring(create_error) + L").";
@@ -159,6 +162,7 @@ bool HostProcess::Start(HWND hwnd, const std::wstring& exe, const std::wstring& 
   CloseHandle(pi.hThread);
   process_ = pi.hProcess;
   pid_ = pi.dwProcessId;
+  stdin_ = in_w;
 
   auto* w = new Watcher{};
   w->hwnd = hwnd;
@@ -177,6 +181,17 @@ bool HostProcess::Start(HWND hwnd, const std::wstring& exe, const std::wstring& 
 
 void HostProcess::RequestStop() {
   if (stop_event_) SetEvent(stop_event_);
+}
+
+bool HostProcess::Send(const std::wstring& line) {
+  if (!stdin_ || !running()) return false;
+  std::wstring w = line + L"\n";
+  const int n = WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()), nullptr, 0, nullptr, nullptr);
+  std::string s(n, '\0');
+  WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()), s.data(), n, nullptr, nullptr);
+  DWORD written = 0;
+  // Las líneas son cortas y el host lee en su propio hilo: la escritura no se queda bloqueada.
+  return WriteFile(stdin_, s.data(), static_cast<DWORD>(s.size()), &written, nullptr) && written == s.size();
 }
 
 void HostProcess::StopAndWait(DWORD ms) {
