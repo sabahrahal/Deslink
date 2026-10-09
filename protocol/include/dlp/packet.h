@@ -32,7 +32,8 @@ enum class PacketType : uint8_t {
   kAudioControl = 15,    // cliente -> host: u8 1 = quiero el sonido, 0 = no (se repite cada segundo)
   kBurstData = 8,        // host -> cliente: paquete de relleno de la ráfaga (packet_index/packet_count)
   kDiscover = 12,        // cliente -> host: "¿hay alguien?"; el host responde STREAM_INFO sin empezar a enviar vídeo
-  kQualityRequest = 16,  // cliente -> host: límites del perfil de batería (ver QualityRequest)
+  kQualityRequest = 16,  // cliente -> host: con «bajar si la batería no aguanta», lo que pide la batería de la tablet
+  kSessionConfig = 17,   // host -> cliente: lo que eligió el PC (ver dlp/session.h); tras STREAM_INFO, al cambiar y cada 2 s
 };
 
 enum Flags : uint8_t {
@@ -67,9 +68,11 @@ struct StreamInfo {
   std::string host_name;  // nombre del PC, UTF-8, como mucho kMaxHostName bytes
 };
 
-// Lo que la tablet pide en el payload de HELLO. 0 en un campo = "lo que diga el host".
-// Un HELLO vacío (clientes antiguos y búsqueda) no cambia nada. Campos nuevos se añaden al final:
-// el host ignora los bytes que no conoce y trata como 0 los que falten.
+// Lo que la tablet dice de sí misma en el payload de HELLO: el PC decide con esto y con sus ajustes (dlp/session.h).
+// width x height es la pantalla nativa (en horizontal), codec lo que decodifica (1 = solo H.264, 2 = también HEVC) y
+// refresh_hz su frecuencia máxima. fps y bitrate_mbps ya no se usan (las tablets de antes pedían ahí sus valores;
+// ahora manda el PC). Un HELLO vacío (búsqueda) no cambia nada. Campos nuevos se añaden al final: el host ignora los
+// bytes que no conoce y trata como 0 los que falten.
 struct HelloConfig {
   uint16_t width = 0;         // tamaño pedido para el monitor virtual, en píxeles (horizontal)
   uint16_t height = 0;
