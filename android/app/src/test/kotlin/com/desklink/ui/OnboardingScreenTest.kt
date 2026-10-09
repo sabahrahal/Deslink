@@ -8,6 +8,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.desklink.UsbDebugHint
 import org.junit.Assert.assertEquals
@@ -61,7 +62,7 @@ class OnboardingScreenTest {
         show(onUsb = { opened++ })
         next(2)
         compose.onNode(hasTestTag("onboarding:cable")).assertIsDisplayed()
-        compose.onNodeWithText("Abrir ajustes de la tablet").performClick()
+        compose.onNodeWithText("Abrir ajustes de la tablet").performScrollTo().performClick()
         assertEquals(1, opened)
     }
 
@@ -69,7 +70,7 @@ class OnboardingScreenTest {
     fun cableStepSaysWhenDebuggingIsAlreadyOn() {
         show(usb = UsbDebugHint.NONE)
         next(2)
-        compose.onNodeWithText("La depuración USB ya está activa en esta tablet.").assertIsDisplayed()
+        compose.onNodeWithText("La depuración USB ya está activa en esta tablet.").performScrollTo().assertIsDisplayed()
         compose.onAllNodesWithText("Abrir ajustes de la tablet").assertCountEquals(0)
     }
 
@@ -78,7 +79,7 @@ class OnboardingScreenTest {
         show()
         next(3)
         compose.onNode(hasTestTag("onboarding:tamano")).assertIsDisplayed()
-        compose.onNode(hasText("sube la «Escala»", substring = true)).assertIsDisplayed()
-        compose.onNode(hasText("con la tablet conectada", substring = true)).assertIsDisplayed()
+        compose.onNode(hasText("sube la «Escala»", substring = true)).performScrollTo().assertIsDisplayed()
+        compose.onNode(hasText("con la tablet conectada", substring = true)).performScrollTo().assertIsDisplayed()
     }
 }
