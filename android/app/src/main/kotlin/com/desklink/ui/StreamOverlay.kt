@@ -77,7 +77,7 @@ data class SessionSummary(
 )
 
 /**
- * Menú rápido (cuatro dedos a la vez sobre el vídeo): táctil o ratón, estadísticas y desconectar. Lo demás se
+ * Menú rápido (botón ••• sobre el vídeo): táctil o ratón, estadísticas y desconectar. Lo demás se
  * cambia en el PC.
  */
 @Composable

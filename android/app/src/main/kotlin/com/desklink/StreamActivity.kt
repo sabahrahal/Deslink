@@ -2,6 +2,7 @@ package com.desklink
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.media.AudioManager
 import android.net.wifi.WifiManager
 import android.os.Build
@@ -15,6 +16,7 @@ import android.view.MotionEvent
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import android.view.ViewConfiguration
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
@@ -59,6 +61,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
     private var profile = PowerProfile.MAXIMA
     @Volatile private var viewOnly = false
     private lateinit var badgeView: TextView
+    private lateinit var menuButton: TextView
     @Volatile private var streamFps = 0
     private var badgeUntilMs = 0L
     private var warnedDrain = false
@@ -154,8 +157,15 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
             visibility = View.GONE
         }
         root.addView(badgeView, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END))
+        menuButton = makeMenuButton()
+        val size = dp(MENU_BUTTON_DP)
+        root.addView(menuButton, FrameLayout.LayoutParams(size, size, Gravity.TOP or Gravity.START))
         root.addView(overlay, FrameLayout.LayoutParams(-1, -1))
         setContentView(root)
+        // Al girar la tablet (o al medir por primera vez) se recoloca en la misma proporción.
+        root.addOnLayoutChangeListener { _, l, t, r, b, ol, ot, or_, ob ->
+            if (r - l != or_ - ol || b - t != ob - ot) placeMenuButton()
+        }
         hideSystemBars()
         applyProfile(profile)
 
@@ -229,7 +239,97 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
     private fun setMenu(open: Boolean) {
         menuOpen = open
         overlay.visibility = if (open || phase != StreamSession.Phase.STREAMING) View.VISIBLE else View.GONE
+        updateMenuButton()
         if (!open) hideSystemBars()
+    }
+
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    /**
+     * Botón discreto que abre el menú rápido. Se puede arrastrar a otro sitio si tapa algo del PC; se recuerda dónde
+     * se dejó (en proporción de la pantalla, para que valga al girarla).
+     */
+    private fun makeMenuButton(): TextView = TextView(this).apply {
+        text = "•••"
+        setTextColor(Color.WHITE)
+        textSize = 13f
+        gravity = Gravity.CENTER
+        alpha = 0.55f
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(0x99000000.toInt())
+        }
+        contentDescription = "Menú de DeskLink"
+        visibility = View.GONE
+        val slop = ViewConfiguration.get(this@StreamActivity).scaledTouchSlop
+        var downX = 0f
+        var downY = 0f
+        var startX = 0f
+        var startY = 0f
+        var dragging = false
+        setOnTouchListener { v, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = e.rawX
+                    downY = e.rawY
+                    startX = v.x
+                    startY = v.y
+                    dragging = false
+                    v.alpha = 0.9f
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = e.rawX - downX
+                    val dy = e.rawY - downY
+                    if (!dragging && dx * dx + dy * dy > slop * slop) dragging = true
+                    if (dragging) moveMenuButton(startX + dx, startY + dy)
+                }
+                MotionEvent.ACTION_UP -> {
+                    v.alpha = 0.55f
+                    if (dragging) {
+                        saveMenuButton()
+                    } else {
+                        // Se sueltan los dedos que pudieran estar yendo al PC antes de abrir el menú.
+                        if (touchCount > 0) {
+                            touchCount = 0
+                            session?.sendTouch(touchState, 0)
+                        }
+                        setMenu(true)
+                    }
+                }
+                MotionEvent.ACTION_CANCEL -> v.alpha = 0.55f
+            }
+            true
+        }
+    }
+
+    private fun moveMenuButton(x: Float, y: Float) {
+        val btn = dp(MENU_BUTTON_DP)
+        menuButton.x = x.coerceIn(0f, (root.width - btn).coerceAtLeast(0).toFloat())
+        menuButton.y = y.coerceIn(0f, (root.height - btn).coerceAtLeast(0).toFloat())
+    }
+
+    private fun saveMenuButton() {
+        val btn = dp(MENU_BUTTON_DP)
+        val w = (root.width - btn).coerceAtLeast(1).toFloat()
+        val h = (root.height - btn).coerceAtLeast(1).toFloat()
+        getSharedPreferences(PowerProfile.PREFS, MODE_PRIVATE).edit()
+            .putFloat(PREF_MENU_X, menuButton.x / w)
+            .putFloat(PREF_MENU_Y, menuButton.y / h)
+            .apply()
+    }
+
+    /** De serie, abajo a la izquierda pero un poco por encima de la barra de tareas de Windows. */
+    private fun placeMenuButton() {
+        val prefs = getSharedPreferences(PowerProfile.PREFS, MODE_PRIVATE)
+        val fx = prefs.getFloat(PREF_MENU_X, 0f).coerceIn(0f, 1f)
+        val fy = prefs.getFloat(PREF_MENU_Y, 0.82f).coerceIn(0f, 1f)
+        val margin = if (fx == 0f) dp(8).toFloat() else 0f
+        val btn = dp(MENU_BUTTON_DP)
+        moveMenuButton(margin + fx * (root.width - btn), fy * (root.height - btn))
+    }
+
+    private fun updateMenuButton() {
+        menuButton.visibility = if (phase == StreamSession.Phase.STREAMING && !menuOpen) View.VISIBLE else View.GONE
     }
 
     private fun toggleStats() {
@@ -273,7 +373,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
                 reduced = reduced,
             )
             if (previous == null) {
-                badgeView.text = "Calidad $quality · ${config.fps} fps · toca con 4 dedos para el menú"
+                badgeView.text = "Calidad $quality · ${config.fps} fps · el botón ••• abre el menú"
                 showBadge(BADGE_MS)
             }
             updateBadge()
@@ -308,15 +408,6 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
     }
 
     private fun onSurfaceTouch(event: MotionEvent): Boolean {
-        // Cuatro dedos a la vez: menú rápido (el toque normal va al PC). Se sueltan los dedos que ya iban al PC.
-        if (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN && event.pointerCount == 4) {
-            if (touchCount > 0) {
-                touchCount = 0
-                session?.sendTouch(touchState, 0)
-            }
-            setMenu(true)
-            return true
-        }
         // «Solo ver» (lo elige el PC): los toques se quedan en la tablet.
         if (viewOnly || menuOpen) return true
         // Cada muestra del táctil sale en cuanto llega, sin esperar a agruparlas con el refresco de pantalla
@@ -435,6 +526,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
             val streaming = phase == StreamSession.Phase.STREAMING
             if (!streaming) menuOpen = false
             overlay.visibility = if (streaming && !menuOpen) View.GONE else View.VISIBLE
+            updateMenuButton()
             if (settings.keepScreenOn) {
                 ui.removeCallbacks(releaseScreen)
                 if (streaming || phase == StreamSession.Phase.CONNECTING) {
@@ -530,5 +622,8 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         const val EXTRA_HOST_NAME = "host_name"
         private const val SCREEN_GRACE_MS = 2 * 60 * 1000L
         private const val BADGE_MS = 8_000L
+        private const val MENU_BUTTON_DP = 40
+        private const val PREF_MENU_X = "menu_button_x"
+        private const val PREF_MENU_Y = "menu_button_y"
     }
 }
