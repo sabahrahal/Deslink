@@ -205,6 +205,12 @@ void MfEncoder::ApplyLowLatencySettings(UINT bitrate_bps) {
   SetU32(api, "MeanBitRate", CODECAPI_AVEncCommonMeanBitRate, bitrate_bps, &unsupported);
   SetU32(api, "BPictureCount", CODECAPI_AVEncMPVDefaultBPictureCount, 0, &unsupported);
   SetU32(api, "GOPSize", CODECAPI_AVEncMPVGOPSize, 0x7FFFFFFF, &unsupported);  // sin keyframes periódicos
+  // Por defecto el codificador de NVIDIA usa un preset lento: a la resolución nativa de una tablet grande (2944x1840
+  // a 60 fps) tardaba ~40 ms por frame y no pasaba de 25 fps. Por encima de 1080p60 se pide el modo más rápido; con
+  // CBR la diferencia de calidad apenas se nota y la fluidez sí.
+  const uint64_t pixel_rate = static_cast<uint64_t>(width_) * height_ * fps_;
+  const ULONG quality_vs_speed = pixel_rate > 1920ull * 1080 * 60 ? 0 : 33;
+  SetU32(api, "QualityVsSpeed", CODECAPI_AVEncCommonQualityVsSpeed, quality_vs_speed, &unsupported);
   if (!unsupported.empty()) std::printf("  ajustes opcionales que este codificador no admite: %s\n", unsupported.c_str());
 }
 
@@ -370,6 +376,14 @@ bool MfEncoder::FeedInput(const PendingFrame& frame) {
   sample->SetSampleTime(static_cast<LONGLONG>(frame.timestamp_us) * 10);  // unidades de 100 ns
   sample->SetSampleDuration(10'000'000LL / fps_);
 
+  {
+    using namespace std::chrono;
+    const uint64_t now = static_cast<uint64_t>(
+        duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count());
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (in_flight_.size() >= 16) in_flight_.pop_front();
+    in_flight_.emplace_back(frame.timestamp_us, now);
+  }
   hr = mft_->ProcessInput(0, sample.Get(), 0);
   if (FAILED(hr)) {
     std::fprintf(stderr, "ProcessInput falló: 0x%08lx\n", hr);
@@ -421,6 +435,19 @@ void MfEncoder::DrainOutput() {
   LONGLONG time100ns = 0;
   sample->GetSampleTime(&time100ns);
   const uint64_t ts_us = static_cast<uint64_t>(time100ns / 10);
+  {
+    using namespace std::chrono;
+    const uint64_t now = static_cast<uint64_t>(
+        duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count());
+    std::lock_guard<std::mutex> lock(mutex_);
+    while (!in_flight_.empty() && in_flight_.front().first <= ts_us) {
+      if (in_flight_.front().first == ts_us && now > in_flight_.front().second) {
+        encode_us += now - in_flight_.front().second;
+        ++encode_count;
+      }
+      in_flight_.pop_front();
+    }
+  }
 
   const bool keyframe = clean != 0;
   if (keyframe && codec_ == VideoCodec::kHevc && !sequence_header_.empty() &&
