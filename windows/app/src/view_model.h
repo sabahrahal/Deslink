@@ -50,6 +50,7 @@ struct View {
   Tone dot = Tone::kSecondary;
   std::wstring detail;
   std::wstring stats;  // «120 fps · 48,0 Mbps · 4 ms», solo conectado
+  std::wstring fluency;  // dónde se quedan los fps: «Captura 60 · Codificación 60 · Tablet 58 fps»
   Line notice;         // por qué la imagen va por debajo de lo elegido, si es así
   std::wstring error;
   std::vector<Line> connection;  // por dónde puede conectar la tablet (cable USB y Wi-Fi)

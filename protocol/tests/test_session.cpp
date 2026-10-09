@@ -137,27 +137,33 @@ static void TestRateControllerUsbAndMax() {
 static void TestFpsGovernor() {
   FpsGovernor g;
   g.Reset(120);
-  uint64_t t = 0;
-  // A 120 fps un frame dura 8,3 ms. Codificar en 4 ms va holgado: no cambia.
-  for (int i = 0; i < 20; ++i) CHECK(!g.Update(4.0, t += 1'000'000));
+  // El codificador se lleva todos los frames: no cambia, por mucho retraso que tenga.
+  for (int i = 0; i < 20; ++i) CHECK(!g.Update(120, 0));
   CHECK(g.fps() == 120 && !g.reduced());
-  // Gráfica cargada (8 ms > 85 % de 8,3): a los 3 s baja a 90.
-  CHECK(!g.Update(8.0, t += 1'000'000));
-  CHECK(!g.Update(8.0, t += 1'000'000));
-  CHECK(g.Update(8.0, t += 1'000'000));
+  // Algún descarte suelto (menos del 10 %) no cuenta.
+  for (int i = 0; i < 5; ++i) CHECK(!g.Update(120, 5));
+  CHECK(g.fps() == 120);
+  // No da abasto (descarta un 25 %) 3 s seguidos: baja a 90.
+  CHECK(!g.Update(120, 30));
+  CHECK(!g.Update(120, 30));
+  CHECK(g.Update(120, 30));
   CHECK(g.fps() == 90 && g.reduced());
-  // Un segundo suelto lento no basta.
-  CHECK(!g.Update(10.0, t += 1'000'000));
-  CHECK(!g.Update(5.0, t += 1'000'000));
+  // Escritorio quieto: no cuenta ni para bajar ni para subir.
+  CHECK(!g.Update(2, 2));
+  // 10 s limpios: prueba a subir a 120.
+  for (int i = 0; i < 9; ++i) CHECK(!g.Update(90, 0));
+  CHECK(g.Update(90, 0));
+  CHECK(g.fps() == 120);
+  // Vuelve a no dar abasto enseguida: baja, y la siguiente prueba espera el doble (20 s).
+  CHECK(!g.Update(120, 40));
+  CHECK(!g.Update(120, 40));
+  CHECK(g.Update(120, 40));
   CHECK(g.fps() == 90);
-  // Escritorio quieto (0 ms): no cuenta.
-  CHECK(!g.Update(0.0, t += 1'000'000));
-  // Vuelve a ir holgado (menos de la mitad de 8,3 ms) 10 s: sube a 120.
-  for (int i = 0; i < 9; ++i) CHECK(!g.Update(3.0, t += 1'000'000));
-  CHECK(g.Update(3.0, t += 1'000'000));
-  CHECK(g.fps() == 120 && !g.reduced());
+  for (int i = 0; i < 19; ++i) CHECK(!g.Update(90, 0));
+  CHECK(g.Update(90, 0));
+  CHECK(g.fps() == 120);
   // Nunca baja de 30.
-  for (int i = 0; i < 60; ++i) g.Update(100.0, t += 1'000'000);
+  for (int i = 0; i < 60; ++i) g.Update(100, 90);
   CHECK(g.fps() == 30);
 }
 

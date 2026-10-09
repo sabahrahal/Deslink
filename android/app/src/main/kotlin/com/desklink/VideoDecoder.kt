@@ -15,7 +15,9 @@ class VideoDecoder(
     private val onError: (String) -> Unit,
 ) {
     private val codec: MediaCodec
+    /** Buffers de entrada libres; también hace de monitor para esperar uno (wait/notify). */
     private val freeInputs = ArrayDeque<Int>()
+    private var released = false // protegido por freeInputs
 
     @Volatile
     var decodedFrames = 0L
@@ -50,7 +52,10 @@ class VideoDecoder(
 
         codec.setCallback(object : MediaCodec.Callback() {
             override fun onInputBufferAvailable(c: MediaCodec, index: Int) {
-                synchronized(freeInputs) { freeInputs.addLast(index) }
+                synchronized(freeInputs) {
+                    freeInputs.addLast(index)
+                    (freeInputs as Object).notifyAll()
+                }
             }
 
             override fun onOutputBufferAvailable(c: MediaCodec, index: Int, bufferInfo: MediaCodec.BufferInfo) {
@@ -84,9 +89,26 @@ class VideoDecoder(
         }
     }
 
-    /** Devuelve false si no había buffer de entrada libre (el decodificador va retrasado). */
+    /**
+     * Devuelve false si en [INPUT_WAIT_MS] no quedó libre ningún buffer de entrada (el decodificador va retrasado).
+     * Se espera un poco en vez de rendirse al momento: tirar el frame obliga a pedir otro frame clave, que es más
+     * grande y atasca todavía más al decodificador.
+     */
     fun queue(frame: Frame): Boolean {
-        val index = synchronized(freeInputs) { if (freeInputs.isEmpty()) null else freeInputs.removeFirst() } ?: return false
+        val index = synchronized(freeInputs) {
+            val deadline = System.nanoTime() + INPUT_WAIT_MS * 1_000_000L
+            while (freeInputs.isEmpty() && !released) {
+                val leftMs = (deadline - System.nanoTime()) / 1_000_000L
+                if (leftMs <= 0) break
+                try {
+                    (freeInputs as Object).wait(leftMs)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    break
+                }
+            }
+            if (released || freeInputs.isEmpty()) null else freeInputs.removeFirst()
+        } ?: return false
         return try {
             val buffer = codec.getInputBuffer(index)
             if (buffer == null || frame.size > buffer.capacity()) {
@@ -104,10 +126,21 @@ class VideoDecoder(
     }
 
     fun release() {
+        // Despierta a quien espere un buffer de entrada: el códec ya no dará ninguno.
+        synchronized(freeInputs) {
+            released = true
+            freeInputs.clear()
+            (freeInputs as Object).notifyAll()
+        }
         try {
             codec.stop()
         } catch (_: IllegalStateException) {
         }
         codec.release()
+    }
+
+    private companion object {
+        /** Lo más que espera [queue] a que el decodificador libere un buffer de entrada. */
+        const val INPUT_WAIT_MS = 20L
     }
 }

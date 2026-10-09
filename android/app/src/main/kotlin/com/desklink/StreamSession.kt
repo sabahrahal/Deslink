@@ -366,7 +366,7 @@ class StreamSession(
             val target = sessionConfig?.let { " · objetivo ${it.fps} fps ${"%.0f".format(it.bitrateX100kbps / 10.0)} Mbps" } ?: ""
             listener.onStats(
                 "$routeLabel${info.width}x${info.height}$target · recibidos ${"%.0f".format((framesReceived - lastFrames) / secs)}/s" +
-                    " · decodificados ${"%.0f".format((decoded - lastDecoded) / secs)}/s" +
+                    " · mostrados ${"%.0f".format((decoded - lastDecoded) / secs)}/s" +
                     " · ${"%.1f".format(mbps)} Mbps" +
                     (if (rtt >= 0) " · RTT ${"%.1f".format(rtt / 1000.0)} ms" else "") +
                     " · perdidos ${reassembler.framesDropped + decoderDrops}" +
@@ -379,7 +379,7 @@ class StreamSession(
                     (audio?.let { " · ${it.statsText()}" } ?: ""),
             )
             val lost = reassembler.framesDropped + decoderDrops
-            send(Dlp.rateReport((framesReceived - lastFrames).toInt(), (lost - lastLost).toInt(), now))
+            send(Dlp.rateReport((framesReceived - lastFrames).toInt(), (lost - lastLost).toInt(), (decoded - lastDecoded).toInt(), now))
             lastLost = lost
             lastBytes = bytesReceived
             lastFrames = framesReceived

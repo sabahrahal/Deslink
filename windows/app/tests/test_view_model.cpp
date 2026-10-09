@@ -91,6 +91,32 @@ static void TestConnectedShowsStatsAndNotice() {
   CHECK(Contains(v.notice.text, L"Wi-Fi") && v.notice.tone == Tone::kWarning);
   in.stats[L"reducido"] = L"carga";
   CHECK(Contains(BuildView(in).notice.text, L"gráfica"));
+
+  // El anclaje USB de la tablet no es Wi-Fi: va por el cable, como red.
+  in.stats[L"enlace"] = L"anclaje";
+  in.stats[L"reducido"] = L"no";
+  v = BuildView(in);
+  CHECK(v.title == L"Conectado por cable USB (anclaje de red)" && Contains(v.detail, L"depuración USB"));
+}
+
+static void TestFluencyShowsEachStage() {
+  ViewInput in;
+  in.state = State::kConnected;
+  in.stats = {{L"enlace", L"usb"}, {L"capturados", L"60.2"}, {L"codificados", L"59.8"}, {L"mbps", L"40"},
+              {L"reducido", L"no"}, {L"tablet_fps", L"58"}};
+  View v = BuildView(in);
+  CHECK(v.fluency == L"Captura 60 · Codificación 60 · Tablet 58 fps");
+  CHECK(v.notice.text.empty());
+  // La tablet se queda atrás: se dice dónde.
+  in.stats[L"tablet_fps"] = L"21";
+  v = BuildView(in);
+  CHECK(Contains(v.notice.text, L"tablet") && v.notice.tone == Tone::kWarning);
+  // Tablet antigua (no lo cuenta) o imagen quieta: sin cifra de la tablet, sin aviso, o sin línea.
+  in.stats[L"tablet_fps"] = L"-";
+  v = BuildView(in);
+  CHECK(v.fluency == L"Captura 60 · Codificación 60 fps" && v.notice.text.empty());
+  in.stats[L"codificados"] = L"0";
+  CHECK(BuildView(in).fluency.empty());
 }
 
 static void TestErrorAndButtons() {
@@ -116,10 +142,17 @@ static void TestAdvancedRows() {
   in.settings.virtual_display = true;
   View v = BuildView(in);
   CHECK(Has(v.advanced, "resolucion") && !Has(v.advanced, "monitor"));
-  for (const char* id : {"fps", "mbps", "codec", "bateria", "puntero", "usb", "autostart", "abrir", "registro"}) {
+  for (const char* id :
+       {"fps", "mbps", "codec", "bateria", "puntero", "usb", "abrir_tablet", "autostart", "abrir", "registro"}) {
     CHECK(Has(v.advanced, id));
   }
-  CHECK(Get(v.advanced, "resolucion").value == L"Automática (la de la tablet)");
+  // La resolución solo se cambia en Windows: es un enlace, no un desplegable con otro valor que se pise.
+  CHECK(Get(v.advanced, "resolucion").control == Control::kLink);
+  CHECK(Contains(Get(v.advanced, "resolucion").label, L"Windows"));
+  CHECK(Get(v.advanced, "abrir_tablet").on);  // de serie, la app de la tablet se abre al enchufarla
+  in.settings.usb = false;
+  CHECK(!Has(BuildView(in).advanced, "abrir_tablet"));  // sin cable no tiene sentido
+  in.settings.usb = true;
   CHECK(Contains(Get(v.advanced, "fps").value, L"Automática"));
   CHECK(!Get(v.advanced, "bateria").on);  // de serie, la batería no baja la calidad
 
@@ -148,7 +181,7 @@ static void TestHostArguments() {
   Settings s;
   CHECK(HostArguments(s) == L"--port 47800 --profile alta --fps auto --bitrate auto --codec auto --touch --virtual");
   CHECK(LiveSettingsLine(s) ==
-        L"@ajustes calidad=alta fps=auto mbps=auto codec=auto sonido=pc tactil=tactil bateria=0 size=auto");
+        L"@ajustes calidad=alta fps=auto mbps=auto codec=auto sonido=pc tactil=tactil bateria=0 abrir_tablet=1");
   s.quality = L"equilibrada";
   s.audio_tablet = true;
   s.touch = 2;
@@ -156,12 +189,13 @@ static void TestHostArguments() {
   s.fps = 120;
   s.bitrate = 50;
   s.codec = L"hevc";
-  s.size = L"2560 × 1600";
+  s.size = L"2560 × 1600";  // de un .ini viejo: ya no se pasa, la resolución la decide Windows
+  s.open_tablet = false;
   CHECK(HostArguments(s) ==
         L"--port 47800 --profile equilibrada --fps 120 --bitrate 50 --codec hevc --audio-tablet --view-only "
-        L"--battery-adapt --virtual --size 2560x1600");
+        L"--battery-adapt --virtual --no-open-tablet");
   CHECK(LiveSettingsLine(s) ==
-        L"@ajustes calidad=equilibrada fps=120 mbps=50 codec=hevc sonido=tablet tactil=solo-ver bateria=1 size=2560x1600");
+        L"@ajustes calidad=equilibrada fps=120 mbps=50 codec=hevc sonido=tablet tactil=solo-ver bateria=1 abrir_tablet=0");
   s.virtual_display = false;
   s.output = 1;
   s.cursor = false;
@@ -173,6 +207,7 @@ static void TestHostArguments() {
   b.audio_tablet = true;
   b.touch = 1;
   b.fps = 60;
+  b.open_tablet = false;
   CHECK(!NeedsRestart(a, b));
   b.virtual_display = false;
   CHECK(NeedsRestart(a, b));
@@ -191,6 +226,7 @@ int main() {
   TestMainRowsAlwaysVisible();
   TestUsbAndWifiWhileWaiting();
   TestConnectedShowsStatsAndNotice();
+  TestFluencyShowsEachStage();
   TestErrorAndButtons();
   TestAdvancedRows();
   TestHostArguments();

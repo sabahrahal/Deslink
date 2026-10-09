@@ -66,6 +66,10 @@ class AdbReverse {
   // Tablets con el túnel puesto y tablets enchufadas sin autorizar; ready() es -1 si no hay adb.exe.
   int ready() const { return missing_ ? -1 : ready_.load(); }
   int unauthorized() const { return unauthorized_; }
+  // Abrir DeskLink en la tablet en cuanto se enchufa (con la depuración USB ya aceptada).
+  void set_open_app(bool open) { open_app_ = open; }
+  // Hay una tablet transmitiendo: no se abre la app (se pondría delante de la sesión).
+  void set_busy(bool busy) { busy_ = busy; }
 
  private:
   void Loop();
@@ -80,4 +84,6 @@ class AdbReverse {
   std::atomic<int> ready_{0};
   std::atomic<int> unauthorized_{0};
   std::atomic<bool> missing_{false};
+  std::atomic<bool> open_app_{true};
+  std::atomic<bool> busy_{false};
 };

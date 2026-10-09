@@ -110,13 +110,16 @@ class RateController {
 
 // --- fps según la carga de la gráfica -------------------------------------------------------------------------------
 
-// Si codificar un frame tarda casi lo que dura (más del 85 % durante 3 s), baja un escalón de fps (120, 90, 60, 45,
-// 30); si va holgado (menos del 50 % del frame del escalón de arriba durante 10 s), vuelve a subir hasta el objetivo.
+// Mira si el codificador da abasto: cada segundo recibe cuántos frames se le mandaron y cuántos se descartaron porque
+// aún estaba con el anterior. No usa el retraso del codificador: ese incluye los frames que retiene por diseño y no
+// dice nada de la carga (con él se bajaba a 30 fps sin motivo).
+// Si se descarta más del 10 % durante 3 s, baja un escalón (120, 90, 60, 45, 30). Tras 10 s sin descartes prueba el
+// escalón de arriba; si al subir vuelve a descartar enseguida, la siguiente prueba espera el doble (hasta 160 s).
 class FpsGovernor {
  public:
   void Reset(uint32_t target_fps);
-  // Una vez por segundo con el tiempo medio de codificación (ms). Devuelve true si cambian los fps.
-  bool Update(double encode_ms, uint64_t now_us);
+  // Una vez por segundo. Devuelve true si cambian los fps.
+  bool Update(uint32_t submitted, uint32_t dropped);
   uint32_t fps() const { return fps_; }
   uint32_t target() const { return target_; }
   bool reduced() const { return fps_ < target_; }
@@ -125,7 +128,9 @@ class FpsGovernor {
   uint32_t target_ = 60;
   uint32_t fps_ = 60;
   int slow_seconds_ = 0;
-  int fast_seconds_ = 0;
+  int clean_seconds_ = 0;
+  int wait_seconds_ = 10;
+  int since_up_ = -1;  // segundos desde la última subida (-1: no se está probando)
 };
 
 }  // namespace dlp

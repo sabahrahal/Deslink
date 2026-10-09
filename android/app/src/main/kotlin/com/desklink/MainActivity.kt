@@ -40,6 +40,8 @@ class MainActivity : ComponentActivity() {
     private var resumed by mutableStateOf(false)
     private var settings by mutableStateOf(AppSettings())
     private var home by mutableStateOf(HomeState())
+    /** Se abrió porque el PC vio enchufar la tablet: conectar por el cable en cuanto responda. */
+    private var plugPending by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -55,6 +57,14 @@ class MainActivity : ComponentActivity() {
         }
         // Al abrir la app (no al volver de una sesión ni al girar la pantalla) puede conectarse sola al último PC.
         val coldStart = savedInstanceState == null
+        if (coldStart && intent?.action == ACTION_USB_ATTACHED) {
+            // Con una sesión en marcha la orden del PC llega encima de ella: nada que hacer, se vuelve a la sesión.
+            if (CableLink.sessionActive) {
+                finish()
+                return
+            }
+            plugPending = true
+        }
 
         setContent {
             DeskLinkTheme {
@@ -82,8 +92,22 @@ class MainActivity : ComponentActivity() {
                             scans = scan,
                             networks = withContext(Dispatchers.IO) { Discovery.describeNetworks() },
                         )
-                        if (!autoDone && settings.autoConnect && !showSettings && home.autoConnecting == null) {
-                            hosts.firstOrNull { it.ip == home.lastHost }?.let { home = home.copy(autoConnecting = it) }
+                        val cable = hosts.firstOrNull { it.isCable }
+                        if (plugPending && cable != null) {
+                            // Enchufada la tablet: se conecta por el cable sin mirar el ajuste de conexión automática.
+                            plugPending = false
+                            autoDone = true
+                            showSettings = false
+                            home = home.copy(autoConnecting = null)
+                            connect(cable)
+                        } else if (!plugPending && !autoDone && settings.autoConnect && !showSettings) {
+                            // El cable siempre primero: si el último PC llega también por cable, se usa el cable,
+                            // aunque ya se hubiera elegido su Wi-Fi en esta misma cuenta atrás.
+                            val current = home.autoConnecting
+                            val target = HostGroups.autoTarget(hosts, home.lastHost, home.lastHostName, scan)
+                            if (target != null && (current == null || (target.isCable && !current.isCable))) {
+                                home = home.copy(autoConnecting = target)
+                            }
                         }
                         delay(if (hosts.isEmpty()) 1000 else 3000)
                     }
@@ -143,6 +167,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.action == ACTION_USB_ATTACHED && !CableLink.sessionActive) {
+            // Manda el cable: se olvida una cuenta atrás que fuera a conectar por la red.
+            plugPending = true
+            home = home.copy(autoConnecting = null)
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         resumed = true
@@ -171,6 +205,11 @@ class MainActivity : ComponentActivity() {
                 .putExtra(StreamActivity.EXTRA_HOST, found.ip)
                 .putExtra(StreamActivity.EXTRA_HOST_NAME, found.title),
         )
+    }
+
+    companion object {
+        /** Lo manda el PC (adb shell am start -a …) al ver la tablet enchufada, si el usuario lo activó. */
+        const val ACTION_USB_ATTACHED = "com.desklink.action.USB_ATTACHED"
     }
 
     private fun openDiagnostics() {

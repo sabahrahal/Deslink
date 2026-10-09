@@ -18,6 +18,9 @@
 DWORD UdpPortOwner(uint16_t port);
 std::string DescribeProcess(DWORD pid);
 
+// ¿Se llega a esta IP por el anclaje USB de la tablet (adaptador RNDIS/NCM del PC) y no por Wi-Fi o Ethernet?
+bool IsUsbTetherAddress(const in_addr& ip);
+
 // Socket UDP del host y enlace USB (TCP por adb reverse, ver usb.h). El destino de vídeo es el último
 // cliente que envió HELLO, llegue por donde llegue: el cliente USB se identifica con UsbPeerAddress().
 class UdpEndpoint {

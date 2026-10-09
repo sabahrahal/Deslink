@@ -64,6 +64,16 @@ class HomeScreenTest {
     }
 
     @Test
+    fun usbTetheringShowsAsCable() {
+        val rndis = Route("rndis0", InetAddress.getByName("192.168.42.129"), Transport.USB)
+        val tether = Found("192.168.42.10", rndis, "ESCRITORIO", acceptsConfig = true)
+        show(HomeState(hosts = listOf(net, tether), scans = 1))
+        compose.onNodeWithText("Cable USB").assertIsSelected()
+        compose.onNodeWithText("Wi-Fi").assertIsNotSelected()
+        compose.onNodeWithText("Por cable USB (anclaje de red) · 192.168.42.10").assertIsDisplayed()
+    }
+
+    @Test
     fun onlyWifiHasNoUsbOption() {
         show(HomeState(hosts = listOf(net), scans = 1))
         compose.onNodeWithText("ESCRITORIO").assertIsDisplayed()

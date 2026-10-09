@@ -351,6 +351,9 @@ LRESULT CALLBACK LogProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
   return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
+// La resolución de la pantalla extra se cambia donde la de cualquier monitor; el host sigue lo que se elija.
+void OpenDisplaySettings() { ShellExecuteW(nullptr, L"open", L"ms-settings:display", nullptr, nullptr, SW_SHOWNORMAL); }
+
 void ShowLog() {
   if (g.log_wnd) {
     ShowWindow(g.log_wnd, SW_RESTORE);
@@ -763,13 +766,7 @@ void OnSegment(const std::string& id, int i) {
 }
 
 void OnChoice(const std::string& id, float x, float y) {
-  if (id == "resolucion") {
-    PickValue<std::wstring>(x, y, SizeChoices(), g.settings.size, SizeLabel, [](const std::wstring& v) {
-      Settings s = g.settings;
-      s.size = v;
-      ChangeSettings(s);
-    });
-  } else if (id == "monitor") {
+  if (id == "monitor") {
     g.monitors = MonitorNames();
     const int pick = PickFromMenu(x, y, g.monitors, g.settings.output);
     if (pick >= 0 && pick != g.settings.output) {
@@ -810,6 +807,7 @@ void OnToggle(const std::string& id) {
   else if (id == "puntero") s.cursor = !s.cursor;
   else if (id == "usb") s.usb = !s.usb;
   else if (id == "abrir") s.stream_on_open = !s.stream_on_open;
+  else if (id == "abrir_tablet") s.open_tablet = !s.open_tablet;
   ChangeSettings(s);
 }
 
@@ -854,6 +852,10 @@ float StatusContent(gp::Graphics& gr, const View& v, bool draw, float x, float t
     y += F(4);
     if (draw) Text(gr, v.stats, gp::RectF(ix, y, iw, F(22)), *body, P().text);
     y += F(24);
+  }
+  if (!v.fluency.empty()) {
+    if (draw) Text(gr, v.fluency, gp::RectF(ix, y, iw, F(20)), *note, P().text_secondary);
+    y += F(22);
   }
   if (!v.notice.text.empty()) {
     const float nh = TextHeight(gr, v.notice.text, *note, iw);
@@ -958,7 +960,9 @@ float RowsContent(gp::Graphics& gr, const std::vector<Row>& rows, bool draw, flo
       }
       case Control::kLink: {
         if (draw) {
-          const int hit = AddHit(gp::RectF(x, row_top, w, F(52)), ShowLog);
+          const int hit = AddHit(gp::RectF(x, row_top, w, F(52)),
+                                 r.id == "resolucion" ? std::function<void()>(OpenDisplaySettings)
+                                                      : std::function<void()>(ShowLog));
           Text(gr, r.label, gp::RectF(ix, y, iw, F(32)), *body, Hovered(hit) ? P().text : P().accent);
           Chevron(gr, ix + iw - F(5), y + F(16), false, P().text_secondary);
         }

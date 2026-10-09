@@ -157,40 +157,41 @@ bool RateController::SetMax(uint32_t max_bps, uint64_t now_us) {
 void FpsGovernor::Reset(uint32_t target_fps) {
   target_ = std::max<uint32_t>(target_fps, 1);
   fps_ = target_;
-  slow_seconds_ = fast_seconds_ = 0;
+  slow_seconds_ = clean_seconds_ = 0;
+  wait_seconds_ = 10;
+  since_up_ = -1;
 }
 
-bool FpsGovernor::Update(double encode_ms, uint64_t /*now_us*/) {
-  if (encode_ms <= 0) {  // escritorio quieto: no dice nada de la carga
-    slow_seconds_ = fast_seconds_ = 0;
+bool FpsGovernor::Update(uint32_t submitted, uint32_t dropped) {
+  if (submitted < 10) {  // escritorio casi quieto: no dice nada de la carga
+    slow_seconds_ = 0;
     return false;
   }
-  const double frame_ms = 1000.0 / fps_;
-  if (encode_ms > 0.85 * frame_ms) {
-    fast_seconds_ = 0;
-    if (++slow_seconds_ >= 3) {
-      slow_seconds_ = 0;
-      const uint32_t down = StepDown(fps_);
-      if (down != fps_) {
-        fps_ = down;
-        return true;
-      }
-    }
-    return false;
+  if (since_up_ >= 0 && ++since_up_ > 60) {  // la subida aguantó: la próxima prueba vuelve a ser rápida
+    since_up_ = -1;
+    wait_seconds_ = 10;
+  }
+  if (dropped * 10 > submitted) {
+    clean_seconds_ = 0;
+    if (++slow_seconds_ < 3) return false;
+    slow_seconds_ = 0;
+    const uint32_t down = StepDown(fps_);
+    if (down == fps_) return false;
+    if (since_up_ >= 0 && since_up_ <= 15) wait_seconds_ = std::min(wait_seconds_ * 2, 160);
+    since_up_ = -1;
+    fps_ = down;
+    return true;
   }
   slow_seconds_ = 0;
-  if (fps_ >= target_) return false;
-  const uint32_t up = StepUp(fps_, target_);
-  if (encode_ms < 0.5 * (1000.0 / up)) {
-    if (++fast_seconds_ >= 10) {
-      fast_seconds_ = 0;
-      fps_ = up;
-      return true;
-    }
-  } else {
-    fast_seconds_ = 0;
+  if (dropped > 0 || fps_ >= target_) {
+    clean_seconds_ = 0;
+    return false;
   }
-  return false;
+  if (++clean_seconds_ < wait_seconds_) return false;
+  clean_seconds_ = 0;
+  fps_ = StepUp(fps_, target_);
+  since_up_ = 0;
+  return true;
 }
 
 }  // namespace dlp
