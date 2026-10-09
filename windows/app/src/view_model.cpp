@@ -254,6 +254,8 @@ View BuildView(const ViewInput& in) {
       resolution.id = "resolucion";
       resolution.control = Control::kLink;
       resolution.label = L"Cambiar la resolución en Windows";
+      resolution.hint = L"Para ver todo más grande, sube la «Escala» en vez de bajar la resolución: se ve más nítido. "
+                        L"Cámbialo con la tablet conectada y DeskLink lo recuerda.";
       v.advanced.push_back(resolution);
     } else {
       const std::wstring monitor = s.output < static_cast<int>(in.monitors.size())

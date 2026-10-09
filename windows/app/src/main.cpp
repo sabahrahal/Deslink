@@ -1061,6 +1061,11 @@ float RowsContent(gp::Graphics& gr, const std::vector<Row>& rows, bool draw, flo
           Chevron(gr, ix + iw - F(5), y + F(16), false, P().text_secondary);
         }
         y += F(32);
+        if (!r.hint.empty()) {
+          const float hh = TextHeight(gr, r.hint, *note, iw);
+          if (draw) Text(gr, r.hint, gp::RectF(ix, y, iw, hh + F(2)), *note, P().text_secondary, Align::kLeft, true);
+          y += hh;
+        }
         break;
       }
     }

@@ -149,6 +149,8 @@ static void TestAdvancedRows() {
   // La resolución solo se cambia en Windows: es un enlace, no un desplegable con otro valor que se pise.
   CHECK(Get(v.advanced, "resolucion").control == Control::kLink);
   CHECK(Contains(Get(v.advanced, "resolucion").label, L"Windows"));
+  // El consejo de la escala va junto al enlace: más grande sin perder nitidez.
+  CHECK(Contains(Get(v.advanced, "resolucion").hint, L"Escala"));
   CHECK(Get(v.advanced, "abrir_tablet").on);  // de serie, la app de la tablet se abre al enchufarla
   in.settings.usb = false;
   CHECK(!Has(BuildView(in).advanced, "abrir_tablet"));  // sin cable no tiene sentido

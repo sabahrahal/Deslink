@@ -88,11 +88,17 @@ class SettingsStore(context: Context) {
         get() = prefs.getString(K_HOST_NAME, null)
         set(v) = prefs.edit().putString(K_HOST_NAME, v).apply()
 
+    /** Ya se vio la guía de inicio (o se saltó). Quien ya había conectado alguna vez no la ve de golpe. */
+    var onboardingDone: Boolean
+        get() = prefs.getBoolean(K_ONBOARDING, lastHost != null)
+        set(v) = prefs.edit().putBoolean(K_ONBOARDING, v).apply()
+
     private companion object {
         const val K_HOST = "host" // la misma clave que usaban las versiones anteriores
         const val K_HOST_NAME = "host_name"
         const val K_STATS = "show_stats"
         const val K_SCREEN_ON = "keep_screen_on"
         const val K_AUTO = "auto_connect"
+        const val K_ONBOARDING = "onboarding_done"
     }
 }

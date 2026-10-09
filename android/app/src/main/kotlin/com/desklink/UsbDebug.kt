@@ -30,11 +30,16 @@ object UsbDebug {
         else -> UsbDebugHint.ENABLE_DEVELOPER
     }
 
-    fun read(context: Context): UsbDebugHint {
+    fun read(context: Context): UsbDebugHint = read(context, usbConnected(context))
+
+    /** Lo que falta aunque no esté enchufada (para la guía de inicio). */
+    fun readUnplugged(context: Context): UsbDebugHint = read(context, true)
+
+    private fun read(context: Context, usb: Boolean): UsbDebugHint {
         val resolver = context.contentResolver
         val adb = Settings.Global.getInt(resolver, Settings.Global.ADB_ENABLED, 0) == 1
         val dev = Settings.Global.getInt(resolver, Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0) == 1
-        return hint(adb, dev, usbConnected(context))
+        return hint(adb, dev, usb)
     }
 
     /** Enchufada a un PC: el estado USB de Android o, si el fabricante no lo da, la carga por USB. */
