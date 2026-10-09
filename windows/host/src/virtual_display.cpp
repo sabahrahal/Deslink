@@ -117,6 +117,7 @@ bool VirtualDisplay::Plug(UINT width, UINT height, UINT refresh_hz) {
     bool inactive = false;
     gdi_name_ = FindDeskLinkSource(&inactive);
     if (!gdi_name_.empty()) {
+      EnsureMode(width, height, refresh_hz);
       std::printf("Monitor virtual activo: %ls, %ux%u a %u Hz.\n", gdi_name_.c_str(), width, height, refresh_hz);
       Sleep(300);  // deja que DXGI vea la salida nueva
       return true;
@@ -132,6 +133,41 @@ bool VirtualDisplay::Plug(UINT width, UINT height, UINT refresh_hz) {
                "Error: Windows no activó el monitor virtual. Mira en Configuración > Pantalla que «DeskLink»\n"
                "esté en «Extender estas pantallas».\n");
   return false;
+}
+
+// Windows recuerda el último modo de cada monitor y, al volver a enchufar el virtual, puede ponerle ese en vez del
+// que se pidió (p. ej. 1280x800 en una tablet de 2944x1840: imagen borrosa). Se le pone el modo pedido, que ya es
+// el que el usuario eligió en Windows para esta tablet si lo hizo (main.cpp, SaveSize).
+void VirtualDisplay::EnsureMode(UINT width, UINT height, UINT refresh_hz) {
+  DEVMODEW dm{};
+  dm.dmSize = sizeof(dm);
+  if (!EnumDisplaySettingsW(gdi_name_.c_str(), ENUM_CURRENT_SETTINGS, &dm)) return;
+  if (dm.dmPelsWidth == width && dm.dmPelsHeight == height) return;
+  std::printf("Windows puso el monitor virtual a %lux%lu: lo cambio a %ux%u.\n", dm.dmPelsWidth, dm.dmPelsHeight,
+              width, height);
+  dm.dmPelsWidth = width;
+  dm.dmPelsHeight = height;
+  dm.dmDisplayFrequency = refresh_hz;
+  dm.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY;
+  LONG r = ChangeDisplaySettingsExW(gdi_name_.c_str(), &dm, nullptr, CDS_UPDATEREGISTRY, nullptr);
+  if (r != DISP_CHANGE_SUCCESSFUL) {
+    dm.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT;  // por si no acepta esos Hz
+    r = ChangeDisplaySettingsExW(gdi_name_.c_str(), &dm, nullptr, CDS_UPDATEREGISTRY, nullptr);
+  }
+  if (r != DISP_CHANGE_SUCCESSFUL) {
+    std::fprintf(stderr, "Aviso: Windows no aceptó %ux%u para el monitor virtual (código %ld).\n", width, height, r);
+    return;
+  }
+  // Se espera a que el modo nuevo esté puesto antes de capturar.
+  for (int i = 0; i < 20; ++i) {
+    DEVMODEW now{};
+    now.dmSize = sizeof(now);
+    if (EnumDisplaySettingsW(gdi_name_.c_str(), ENUM_CURRENT_SETTINGS, &now) && now.dmPelsWidth == width &&
+        now.dmPelsHeight == height) {
+      break;
+    }
+    Sleep(100);
+  }
 }
 
 void VirtualDisplay::Unplug() {

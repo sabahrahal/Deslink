@@ -3,6 +3,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <mutex>
 #include <thread>
@@ -59,6 +60,7 @@ class MfEncoder {
   bool ConfigureTypes(VideoCodec codec);
   void ApplyLowLatencySettings(UINT bitrate_bps);
   void EventLoop();
+  void EventPump();
   bool FeedInput(const PendingFrame& frame);
   void DrainOutput();
   void CaptureSequenceHeader();
@@ -73,9 +75,15 @@ class MfEncoder {
   VideoCodec codec_ = VideoCodec::kHevc;
   UINT width_ = 0, height_ = 0, fps_ = 60;
 
+  // Dos hilos: EventPump espera los eventos del MFT (GetEvent bloquea) y los pasa a EventLoop, que da frames y
+  // recoge salidas. Así una petición de entrada sin frame listo no tapa la salida ya codificada.
   std::thread thread_;
+  std::thread pump_;
   std::mutex mutex_;
   std::condition_variable cv_;
+  std::deque<MediaEventType> events_queue_;
+  int need_input_ = 0;      // entradas que el MFT pidió y aún no se le dieron
+  bool pump_done_ = false;  // GetEvent falló o acabó el vaciado: no llegarán más eventos
   bool has_pending_ = false;
   PendingFrame pending_;
   std::atomic<bool> stop_{false};
