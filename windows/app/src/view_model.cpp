@@ -234,6 +234,7 @@ View BuildView(const ViewInput& in) {
   if (s.virtual_display && !in.driver_installed) {
     mode.hint = L"Falta el driver de la pantalla extra";
     mode.hint_tone = Tone::kWarning;
+    v.repair = in.repairing_driver ? L"Instalando la pantalla extra…" : L"Instalar la pantalla extra";
   }
   v.main.push_back(mode);
   Row quality = Segmented("calidad", L"Calidad", {L"Alta", L"Equilibrada", L"Ahorro"}, QualityIndex(s.quality));

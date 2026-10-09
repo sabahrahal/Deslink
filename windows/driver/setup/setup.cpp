@@ -2,6 +2,7 @@
 //
 //   desklink-driver instalar      (como administrador)
 //   desklink-driver desinstalar   (como administrador)
+//   desklink-driver estado        (0 si el monitor virtual está instalado y funcionando)
 //
 // Con --sin-pausa no espera a Enter al terminar (lo usa el instalador de DeskLink, que lo lanza sin ventana).
 //
@@ -102,6 +103,27 @@ int ForEachDeskLinkDevice(Fn fn) {
   return found;
 }
 
+// Dice si el dispositivo existe y Windows lo tiene arrancado. Si no, el código de problema del Administrador de
+// dispositivos (p. ej. 52: firma no aceptada) ayuda a saber por qué.
+int Status() {
+  int ok = 0;
+  const int found = ForEachDeskLinkDevice([&](HDEVINFO, SP_DEVINFO_DATA* dev) {
+    ULONG status = 0, problem = 0;
+    if (CM_Get_DevNode_Status(&status, &problem, dev->DevInst, 0) != CR_SUCCESS) {
+      std::printf("Dispositivo presente pero desconectado.\n");
+      return;
+    }
+    if ((status & DN_STARTED) && !(status & DN_HAS_PROBLEM)) {
+      ++ok;
+      std::printf("Monitor virtual instalado y funcionando.\n");
+    } else {
+      std::printf("Monitor virtual con problema (código %lu del Administrador de dispositivos).\n", problem);
+    }
+  });
+  if (found == 0) std::printf("El monitor virtual no está instalado.\n");
+  return ok > 0 ? 0 : 1;
+}
+
 int Install() {
   const std::wstring dir = ExeDir();
   const std::wstring inf = dir + L"desklink-idd.inf";
@@ -159,6 +181,7 @@ int Install() {
   }
   std::printf("\nListo. El monitor virtual aparece cuando arrancas desklink-host con --virtual.\n");
   if (reboot) std::printf("Windows pide reiniciar para terminar la instalación.\n");
+  Status();
   return 0;
 }
 
@@ -196,8 +219,10 @@ int Uninstall() {
 
 int Run(int argc, wchar_t** argv) {
   const std::wstring cmd = argc > 1 ? argv[1] : L"";
+  if (cmd == L"estado") return Status();
   if (cmd != L"instalar" && cmd != L"desinstalar") {
-    std::printf("Uso: desklink-driver instalar | desinstalar   (como administrador)\n");
+    std::printf("Uso: desklink-driver instalar | desinstalar   (como administrador)\n"
+                "     desklink-driver estado\n");
     return 2;
   }
   if (!IsUserAnAdmin()) {

@@ -35,6 +35,7 @@ import com.desklink.HostGroups
 import com.desklink.Link
 import com.desklink.PcEntry
 import com.desklink.Transport
+import com.desklink.UsbDebugHint
 
 /** Lo que muestra la pantalla de inicio; lo calcula MainActivity con cada búsqueda. */
 data class HomeState(
@@ -46,6 +47,8 @@ data class HomeState(
     val networks: String = "",
     /** PC al que se va a conectar solo (se puede cancelar). */
     val autoConnecting: Found? = null,
+    /** Enchufada por USB sin depuración USB: qué falta para que el cable funcione sin elegir nada. */
+    val usbDebug: UsbDebugHint = UsbDebugHint.NONE,
 ) {
     /** Un PC por tarjeta, con el cable USB y el Wi-Fi juntos. */
     val pcs: List<PcEntry> get() = HostGroups.group(hosts)
@@ -62,6 +65,7 @@ fun HomeScreen(
     onConnectAddress: (String) -> Unit,
     onCancelAuto: () -> Unit,
     onOpenAdvanced: () -> Unit,
+    onOpenUsbDebug: () -> Unit = {},
 ) {
     // Camino elegido en cada tarjeta (true = cable USB). De serie, el cable.
     val preferUsb = remember { mutableStateMapOf<String, Boolean>() }
@@ -95,6 +99,11 @@ fun HomeScreen(
                 VSpace(12.dp)
             }
 
+            if (state.usbDebug != UsbDebugHint.NONE) {
+                UsbDebugCard(state.usbDebug, onOpenUsbDebug)
+                VSpace(12.dp)
+            }
+
             if (pcs.isEmpty()) {
                 Searching(state)
             } else {
@@ -124,6 +133,33 @@ fun HomeScreen(
     }
 }
 
+/** Enchufada al PC sin depuración USB: cómo dejar el cable funcionando sin elegir «Anclaje USB» cada vez. */
+@Composable
+private fun UsbDebugCard(hint: UsbDebugHint, onOpen: () -> Unit) {
+    DlCard(Modifier.testTag("usb-debug")) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Activa la depuración USB", style = DlText.Headline)
+            Text(
+                "Así el cable funciona solo al enchufarlo, sin elegir «Anclaje USB» ni ningún modo cada vez. Se hace una sola vez.",
+                style = DlText.Body,
+                color = palette.textSecondary,
+            )
+            if (hint == UsbDebugHint.ENABLE_DEVELOPER) {
+                Text("1. En Información de la tablet, toca 7 veces «Número de compilación».", style = DlText.Body)
+                Text("2. Vuelve atrás, entra en «Opciones de desarrollador» y activa «Depuración USB».", style = DlText.Body)
+            } else {
+                Text("1. En «Opciones de desarrollador», activa «Depuración USB».", style = DlText.Body)
+            }
+            Text(
+                "${if (hint == UsbDebugHint.ENABLE_DEVELOPER) 3 else 2}. Al enchufar al PC, marca «Permitir siempre desde este ordenador» y acepta.",
+                style = DlText.Body,
+            )
+            VSpace(4.dp)
+            PrimaryButton("Abrir ajustes", onOpen)
+        }
+    }
+}
+
 @Composable
 private fun Searching(state: HomeState) {
     var help by rememberSaveable { mutableStateOf(false) }
@@ -143,7 +179,7 @@ private fun Searching(state: HomeState) {
                 AnimatedVisibility(help) {
                     Column(Modifier.padding(start = 8.dp, top = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("1. Abre DeskLink en el PC y pulsa Iniciar.", style = DlText.Body)
-                        Text("2. Por cable: conecta el USB y acepta «Permitir depuración USB» en la tablet.", style = DlText.Body)
+                        Text("2. Por cable: activa la depuración USB en la tablet, conecta el USB y acepta «Permitir depuración USB».", style = DlText.Body)
                         Text("3. Por Wi-Fi: PC y tablet en la misma red, y DeskLink permitido en el cortafuegos de Windows.", style = DlText.Body)
                         Text("Redes de esta tablet: ${state.networks}", style = DlText.Note, color = palette.textSecondary)
                     }
