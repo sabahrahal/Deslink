@@ -62,6 +62,8 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
     @Volatile private var viewOnly = false
     private lateinit var badgeView: TextView
     private lateinit var menuButton: TextView
+    private var menuX = 0f  // posición del botón ☰ (margen izquierdo y superior, en píxeles)
+    private var menuY = 0f
     @Volatile private var streamFps = 0
     private var badgeUntilMs = 0L
     private var warnedDrain = false
@@ -164,7 +166,8 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         setContentView(root)
         // Al girar la tablet (o al medir por primera vez) se recoloca en la misma proporción.
         root.addOnLayoutChangeListener { _, l, t, r, b, ol, ot, or_, ob ->
-            if (r - l != or_ - ol || b - t != ob - ot) placeMenuButton()
+            // Fuera de la pasada de medida: cambia los márgenes del botón, y eso pide otra.
+            if (r - l != or_ - ol || b - t != ob - ot) root.post { placeMenuButton() }
         }
         hideSystemBars()
         applyProfile(profile)
@@ -249,19 +252,21 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
      * Botón que abre el menú rápido: redondo, del azul de DeskLink y con borde blanco para que se vea sobre cualquier
      * fondo. Se puede arrastrar a otro sitio si tapa algo del PC, pero nunca fuera de la pantalla ni pegado al borde
      * (donde los gestos de Android lo taparían); se recuerda dónde se dejó (en proporción, para que valga al girarla).
+     *
+     * Se coloca con márgenes, no desplazándolo (x/y), y sin sombra ni transparencia de la vista: encima del vídeo
+     * (SurfaceView) Android solo respeta la zona donde la vista está colocada de verdad, y lo demás salía cortado.
      */
     private fun makeMenuButton(): TextView = TextView(this).apply {
         text = "☰"
         setTextColor(Color.WHITE)
-        textSize = 20f
+        textSize = 15f
         gravity = Gravity.CENTER
-        alpha = MENU_ALPHA
+        includeFontPadding = false
         background = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
-            setColor(0xE60066CC.toInt())
-            setStroke(dp(2), Color.WHITE)
+            setColor(MENU_COLOR)
+            setStroke(dp(1).coerceAtLeast(2), Color.WHITE)
         }
-        elevation = dp(6).toFloat()
         contentDescription = "Menú de DeskLink"
         visibility = View.GONE
         val slop = ViewConfiguration.get(this@StreamActivity).scaledTouchSlop
@@ -275,10 +280,10 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
                 MotionEvent.ACTION_DOWN -> {
                     downX = e.rawX
                     downY = e.rawY
-                    startX = v.x
-                    startY = v.y
+                    startX = menuX
+                    startY = menuY
                     dragging = false
-                    v.alpha = 1f
+                    (v.background as GradientDrawable).setColor(MENU_COLOR_PRESSED)
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = e.rawX - downX
@@ -287,7 +292,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
                     if (dragging) moveMenuButton(startX + dx, startY + dy)
                 }
                 MotionEvent.ACTION_UP -> {
-                    v.alpha = MENU_ALPHA
+                    (v.background as GradientDrawable).setColor(MENU_COLOR)
                     if (dragging) {
                         saveMenuButton()
                     } else {
@@ -299,7 +304,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
                         setMenu(true)
                     }
                 }
-                MotionEvent.ACTION_CANCEL -> v.alpha = MENU_ALPHA
+                MotionEvent.ACTION_CANCEL -> (v.background as GradientDrawable).setColor(MENU_COLOR)
             }
             true
         }
@@ -308,8 +313,14 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
     private fun moveMenuButton(x: Float, y: Float) {
         val btn = dp(MENU_BUTTON_DP)
         val m = dp(MENU_EDGE_DP).toFloat()
-        menuButton.x = x.coerceIn(m, (root.width - btn - m).coerceAtLeast(m))
-        menuButton.y = y.coerceIn(m, (root.height - btn - m).coerceAtLeast(m))
+        menuX = x.coerceIn(m, (root.width - btn - m).coerceAtLeast(m))
+        menuY = y.coerceIn(m, (root.height - btn - m).coerceAtLeast(m))
+        val lp = menuButton.layoutParams as FrameLayout.LayoutParams
+        if (lp.leftMargin != menuX.toInt() || lp.topMargin != menuY.toInt()) {
+            lp.leftMargin = menuX.toInt()
+            lp.topMargin = menuY.toInt()
+            menuButton.layoutParams = lp
+        }
     }
 
     private fun saveMenuButton() {
@@ -317,8 +328,8 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         val w = (root.width - btn).coerceAtLeast(1).toFloat()
         val h = (root.height - btn).coerceAtLeast(1).toFloat()
         getSharedPreferences(PowerProfile.PREFS, MODE_PRIVATE).edit()
-            .putFloat(PREF_MENU_X, menuButton.x / w)
-            .putFloat(PREF_MENU_Y, menuButton.y / h)
+            .putFloat(PREF_MENU_X, menuX / w)
+            .putFloat(PREF_MENU_Y, menuY / h)
             .apply()
     }
 
@@ -621,10 +632,11 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         const val EXTRA_HOST_NAME = "host_name"
         private const val SCREEN_GRACE_MS = 2 * 60 * 1000L
         private const val BADGE_MS = 8_000L
-        private const val MENU_BUTTON_DP = 48
+        private const val MENU_BUTTON_DP = 36
         /** Distancia mínima al borde: ahí los gestos de Android (volver, barra de estado) se tragan el toque. */
         private const val MENU_EDGE_DP = 16
-        private const val MENU_ALPHA = 0.85f
+        private const val MENU_COLOR = 0xD90066CC.toInt()  // azul de DeskLink, un poco transparente
+        private const val MENU_COLOR_PRESSED = 0xFF0066CC.toInt()
         private const val PREF_MENU_X = "menu_button_x"
         private const val PREF_MENU_Y = "menu_button_y"
     }
