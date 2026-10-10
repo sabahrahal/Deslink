@@ -3,6 +3,9 @@ package com.desklink
 import android.media.MediaCodec
 import android.media.MediaFormat
 import android.os.Build
+import android.os.Handler
+import android.os.HandlerThread
+import android.os.Process
 import android.view.Surface
 
 /**
@@ -15,6 +18,11 @@ class VideoDecoder(
     private val onError: (String) -> Unit,
 ) {
     private val codec: MediaCodec
+    /**
+     * Hilo propio para los avisos del decodificador. Sin él, Android los entrega en el hilo principal, que también
+     * pinta la interfaz y atiende el táctil: cada frame ya decodificado esperaba ahí su turno antes de mostrarse.
+     */
+    private val callbackThread = HandlerThread("desklink-decoder", Process.THREAD_PRIORITY_URGENT_DISPLAY).apply { start() }
     /** Buffers de entrada libres; también hace de monitor para esperar uno (wait/notify). */
     private val freeInputs = ArrayDeque<Int>()
     private var released = false // protegido por freeInputs
@@ -91,7 +99,7 @@ class VideoDecoder(
             override fun onError(c: MediaCodec, e: MediaCodec.CodecException) {
                 onError("Error del decodificador: ${e.diagnosticInfo}")
             }
-        })
+        }, Handler(callbackThread.looper))
         codec.configure(format, surface, null, 0)
         codec.start()
     }
@@ -159,6 +167,7 @@ class VideoDecoder(
         } catch (_: IllegalStateException) {
         }
         codec.release()
+        callbackThread.quitSafely()
     }
 
     private companion object {
