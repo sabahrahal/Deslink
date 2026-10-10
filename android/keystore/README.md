@@ -15,3 +15,14 @@ De dónde sale la clave, por orden:
 
 Al pasar de una APK firmada con la clave de depuración antigua a una firmada con la fija hay que desinstalar **una
 vez**.
+
+## La clave de publicación (secretos de GitHub)
+
+La CI firma con la clave guardada en tres secretos del repositorio (Settings → Secrets and variables → Actions):
+`DESKLINK_KEYSTORE_B64` (el `.jks` en base64), `DESKLINK_KEYSTORE_PASSWORD` y `DESKLINK_KEY_PASSWORD`. El alias es
+`desklink`. El `.jks` **no** está en el repositorio: la única copia segura es la del gestor de contraseñas de quien
+mantiene el proyecto. Es también la clave de subida de Google Play (el `.aab` de cada versión sale firmado con ella);
+si se pierde, Play obliga a pedir un cambio de clave de subida, que tarda días.
+
+Para comprobar con qué clave se firmó una APK descargada: `keytool -printcert -jarfile DeskLink.apk` (la huella SHA-256
+debe ser siempre la misma).
