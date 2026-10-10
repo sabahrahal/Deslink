@@ -89,6 +89,18 @@ class HostGroupsTest {
     }
 
     @Test
+    fun autoConnectWaitsForTheCableWhenItIsOnItsWay() {
+        val found = listOf(pcWifi)
+        // Enchufada con depuración USB: la red espera a que el PC prepare el cable.
+        assertNull(HostGroups.autoTarget(found, "192.168.1.20", "ESCRITORIO", scans = 2, cableExpected = true))
+        assertNull(HostGroups.autoTarget(found, "192.168.1.20", "ESCRITORIO", scans = HostGroups.CABLE_WAIT_SCANS - 1, cableExpected = true))
+        // Si el cable no llega, al final se usa la red.
+        assertEquals("192.168.1.20", HostGroups.autoTarget(found, "192.168.1.20", "ESCRITORIO", scans = HostGroups.CABLE_WAIT_SCANS, cableExpected = true)?.ip)
+        // Y en cuanto aparece, gana sin esperar.
+        assertEquals(Link.CABLE_HOST, HostGroups.autoTarget(listOf(pcWifi, usbCable), "192.168.1.20", "ESCRITORIO", scans = 1, cableExpected = true)?.ip)
+    }
+
+    @Test
     fun autoConnectNeedsALastHost() {
         val found = listOf(pcWifi, usbCable)
         assertNull(HostGroups.autoTarget(found, null, "ESCRITORIO", scans = 5))
