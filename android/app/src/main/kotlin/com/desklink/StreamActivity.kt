@@ -107,7 +107,8 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         statsShown = statsVisible
         helloConfig = AppSettings.hello(Device.display(this), Device.hevcSupported)
 
-        if (settings.keepScreenOn) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // La pantalla no se apaga mientras se usa como monitor (ya no es una opción: nadie la quiere apagada).
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         // Los botones de volumen controlan el sonido del PC (multimedia), no el del timbre.
         volumeControlStream = AudioManager.STREAM_MUSIC
         // Toda la pantalla, también la zona de la cámara: el monitor del PC se crea con la resolución completa.
@@ -137,7 +138,6 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
                         QuickMenu(
                             summary = summary,
                             statsVisible = statsShown,
-                            onInput = { mode -> setTouchMode(mode) },
                             onStats = { toggleStats() },
                             onDisconnect = { finish() },
                             onClose = { setMenu(false) },
@@ -246,19 +246,22 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     /**
-     * Botón discreto que abre el menú rápido. Se puede arrastrar a otro sitio si tapa algo del PC; se recuerda dónde
-     * se dejó (en proporción de la pantalla, para que valga al girarla).
+     * Botón que abre el menú rápido: redondo, del azul de DeskLink y con borde blanco para que se vea sobre cualquier
+     * fondo. Se puede arrastrar a otro sitio si tapa algo del PC, pero nunca fuera de la pantalla ni pegado al borde
+     * (donde los gestos de Android lo taparían); se recuerda dónde se dejó (en proporción, para que valga al girarla).
      */
     private fun makeMenuButton(): TextView = TextView(this).apply {
-        text = "•••"
+        text = "☰"
         setTextColor(Color.WHITE)
-        textSize = 13f
+        textSize = 20f
         gravity = Gravity.CENTER
-        alpha = 0.55f
+        alpha = MENU_ALPHA
         background = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
-            setColor(0x99000000.toInt())
+            setColor(0xE60066CC.toInt())
+            setStroke(dp(2), Color.WHITE)
         }
+        elevation = dp(6).toFloat()
         contentDescription = "Menú de DeskLink"
         visibility = View.GONE
         val slop = ViewConfiguration.get(this@StreamActivity).scaledTouchSlop
@@ -275,7 +278,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
                     startX = v.x
                     startY = v.y
                     dragging = false
-                    v.alpha = 0.9f
+                    v.alpha = 1f
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = e.rawX - downX
@@ -284,7 +287,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
                     if (dragging) moveMenuButton(startX + dx, startY + dy)
                 }
                 MotionEvent.ACTION_UP -> {
-                    v.alpha = 0.55f
+                    v.alpha = MENU_ALPHA
                     if (dragging) {
                         saveMenuButton()
                     } else {
@@ -296,7 +299,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
                         setMenu(true)
                     }
                 }
-                MotionEvent.ACTION_CANCEL -> v.alpha = 0.55f
+                MotionEvent.ACTION_CANCEL -> v.alpha = MENU_ALPHA
             }
             true
         }
@@ -304,8 +307,9 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
 
     private fun moveMenuButton(x: Float, y: Float) {
         val btn = dp(MENU_BUTTON_DP)
-        menuButton.x = x.coerceIn(0f, (root.width - btn).coerceAtLeast(0).toFloat())
-        menuButton.y = y.coerceIn(0f, (root.height - btn).coerceAtLeast(0).toFloat())
+        val m = dp(MENU_EDGE_DP).toFloat()
+        menuButton.x = x.coerceIn(m, (root.width - btn - m).coerceAtLeast(m))
+        menuButton.y = y.coerceIn(m, (root.height - btn - m).coerceAtLeast(m))
     }
 
     private fun saveMenuButton() {
@@ -338,12 +342,6 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         statsView.visibility = if (statsVisible) View.VISIBLE else View.GONE
     }
 
-    /** Táctil (0) o ratón (1) desde el menú rápido: se pide al PC, que lo recuerda en sus ajustes. */
-    private fun setTouchMode(mode: Int) {
-        session?.setInputMode(if (mode == 1) Dlp.INPUT_MOUSE else Dlp.INPUT_TOUCH)
-        summary = summary.copy(input = mode)
-    }
-
     /** Lo que decidió el PC: calidad, sonido, táctil y si va reducida. */
     override fun onSessionConfig(config: Dlp.SessionConfig) {
         runOnUiThread {
@@ -373,7 +371,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
                 reduced = reduced,
             )
             if (previous == null) {
-                badgeView.text = "Calidad $quality · ${config.fps} fps · el botón ••• abre el menú"
+                badgeView.text = "Calidad $quality · ${config.fps} fps · el botón ☰ abre el menú"
                 showBadge(BADGE_MS)
             }
             updateBadge()
@@ -527,13 +525,11 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
             if (!streaming) menuOpen = false
             overlay.visibility = if (streaming && !menuOpen) View.GONE else View.VISIBLE
             updateMenuButton()
-            if (settings.keepScreenOn) {
-                ui.removeCallbacks(releaseScreen)
-                if (streaming || phase == StreamSession.Phase.CONNECTING) {
-                    window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                } else {
-                    ui.postDelayed(releaseScreen, SCREEN_GRACE_MS)
-                }
+            ui.removeCallbacks(releaseScreen)
+            if (streaming || phase == StreamSession.Phase.CONNECTING) {
+                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            } else {
+                ui.postDelayed(releaseScreen, SCREEN_GRACE_MS)
             }
             if (!streaming) hideSystemBars()
         }
@@ -622,7 +618,10 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         const val EXTRA_HOST_NAME = "host_name"
         private const val SCREEN_GRACE_MS = 2 * 60 * 1000L
         private const val BADGE_MS = 8_000L
-        private const val MENU_BUTTON_DP = 40
+        private const val MENU_BUTTON_DP = 48
+        /** Distancia mínima al borde: ahí los gestos de Android (volver, barra de estado) se tragan el toque. */
+        private const val MENU_EDGE_DP = 16
+        private const val MENU_ALPHA = 0.85f
         private const val PREF_MENU_X = "menu_button_x"
         private const val PREF_MENU_Y = "menu_button_y"
     }

@@ -90,7 +90,8 @@ struct App {
   bool mouse_tracked = false;
   float pulse = 0;            // el punto de estado late mientras espera
   gp::RectF pulse_rect;       // zona que se repinta con la animación
-  float content_bottom = 0;   // alto que necesita el contenido (para ajustar la ventana)
+  float content_bottom = 0;   // alto que necesita el contenido, con lo avanzado abierto (para desplazar)
+  float base_bottom = 0;      // alto sin lo avanzado: el de la ventana, para que no salte al abrirlo
   float scroll = 0;           // desplazamiento vertical cuando el contenido no cabe en la pantalla
   float advanced_top = 0;     // dónde empieza «Configuración avanzada» (para llevarla a la vista al abrirla)
   bool reveal_advanced = false;
@@ -562,7 +563,7 @@ void OnHostLine(bool from_stderr, const std::wstring& line) {
   if (line.rfind(L"@ajuste ", 0) == 0) {
     // La tablet cambió algo desde su menú rápido (táctil o ratón): se recuerda aquí, que es donde manda el PC.
     const std::wstring touch = Field(line, L"tactil");
-    const int mode = touch == L"raton" ? 1 : touch == L"solo-ver" ? 2 : touch == L"tactil" ? 0 : -1;
+    const int mode = touch == L"solo-ver" ? 2 : touch == L"tactil" ? 0 : -1;
     if (mode >= 0 && mode != g.settings.touch) {
       g.settings.touch = mode;
       SaveSettings(g.settings);
@@ -855,7 +856,7 @@ void OnSegment(const std::string& id, int i) {
   }
   if (id == "calidad") s.quality = QualityAt(i);
   else if (id == "sonido") s.audio_tablet = i == 1;
-  else if (id == "tactil") s.touch = i;
+  else if (id == "tactil") s.touch = i == 1 ? 2 : 0;
   ChangeSettings(s);
 }
 
@@ -898,7 +899,6 @@ void OnToggle(const std::string& id) {
     return;
   }
   if (id == "bateria") s.battery_adapt = !s.battery_adapt;
-  else if (id == "puntero") s.cursor = !s.cursor;
   else if (id == "usb") s.usb = !s.usb;
   else if (id == "abrir") s.stream_on_open = !s.stream_on_open;
   else if (id == "abrir_tablet") s.open_tablet = !s.open_tablet;
@@ -1138,6 +1138,7 @@ void Paint(gp::Graphics& gr, float width) {
     Chevron(gr, x + F(4) + TextWidth(gr, L"Configuración avanzada", *section) + F(8), y + F(16), v.advanced_open, c);
     y += F(36);
   }
+  g.base_bottom = y + F(16);
   if (v.advanced_open) {
     Card(gr, x, &y, w, [&](bool draw, float top) { return RowsContent(gr, v.advanced, draw, x, top, w); });
     y += F(8);
@@ -1202,8 +1203,9 @@ void OnPaint(HWND hwnd) {
   DeleteDC(mem);
   EndPaint(hwnd, &ps);
 
-  // La ventana toma el alto del contenido, sin pasar del alto de la pantalla: lo que no cabe se desplaza con la rueda.
-  const int want = std::min(static_cast<int>(std::ceil(g.content_bottom)), MaxClientHeight(hwnd));
+  // La ventana toma el alto del contenido sin lo avanzado, sin pasar del alto de la pantalla: al abrir «Configuración
+  // avanzada» no crece ni se mueve (antes saltaba hacia arriba); se desplaza con la rueda hasta ella.
+  const int want = std::min(static_cast<int>(std::ceil(g.base_bottom)), MaxClientHeight(hwnd));
   if (want > 0 && std::abs(want - h) > 1) {
     RECT wr{0, 0, w, want};
     AdjustWindowRectEx(&wr, GetWindowLongW(hwnd, GWL_STYLE), FALSE, GetWindowLongW(hwnd, GWL_EXSTYLE));
@@ -1536,7 +1538,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd_line, int) {
     DeleteDC(mem);
     ReleaseDC(g.wnd, screen);
     RECT wr{0, 0, static_cast<LONG>(F(kClientW)),
-            static_cast<LONG>(std::min(static_cast<int>(std::ceil(g.content_bottom)), MaxClientHeight(g.wnd)))};
+            static_cast<LONG>(std::min(static_cast<int>(std::ceil(g.base_bottom)), MaxClientHeight(g.wnd)))};
     AdjustWindowRectEx(&wr, style, FALSE, 0);
     SetWindowPos(g.wnd, nullptr, 0, 0, wr.right - wr.left, wr.bottom - wr.top, SWP_NOMOVE | SWP_NOZORDER);
     CenterOnWorkArea(g.wnd);

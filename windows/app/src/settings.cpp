@@ -51,7 +51,6 @@ bool LoadSettings(Settings* s) {
   s->bitrate = ReadInt(path, L"bitrate", s->bitrate);
   s->codec = ReadString(path, L"codec");
   s->battery_adapt = ReadInt(path, L"battery_adapt", s->battery_adapt) != 0;
-  s->cursor = ReadInt(path, L"cursor", s->cursor) != 0;
   s->usb = ReadInt(path, L"usb", s->usb) != 0;
   s->stream_on_open = ReadInt(path, L"stream_on_open", s->stream_on_open) != 0;
   s->open_tablet = ReadInt(path, L"open_tablet", s->open_tablet) != 0;
@@ -89,7 +88,6 @@ void SaveSettings(const Settings& s) {
   WriteInt(path, L"bitrate", s.bitrate);
   WriteString(path, L"codec", s.codec);
   WriteInt(path, L"battery_adapt", s.battery_adapt);
-  WriteInt(path, L"cursor", s.cursor);
   WriteInt(path, L"usb", s.usb);
   WriteInt(path, L"stream_on_open", s.stream_on_open);
   WriteInt(path, L"open_tablet", s.open_tablet);
