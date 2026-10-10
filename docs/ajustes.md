@@ -12,7 +12,7 @@ A la vista, lo que casi todo el mundo toca:
 | --- | --- | --- |
 | Modo | Pantalla extra (de serie) · Duplicar | Monitor virtual a la medida de la tablet, o copia de un monitor |
 | Calidad | Alta (de serie) · Equilibrada · Ahorro | Alta: los fps y la tasa más altos que aguanten tablet y PC. Equilibrada: hasta 60 fps y 30 Mbps. Ahorro: 30 fps, gasta menos en la tablet |
-| Sonido | En el PC (de serie) · En la tablet | Dónde suena el PC |
+| Sonido | En el PC (de serie) · En la tablet | Dónde suena el PC. En la tablet, los altavoces del PC se silencian mientras dura y vuelven al terminar |
 | Táctil | Táctil (de serie) · Solo ver | Toques reales de Windows, o los toques no llegan al PC |
 
 En **Configuración avanzada**: fluidez (fps), calidad de vídeo (Mbps), códec (todo «Automático» de serie), el
