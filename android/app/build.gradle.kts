@@ -5,12 +5,12 @@ plugins {
 
 android {
     namespace = "com.desklink"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.desklink"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 36
         // La CI pasa un número que siempre sube (el de la ejecución) para que cada APK nueva se instale encima
         // de la anterior. En local queda en 1.
         versionCode = System.getenv("DESKLINK_VERSION_CODE")?.toIntOrNull() ?: 1

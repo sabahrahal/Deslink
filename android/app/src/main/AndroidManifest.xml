@@ -13,6 +13,12 @@
         android:label="DeskLink"
         android:theme="@style/Theme.DeskLink">
 
+        <!-- Desde Android 16, en tablets se ignora la orientación fija. La sesión debe seguir en horizontal (la
+             pantalla del PC es apaisada): se mantiene el comportamiento anterior mientras Android lo permita. -->
+        <property
+            android:name="android.window.PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY"
+            android:value="true" />
+
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
