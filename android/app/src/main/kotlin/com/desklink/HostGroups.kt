@@ -25,6 +25,9 @@ data class PcEntry(
 }
 
 object HostGroups {
+    /** Búsquedas (unos 3 s cada una) que la red espera al cable cuando se sabe que viene: el PC tarda en preparar adb. */
+    const val CABLE_WAIT_SCANS = 7
+
     /** Junta los resultados de una búsqueda por PC; primero los que tienen cable, luego por nombre. */
     fun group(found: List<Found>): List<PcEntry> {
         val byKey = LinkedHashMap<String, MutableList<Found>>()
@@ -45,16 +48,24 @@ object HostGroups {
     /**
      * PC al que conectarse solo al abrir la app: el último usado (por su dirección o por su nombre), y siempre
      * por el cable si llega por él. El cable de DeskLink vale en cuanto aparece; cualquier otro camino espera a
-     * la segunda búsqueda ([scans] >= 2), por si la prueba del cable solo tardaba. Null si aún no toca.
+     * la segunda búsqueda ([scans] >= 2), por si la prueba del cable solo tardaba. Si la tablet está enchufada con la
+     * depuración USB activa ([cableExpected]) el cable va a aparecer en unos segundos, así que la red espera hasta
+     * [CABLE_WAIT_SCANS] búsquedas. Null si aún no toca.
      */
-    fun autoTarget(found: List<Found>, lastHost: String?, lastHostName: String?, scans: Int): Found? {
+    fun autoTarget(
+        found: List<Found>,
+        lastHost: String?,
+        lastHostName: String?,
+        scans: Int,
+        cableExpected: Boolean = false,
+    ): Found? {
         if (lastHost == null) return null
         val name = lastHostName?.trim().orEmpty()
         val pc = group(found).firstOrNull {
             it.matches(lastHost) || (name.isNotEmpty() && it.name.equals(name, ignoreCase = true))
         } ?: return null
         pc.usb?.takeIf { it.isCable }?.let { return it }
-        return if (scans >= 2) pc.route() else null
+        return if (scans >= (if (cableExpected) CABLE_WAIT_SCANS else 2)) pc.route() else null
     }
 
     /** Texto bajo el nombre del PC para el camino elegido. */

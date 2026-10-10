@@ -105,6 +105,7 @@ class MainActivity : ComponentActivity() {
                             scans = scan,
                             networks = withContext(Dispatchers.IO) { Discovery.describeNetworks() },
                             usbDebug = UsbDebug.read(this@MainActivity),
+                            cableExpected = UsbDebug.cableExpected(this@MainActivity),
                         )
                         val cable = hosts.firstOrNull { it.isCable }
                         if (plugPending && cable != null) {
@@ -118,7 +119,7 @@ class MainActivity : ComponentActivity() {
                             // El cable siempre primero: si el último PC llega también por cable, se usa el cable,
                             // aunque ya se hubiera elegido su Wi-Fi en esta misma cuenta atrás.
                             val current = home.autoConnecting
-                            val target = HostGroups.autoTarget(hosts, home.lastHost, home.lastHostName, scan)
+                            val target = HostGroups.autoTarget(hosts, home.lastHost, home.lastHostName, scan, home.cableExpected)
                             if (target != null && (current == null || (target.isCable && !current.isCable))) {
                                 home = home.copy(autoConnecting = target)
                             }

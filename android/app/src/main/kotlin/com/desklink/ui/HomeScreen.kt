@@ -49,7 +49,13 @@ data class HomeState(
     val autoConnecting: Found? = null,
     /** Enchufada por USB sin depuración USB: qué falta para que el cable funcione sin elegir nada. */
     val usbDebug: UsbDebugHint = UsbDebugHint.NONE,
+    /** Enchufada con la depuración USB activa: el cable aparece en unos segundos, cuando el PC lo prepara. */
+    val cableExpected: Boolean = false,
 ) {
+    /** El PC ya responde por la red pero el cable aún no: se avisa de que espere. */
+    val waitingCable: Boolean get() =
+        cableExpected && scans < HostGroups.CABLE_WAIT_SCANS && hosts.isNotEmpty() && hosts.none { it.isCable }
+
     /** Un PC por tarjeta, con el cable USB y el Wi-Fi juntos. */
     val pcs: List<PcEntry> get() = HostGroups.group(hosts)
 }
@@ -94,6 +100,20 @@ fun HomeScreen(
                             Text("Es el último PC que usaste", style = DlText.Note, color = palette.textSecondary)
                         }
                         SecondaryButton("Cancelar", onCancelAuto)
+                    }
+                }
+                VSpace(12.dp)
+            }
+
+            if (state.waitingCable && state.autoConnecting == null) {
+                DlCard {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(20.dp), color = palette.accent, strokeWidth = 2.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Preparando el cable USB…", style = DlText.Headline)
+                            Text("Tarda unos segundos. Espera y se conecta solo, o conecta ya por Wi-Fi.", style = DlText.Note, color = palette.textSecondary)
+                        }
                     }
                 }
                 VSpace(12.dp)
