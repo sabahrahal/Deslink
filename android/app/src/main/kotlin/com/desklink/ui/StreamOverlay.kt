@@ -76,15 +76,11 @@ data class SessionSummary(
     val reduced: String = "",
 )
 
-/**
- * Menú rápido (botón ••• sobre el vídeo): táctil o ratón, estadísticas y desconectar. Lo demás se
- * cambia en el PC.
- */
+/** Menú rápido (botón sobre el vídeo): estadísticas y desconectar. Lo demás se cambia en el PC. */
 @Composable
 fun QuickMenu(
     summary: SessionSummary,
     statsVisible: Boolean,
-    onInput: (Int) -> Unit,
     onStats: () -> Unit,
     onDisconnect: () -> Unit,
     onClose: () -> Unit,
@@ -112,12 +108,8 @@ fun QuickMenu(
                 VSpace(16.dp)
                 if (summary.input == 2) {
                     Text("Solo ver: los toques no llegan al PC. Se cambia en el PC.", style = DlText.Note, color = palette.textSecondary)
-                } else {
-                    Text("Táctil", style = DlText.Section, color = palette.textSecondary)
-                    VSpace(6.dp)
-                    Segmented(listOf("Táctil", "Ratón"), summary.input, onInput, Modifier.fillMaxWidth())
+                    VSpace(12.dp)
                 }
-                VSpace(12.dp)
                 SwitchRow("Estadísticas", null, statsVisible) { onStats() }
                 VSpace(8.dp)
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {

@@ -20,7 +20,7 @@ bool ParseSize(const std::wstring& text, unsigned* w, unsigned* h) {
 
 void Sanitize(Settings* s) {
   if (s->quality != L"alta" && s->quality != L"equilibrada" && s->quality != L"ahorro") s->quality = L"alta";
-  if (s->touch < 0 || s->touch > 2) s->touch = 0;
+  if (s->touch != 2) s->touch = 0;  // ya no hay «ratón» (1): vuelve a táctil
   if (s->fps < 0 || s->fps > 240) s->fps = 0;
   if (s->bitrate < 0 || s->bitrate > 1000) s->bitrate = 0;
   if (s->codec != L"hevc" && s->codec != L"h264") s->codec.clear();
@@ -31,7 +31,7 @@ void Sanitize(Settings* s) {
 
 namespace {
 
-const wchar_t* TouchArg(int touch) { return touch == 1 ? L"raton" : touch == 2 ? L"solo-ver" : L"tactil"; }
+const wchar_t* TouchArg(int touch) { return touch == 2 ? L"solo-ver" : L"tactil"; }
 
 }  // namespace
 
@@ -42,7 +42,7 @@ std::wstring HostArguments(const Settings& s) {
   a += L" --bitrate " + (s.bitrate > 0 ? std::to_wstring(s.bitrate) : std::wstring(L"auto"));
   a += L" --codec " + (s.codec.empty() ? std::wstring(L"auto") : s.codec);
   if (s.audio_tablet) a += L" --audio-tablet";
-  a += s.touch == 1 ? L" --mouse" : s.touch == 2 ? L" --view-only" : L" --touch";
+  a += s.touch == 2 ? L" --view-only" : L" --touch";
   if (s.battery_adapt) a += L" --battery-adapt";
   // Sin --size: la resolución de la pantalla extra es la de la tablet o la que el usuario deje en Windows.
   if (s.virtual_display) {
@@ -50,7 +50,6 @@ std::wstring HostArguments(const Settings& s) {
   } else {
     a += L" --output " + std::to_wstring(s.output);
   }
-  if (!s.cursor) a += L" --no-cursor";
   if (!s.usb) a += L" --no-usb";
   if (!s.open_tablet) a += L" --no-open-tablet";
   if (!s.adb.empty()) a += L" --adb \"" + s.adb + L"\"";
@@ -72,5 +71,5 @@ std::wstring LiveSettingsLine(const Settings& s) {
 
 bool NeedsRestart(const Settings& a, const Settings& b) {
   return a.virtual_display != b.virtual_display || (!a.virtual_display && a.output != b.output) ||
-         a.cursor != b.cursor || a.usb != b.usb || a.port != b.port || a.adb != b.adb || a.extra != b.extra;
+         a.usb != b.usb || a.port != b.port || a.adb != b.adb || a.extra != b.extra;
 }

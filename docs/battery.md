@@ -79,7 +79,7 @@ Arriba a la derecha, unos segundos al empezar y tras cada cambio, y fijo mientra
 - rojo «Se descarga pese al cable −0,4 W · bajado a Mínimo»
 - «Batería · consumo neto −4,2 W» sin cable
 
-Las estadísticas (botón ••• del menú) muestran además el %, por dónde entra la carga (USB, cargador), de dónde sale
+Las estadísticas (botón ☰ del menú) muestran además el %, por dónde entra la carga (USB, cargador), de dónde sale
 la cifra (medida o estimada, ver abajo) y el perfil activo con sus fps, Mbps y escala.
 
 ## Qué se mide y qué se estima
@@ -111,7 +111,7 @@ En el PC el perfil también reduce trabajo: menos frames convertidos y codificad
 
 ### Cómo medirlo de verdad (para afinar la tabla)
 
-1. Sin cable y con el brillo fijo en manual, abre el stream y deja las estadísticas a la vista (botón ••• del menú).
+1. Sin cable y con el brillo fijo en manual, abre el stream y deja las estadísticas a la vista (botón ☰ del menú).
 2. Espera a que la cifra diga «medido: corriente de la batería» (aprende el signo en unos segundos sin cable).
 3. Con el escritorio quieto y luego moviendo una ventana, anota los W de cada perfil (cambia la calidad en la ventana del PC). Unos 2 min por perfil.
 4. Repite con el cable en el puerto que uses para ver cuánto da (neto con cable − neto sin cable ≈ lo que entra).

@@ -243,7 +243,8 @@ View BuildView(const ViewInput& in) {
   quality.hint = quality_hints[quality.selected];
   v.main.push_back(quality);
   v.main.push_back(Segmented("sonido", L"Sonido", {L"En el PC", L"En la tablet"}, s.audio_tablet ? 1 : 0));
-  v.main.push_back(Segmented("tactil", L"Táctil", {L"Táctil", L"Ratón", L"Solo ver"}, s.touch));
+  // Sin «Ratón»: en una tablet se toca. Si Windows rechaza los toques, el host pasa solo a ratón por debajo.
+  v.main.push_back(Segmented("tactil", L"Táctil", {L"Táctil", L"Solo ver"}, s.touch == 2 ? 1 : 0));
 
   // Configuración avanzada, plegada.
   v.advanced_open = in.advanced_open;
@@ -267,7 +268,6 @@ View BuildView(const ViewInput& in) {
     v.advanced.push_back(Choice("mbps", L"Calidad de vídeo", BitrateLabel(s.bitrate)));
     v.advanced.push_back(Choice("codec", L"Códec", CodecLabel(s.codec)));
     v.advanced.push_back(Toggle("bateria", L"Bajar la calidad si la batería de la tablet no aguanta", s.battery_adapt));
-    v.advanced.push_back(Toggle("puntero", L"Dibujar el puntero del ratón", s.cursor));
     v.advanced.push_back(Toggle("usb", L"Conexión por cable USB", s.usb));
     if (s.usb) v.advanced.push_back(Toggle("abrir_tablet", L"Abrir DeskLink en la tablet al enchufarla", s.open_tablet));
     v.advanced.push_back(Toggle("autostart", L"Abrir DeskLink al iniciar Windows", in.autostart));

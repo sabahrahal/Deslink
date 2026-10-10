@@ -79,7 +79,7 @@ object Onboarding {
         OnboardingPage(
             "sesion",
             "Durante la sesión",
-            "El botón ••• de la esquina abre el menú: táctil o ratón, estadísticas y desconectar.",
+            "El botón azul ☰ de la esquina abre el menú: estadísticas y desconectar.",
             listOf("Si te tapa algo, arrástralo a otro sitio y se queda ahí."),
         ),
     )

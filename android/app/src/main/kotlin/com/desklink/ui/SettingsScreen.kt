@@ -91,12 +91,8 @@ fun SettingsScreen(
             SectionHeader("Pantalla")
             DlCard(padding = 12.dp) {
                 Column {
-                    SwitchRow("Mostrar estadísticas", "fps, Mbps y retardo. También desde el botón ••• durante la sesión.", settings.showStats) {
+                    SwitchRow("Mostrar estadísticas", "fps, Mbps y retardo. También desde el botón del menú durante la sesión.", settings.showStats) {
                         onChange(settings.copy(showStats = it))
-                    }
-                    RowDivider()
-                    SwitchRow("Mantener la pantalla encendida", "Mientras estés conectado.", settings.keepScreenOn) {
-                        onChange(settings.copy(keepScreenOn = it))
                     }
                 }
             }

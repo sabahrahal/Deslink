@@ -44,7 +44,8 @@ static void TestMainRowsAlwaysVisible() {
     // A la vista, siempre los cuatro y en este orden; nada más.
     CHECK((Ids(v.main) == std::vector<std::string>{"modo", "calidad", "sonido", "tactil"}));
     CHECK(Get(v.main, "calidad").options.size() == 3);
-    CHECK(Get(v.main, "tactil").options.size() == 3);
+    // Táctil y Solo ver: sin «Ratón».
+    CHECK(Get(v.main, "tactil").options.size() == 2);
     // Lo avanzado no aparece plegado.
     CHECK(v.advanced.empty());
   }
@@ -143,9 +144,11 @@ static void TestAdvancedRows() {
   View v = BuildView(in);
   CHECK(Has(v.advanced, "resolucion") && !Has(v.advanced, "monitor"));
   for (const char* id :
-       {"fps", "mbps", "codec", "bateria", "puntero", "usb", "abrir_tablet", "autostart", "abrir", "registro"}) {
+       {"fps", "mbps", "codec", "bateria", "usb", "abrir_tablet", "autostart", "abrir", "registro"}) {
     CHECK(Has(v.advanced, id));
   }
+  // El puntero se dibuja siempre: ya no es una opción.
+  CHECK(!Has(v.advanced, "puntero"));
   // La resolución solo se cambia en Windows: es un enlace, no un desplegable con otro valor que se pise.
   CHECK(Get(v.advanced, "resolucion").control == Control::kLink);
   CHECK(Contains(Get(v.advanced, "resolucion").label, L"Windows"));
@@ -210,14 +213,14 @@ static void TestHostArguments() {
         L"@ajustes calidad=equilibrada fps=120 mbps=50 codec=hevc sonido=tablet tactil=solo-ver bateria=1 abrir_tablet=0");
   s.virtual_display = false;
   s.output = 1;
-  s.cursor = false;
-  CHECK(HostArguments(s).find(L"--output 1 --no-cursor") != std::wstring::npos);
+  CHECK(HostArguments(s).find(L"--output 1") != std::wstring::npos);
+  CHECK(HostArguments(s).find(L"--no-cursor") == std::wstring::npos);
 
-  // Calidad, sonido, táctil y demás se aplican en marcha; el modo, el puntero o el USB reinician.
+  // Calidad, sonido, táctil y demás se aplican en marcha; el modo o el USB reinician.
   Settings a, b;
   b.quality = L"ahorro";
   b.audio_tablet = true;
-  b.touch = 1;
+  b.touch = 2;
   b.fps = 60;
   b.open_tablet = false;
   CHECK(!NeedsRestart(a, b));
@@ -232,6 +235,11 @@ static void TestHostArguments() {
   bad.size = L"10x10";
   Sanitize(&bad);
   CHECK(bad.quality == L"alta" && bad.touch == 0 && bad.fps == 0 && bad.codec.empty() && bad.size.empty());
+  // «Ratón» (1) de un .ini viejo vuelve a táctil.
+  Settings old;
+  old.touch = 1;
+  Sanitize(&old);
+  CHECK(old.touch == 0);
 }
 
 int main() {

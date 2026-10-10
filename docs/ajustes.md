@@ -13,12 +13,12 @@ A la vista, lo que casi todo el mundo toca:
 | Modo | Pantalla extra (de serie) · Duplicar | Monitor virtual a la medida de la tablet, o copia de un monitor |
 | Calidad | Alta (de serie) · Equilibrada · Ahorro | Alta: los fps y la tasa más altos que aguanten tablet y PC. Equilibrada: hasta 60 fps y 30 Mbps. Ahorro: 30 fps, gasta menos en la tablet |
 | Sonido | En el PC (de serie) · En la tablet | Dónde suena el PC |
-| Táctil | Táctil (de serie) · Ratón · Solo ver | Toques reales de Windows, el dedo mueve el puntero, o los toques no llegan al PC |
+| Táctil | Táctil (de serie) · Solo ver | Toques reales de Windows, o los toques no llegan al PC |
 
 En **Configuración avanzada**: fluidez (fps), calidad de vídeo (Mbps), códec (todo «Automático» de serie), el
-monitor que se duplica, «bajar la calidad si la batería de la tablet no aguanta» (de serie, no), dibujar el puntero,
+monitor que se duplica, «bajar la calidad si la batería de la tablet no aguanta» (de serie, no),
 cable USB, abrir DeskLink en la tablet al enchufarla (de serie, sí), abrir con Windows, transmitir nada más abrir, el
-puerto y el registro.
+puerto y el registro. El puntero del ratón siempre se dibuja en la imagen.
 
 La **resolución de la pantalla extra** no tiene ajuste propio: «Cambiar la resolución en Windows» abre Configuración
 de pantalla y el host sigue lo que se elija ahí. La recuerda para esa tablet (por su resolución nativa) y manda sobre
@@ -30,7 +30,7 @@ USB, así que no deja nada registrado en la tablet ni muestra «ninguna aplicaci
 
 Con la transmisión en marcha la ventana enseña también dónde se quedan los fps: «Captura · Codificación · Tablet».
 
-Casi todo se aplica en marcha, sin cortar la imagen. Solo el modo (se reinicia solo), el monitor, el puntero y el
+Casi todo se aplica en marcha, sin cortar la imagen. Solo el modo (se reinicia solo), el monitor y el
 cable USB reinician la transmisión; para esos aparece «Aplicar cambios».
 
 ### Qué es «Automático»
@@ -46,10 +46,12 @@ cable USB reinician la transmisión; para esos aparece «Aplicar cambios».
 La pantalla de inicio enseña una tarjeta por PC; si llega por cable USB y por Wi-Fi a la vez, la misma tarjeta tiene
 las dos opciones (de serie, el cable). El anclaje USB cuenta como cable, no como Wi-Fi. Al conectarse sola, si el
 último PC llega también por cable, usa el cable. En **Configuración avanzada** solo está lo que es de la tablet: conectar solo
-al abrir, escribir la IP del PC, estadísticas, mantener la pantalla encendida y el diagnóstico.
+al abrir, escribir la IP del PC, estadísticas y el diagnóstico. La pantalla se mantiene siempre encendida mientras
+hay sesión.
 
-Durante la sesión, el **botón ••• de la esquina** abre el menú rápido (se puede arrastrar si tapa algo; recuerda dónde lo dejas): táctil o ratón (el PC lo recuerda),
-estadísticas y desconectar.
+Durante la sesión, el **botón azul ☰** abre el menú rápido (se puede arrastrar si tapa algo, sin salirse de la pantalla;
+recuerda dónde lo dejas): estadísticas y desconectar. El táctil (Táctil o Solo ver) se elige en el PC; si Windows no
+acepta los toques, el host los convierte solo en ratón.
 
 ## Cómo viaja cada cosa
 
@@ -58,7 +60,6 @@ estadísticas y desconectar.
 | Lo que puede la tablet (pantalla, Hz, dpi, HEVC) | HELLO (payload) | Cada HELLO |
 | Lo que decide el PC (calidad, sonido, táctil, batería, fps y tasa de ahora, si va reducida) | SESSION_CONFIG (17) | Tras el STREAM_INFO, al cambiar y cada 2 s |
 | Ajustes cambiados en la ventana del PC | línea `@ajustes …` por la entrada del host | Al cambiarlos |
-| Táctil o ratón desde el menú rápido | INPUT_MODE | Al tocarlo; el host avisa a la ventana con `@ajuste tactil=…` |
 | Batería de la tablet (si en el PC está activado) | QUALITY_REQUEST | Al cambiar y cada 5 s |
 
 Ver [el protocolo](protocol-dlp.md) y [la fluidez automática](battery.md#fluidez-automática).
@@ -67,6 +68,6 @@ Ver [el protocolo](protocol-dlp.md) y [la fluidez automática](battery.md#fluide
 
 La primera vez que se abre la app de la tablet sale una guía corta: instalar DeskLink en el PC, activar la depuración
 USB (con un botón a los Ajustes, y si ya está activa lo dice), subir la «Escala» de Windows en vez de bajar la
-resolución para ver todo más grande, y el botón ••• durante la sesión. Quien ya había conectado con una versión
+resolución para ver todo más grande, y el botón ☰ durante la sesión. Quien ya había conectado con una versión
 anterior no la ve de golpe; está siempre en Configuración avanzada > Ayuda > Guía de inicio. En el PC, el mismo
 consejo de la escala va bajo «Cambiar la resolución en Windows».

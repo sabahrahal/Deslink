@@ -10,7 +10,6 @@ import android.content.SharedPreferences
  */
 data class AppSettings(
     val showStats: Boolean = false,
-    val keepScreenOn: Boolean = true,
     val autoConnect: Boolean = true,
 ) {
     companion object {
@@ -66,7 +65,6 @@ class SettingsStore(context: Context) {
         val d = AppSettings()
         return AppSettings(
             showStats = prefs.getBoolean(K_STATS, d.showStats),
-            keepScreenOn = prefs.getBoolean(K_SCREEN_ON, d.keepScreenOn),
             autoConnect = prefs.getBoolean(K_AUTO, d.autoConnect),
         )
     }
@@ -74,7 +72,6 @@ class SettingsStore(context: Context) {
     fun save(s: AppSettings) {
         prefs.edit()
             .putBoolean(K_STATS, s.showStats)
-            .putBoolean(K_SCREEN_ON, s.keepScreenOn)
             .putBoolean(K_AUTO, s.autoConnect)
             .apply()
     }
@@ -97,7 +94,6 @@ class SettingsStore(context: Context) {
         const val K_HOST = "host" // la misma clave que usaban las versiones anteriores
         const val K_HOST_NAME = "host_name"
         const val K_STATS = "show_stats"
-        const val K_SCREEN_ON = "keep_screen_on"
         const val K_AUTO = "auto_connect"
         const val K_ONBOARDING = "onboarding_done"
     }

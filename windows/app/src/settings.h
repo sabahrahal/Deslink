@@ -6,7 +6,7 @@
 // hacer y enseña lo que el PC decide. Se guardan en %APPDATA%\DeskLink\desklink.ini.
 //
 // A la vista en la ventana: modo, calidad, dónde suena el sonido y el táctil. En «Configuración avanzada»: fps, Mbps,
-// códec, monitor que se duplica, bajar la calidad si la batería de la tablet no aguanta, puntero, cable USB, abrir la
+// códec, monitor que se duplica, bajar la calidad si la batería de la tablet no aguanta, cable USB, abrir la
 // app de la tablet al enchufarla y el arranque. Vacío o 0 = automático (lo decide el host con lo que dice la tablet).
 // La resolución de la pantalla extra se cambia en Configuración de pantalla de Windows; el host la recuerda.
 struct Settings {
@@ -14,13 +14,12 @@ struct Settings {
   int output = 0;               // monitor que se duplica (índice DXGI, como --output)
   std::wstring quality = L"alta";  // «alta», «equilibrada» o «ahorro»
   bool audio_tablet = false;    // el sonido del PC suena en la tablet (si no, en el PC)
-  int touch = 0;                // 0 táctil, 1 ratón, 2 solo ver
+  int touch = 0;                // 0 táctil, 2 solo ver (el 1, ratón, ya no se elige)
   std::wstring size;            // ya no se usa (la resolución se elige en Windows); se conserva para leer .ini viejos
   int fps = 0;                  // 0 = automático (según la pantalla de la tablet y lo que aguante la gráfica)
   int bitrate = 0;              // Mbps; 0 = automático
   std::wstring codec;           // «hevc» o «h264»; vacío = automático
   bool battery_adapt = false;   // la tablet puede pedir bajar fps y tasa si su batería no aguanta
-  bool cursor = true;
   bool usb = true;              // cable USB por adb reverse
   bool open_tablet = true;      // abrir DeskLink en la tablet al enchufarla por USB
   bool stream_on_open = true;   // empezar a transmitir al abrir la app (y al arrancar con Windows)
