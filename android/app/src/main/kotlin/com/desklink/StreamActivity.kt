@@ -502,7 +502,10 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         phase = StreamSession.Phase.CONNECTING
         phaseDetail = ""
         overlay.visibility = View.VISIBLE
-        session = StreamSession(host, s, this, helloConfig).also { it.start() }
+        val audioManager = getSystemService(AudioManager::class.java)
+        session = StreamSession(host, s, this, helloConfig) {
+            "${audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)}/${audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)}"
+        }.also { it.start() }
     }
 
     private fun stopSession() {

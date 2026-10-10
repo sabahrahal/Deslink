@@ -8,6 +8,7 @@
 #include <opus.h>
 
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -272,6 +273,13 @@ bool AudioCapture::CaptureDefaultDevice(void* encoder) {
       offset += kFrame * 2;
       if (n > 0) {
         ++frames_;
+        // Por debajo de ~-60 dB no se oye: cuenta como silencio.
+        for (size_t i = 0; i < kFrame * 2; ++i) {
+          if (std::fabs(pcm[offset - kFrame * 2 + i]) > 0.001f) {
+            ++loud_frames_;
+            break;
+          }
+        }
         on_frame_(packet, static_cast<size_t>(n), NowUs());
       }
     }

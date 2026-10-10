@@ -24,6 +24,12 @@ class AudioPlayer(cable: Boolean) {
     @Volatile private var running = false
     private var thread: Thread? = null
 
+    // Para el log del PC (ver [report]): cuántos trozos llegan, cuántos salen por el altavoz y qué falló.
+    @Volatile private var received = 0L
+    @Volatile private var played = 0L
+    @Volatile private var decodeErrors = 0L
+    @Volatile private var lastError: String? = null
+
     fun start() {
         running = true
         thread = Thread({ playLoop() }, "desklink-audio").also { it.start() }
@@ -37,6 +43,7 @@ class AudioPlayer(cable: Boolean) {
     }
 
     fun push(frame: Dlp.AudioFrame) {
+        received++
         buffer.push(frame.seq, frame.data, nowMs())
         if (signal.availablePermits() == 0) signal.release()
     }
@@ -45,13 +52,25 @@ class AudioPlayer(cable: Boolean) {
     fun statsText(): String = "sonido ${buffer.target * AudioJitterBuffer.FRAME_MS} ms" +
         (if (buffer.underruns > 0) ", ${buffer.underruns} cortes" else "")
 
+    /** Una línea para el log del PC: qué llega, qué suena y qué falló desde el principio. */
+    fun report(volume: String): String =
+        "Sonido en la tablet: llegaron $received trozos, sonaron $played, ${buffer.lost} perdidos, " +
+            "${buffer.underruns} cortes, volumen multimedia $volume" +
+            (if (decodeErrors > 0) ", $decodeErrors errores al decodificar" else "") +
+            (lastError?.let { ", último error: $it" } ?: "")
+
     private fun nowMs() = System.nanoTime() / 1_000_000
 
     private fun playLoop() {
         Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
         val channels = Dlp.AUDIO_CHANNELS
         val frameSamples = Dlp.AUDIO_FRAME_SAMPLES * channels
-        val track = createTrack()
+        val track = try {
+            createTrack()
+        } catch (e: Exception) {
+            lastError = "no se pudo abrir la salida de sonido (${e.message})"
+            return
+        }
         var decoder: OpusDecoder? = null
         val pcm = ShortArray(8 * frameSamples)
         val stretched = ShortArray(9 * frameSamples)
@@ -75,15 +94,18 @@ class AudioPlayer(cable: Boolean) {
                     }
                     AudioJitterBuffer.Kind.LOST -> write(track, silence, silence.size)
                     AudioJitterBuffer.Kind.FRAME -> {
-                        val dec = decoder ?: OpusDecoder().also { decoder = it }
                         val n = try {
+                            val dec = decoder ?: OpusDecoder().also { decoder = it }
                             dec.decode(out.data!!, pcm)
                         } catch (e: Exception) {
                             // Un decodificador en mal estado se cambia por uno nuevo.
-                            dec.close()
+                            decodeErrors++
+                            lastError = "${e.javaClass.simpleName}: ${e.message}"
+                            decoder?.close()
                             decoder = null
                             0
                         }
+                        if (n > 0) played++
                         val frames = n / channels
                         if (out.adjust != 0 && frames > 1) {
                             val outFrames = frames + out.adjust * maxOf(frames / 100, 1)

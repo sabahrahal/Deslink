@@ -20,6 +20,8 @@ class AudioCapture {
   void Stop();
   bool running() const { return thread_.joinable(); }
   uint64_t frames() const { return frames_; }
+  // Trozos con algo audible (no silencio): para ver en el log si de verdad suena algo en el PC.
+  uint64_t loud_frames() const { return loud_frames_; }
 
  private:
   void Loop();
@@ -31,6 +33,7 @@ class AudioCapture {
   std::thread thread_;
   std::atomic<bool> stop_{false};
   std::atomic<uint64_t> frames_{0};
+  std::atomic<uint64_t> loud_frames_{0};
 };
 
 // Pasa sonido intercalado de `channels` canales a `rate` Hz a estéreo de 48 kHz (interpolación lineal, que
