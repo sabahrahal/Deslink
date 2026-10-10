@@ -320,6 +320,8 @@ class StreamSession(
         var lastBytes = 0L
         var lastFrames = 0L
         var lastDecoded = 0L
+        var lastDecodeNanos = 0L
+        var lastDecodeCount = 0L
         var lastLost = 0L
         var lastTime = nowUs()
         var helloAttempts = 0
@@ -361,6 +363,12 @@ class StreamSession(
             val now = nowUs()
             val secs = (now - lastTime) / 1e6
             val decoded = decoder?.decodedFrames ?: 0L
+            // Lo que tardó de media cada frame en la tablet (llegada → decodificado) en el último segundo.
+            val decodeNs = decoder?.decodeNanos ?: 0L
+            val decodeN = decoder?.decodeCount ?: 0L
+            val decodeMs = if (decodeN > lastDecodeCount) (decodeNs - lastDecodeNanos) / 1e6 / (decodeN - lastDecodeCount) else -1.0
+            lastDecodeNanos = decodeNs
+            lastDecodeCount = decodeN
             val mbps = (bytesReceived - lastBytes) * 8 / secs / 1e6
             val rtt = rttUs
             val target = sessionConfig?.let { " · objetivo ${it.fps} fps ${"%.0f".format(it.bitrateX100kbps / 10.0)} Mbps" } ?: ""
@@ -369,6 +377,7 @@ class StreamSession(
                     " · mostrados ${"%.0f".format((decoded - lastDecoded) / secs)}/s" +
                     " · ${"%.1f".format(mbps)} Mbps" +
                     (if (rtt >= 0) " · RTT ${"%.1f".format(rtt / 1000.0)} ms" else "") +
+                    (if (decodeMs >= 0) " · decodificar ${"%.1f".format(decodeMs)} ms" else "") +
                     " · perdidos ${reassembler.framesDropped + decoderDrops}" +
                     " · reclamados ${reassembler.packetsRequested}" +
                     when (inputMode?.active) {
@@ -379,7 +388,12 @@ class StreamSession(
                     (audio?.let { " · ${it.statsText()}" } ?: ""),
             )
             val lost = reassembler.framesDropped + decoderDrops
-            send(Dlp.rateReport((framesReceived - lastFrames).toInt(), (lost - lastLost).toInt(), (decoded - lastDecoded).toInt(), now))
+            send(
+                Dlp.rateReport(
+                    (framesReceived - lastFrames).toInt(), (lost - lastLost).toInt(), (decoded - lastDecoded).toInt(),
+                    if (decodeMs >= 0) (decodeMs * 10).toInt() else 0, now,
+                ),
+            )
             lastLost = lost
             lastBytes = bytesReceived
             lastFrames = framesReceived

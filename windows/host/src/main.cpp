@@ -550,6 +550,7 @@ int Run(int argc, char** argv) {
   // Para --status: último informe de la tablet y RTT medido con PING del host (0 = la tablet no contesta).
   std::atomic<uint32_t> tablet_received{0}, tablet_lost{0};
   std::atomic<int> tablet_decoded{-1};  // frames que mostró la tablet el último segundo (-1: tablet antigua)
+  std::atomic<int> tablet_decode_x10{-1};  // décimas de ms que tarda la tablet en decodificar cada frame (-1: no lo dice)
   std::atomic<bool> peer_tether{false};  // la tablet llega por su anclaje USB (red sobre el cable)
   std::atomic<uint64_t> rtt_us{0};
   PacketHistory history;
@@ -896,6 +897,10 @@ int Run(int argc, char** argv) {
           tablet_lost = lost;
           // Desde la 0.2.x la tablet añade los frames que sacó su decodificador.
           tablet_decoded = header->payload_size >= dlp::kRateReportSize + 2 ? (q[4] | (q[5] << 8)) : -1;
+          // Desde la 0.2.46 también lo que tarda en decodificar cada frame (0 = no mostró ninguno).
+          tablet_decode_x10 = header->payload_size >= dlp::kRateReportSize + 4 && (q[6] | q[7])
+                                  ? (q[6] | (q[7] << 8))
+                                  : -1;
           if (rate.OnReport(tablet_received, lost, NowUs())) {
             publish_rate(lost ? "la tablet pierde frames" : "enlace limpio");
           }
@@ -1080,6 +1085,8 @@ int Run(int argc, char** argv) {
     uint64_t captured = 0, composed = 0, last_composed = 0, last_stats_us = NowUs();
     uint64_t convert_us = 0, last_convert = 0, last_fed = 0, last_mailbox = 0, last_submitted = 0, last_dropped = 0;
     uint64_t last_encode_us = 0, last_encode_count = 0, last_sender_dropped = sender.dropped;
+    uint64_t latency_ticks = 0, latency_fed = 0, latency_encoded = 0, latency_sent = 0, latency_mailbox = 0,
+             latency_encode_us = 0, latency_busy = 0;
     TouchInjector::Mode last_input_mode = touch.active();
     uint64_t last_bytes = 0, last_encoded = 0, last_latency = 0, last_captured = 0, last_keyframes = 0, last_retransmits = 0, last_touch = 0;
     bool failed = false;
@@ -1120,6 +1127,7 @@ int Run(int argc, char** argv) {
       flush_left = 0;
       refine_left = 0;
       last_fed = last_mailbox = last_submitted = last_dropped = last_encode_us = last_encode_count = 0;
+      latency_fed = latency_encoded = latency_mailbox = latency_encode_us = 0;
       return true;
     };
 
@@ -1373,6 +1381,26 @@ int Run(int argc, char** argv) {
         // Fluidez: si el codificador no da abasto con estos fps (descarta frames), se bajan un escalón, y vuelven a
         // subir solos cuando hay holgura (dlp::FpsGovernor).
         adb.set_busy(udp.has_peer());
+        // Cada 5 s con la tablet conectada y la imagen moviéndose, dónde se va el tiempo de cada frame, de punta a punta.
+        if (udp.has_peer() && ++latency_ticks % 5 == 0) {
+          const uint64_t fed = pipe->encoder->fed_frames - latency_fed;
+          const uint64_t encoded = pipe->encoder->encode_count - latency_encoded;
+          const uint64_t sent = sender.sent_frames - latency_sent;
+          if (fed >= 25 && encoded && sent) {
+            std::printf("Latencia: en cola %.1f ms · codificador %.1f ms · envío %.1f ms · ida y vuelta %.1f ms",
+                        (pipe->encoder->mailbox_wait_us - latency_mailbox) / 1000.0 / fed,
+                        (pipe->encoder->encode_us - latency_encode_us) / 1000.0 / encoded,
+                        (sender.busy_us - latency_busy) / 1000.0 / sent, rtt_us.load() / 1000.0);
+            if (tablet_decode_x10 >= 0) std::printf(" · decodificar en la tablet %.1f ms", tablet_decode_x10 / 10.0);
+            std::printf(" (%llu frames en 5 s).\n", static_cast<unsigned long long>(sent));
+          }
+          latency_fed = pipe->encoder->fed_frames;
+          latency_encoded = pipe->encoder->encode_count;
+          latency_sent = sender.sent_frames;
+          latency_mailbox = pipe->encoder->mailbox_wait_us;
+          latency_encode_us = pipe->encoder->encode_us;
+          latency_busy = sender.busy_us;
+        }
         if (const uint64_t sd = sender.dropped - last_sender_dropped) {
           last_sender_dropped += sd;
           std::printf("Envío atrasado: el enlace no da abasto, tiro %llu frames y pido uno clave.\n",

@@ -23,6 +23,17 @@ class VideoDecoder(
     var decodedFrames = 0L
         private set
 
+    /** Cuándo llegó entero cada frame que está dentro del decodificador (por su marca de tiempo), para medir cuánto tarda. */
+    private val arrivals = LinkedHashMap<Long, Long>()
+
+    /** Suma de lo que tardaron los frames ya mostrados (llegada → salida del decodificador) y cuántos son. */
+    @Volatile
+    var decodeNanos = 0L
+        private set
+    @Volatile
+    var decodeCount = 0L
+        private set
+
     init {
         val mime = if (info.codec == Dlp.CODEC_HEVC) MediaFormat.MIMETYPE_VIDEO_HEVC else MediaFormat.MIMETYPE_VIDEO_AVC
         codec = MediaCodec.createDecoderByType(mime)
@@ -63,8 +74,13 @@ class VideoDecoder(
                     // Con la hora de ahora: se pinta en el próximo refresco de pantalla y, si en ese refresco ya hay
                     // otro frame más nuevo, Android descarta el viejo en vez de encolarlo. Así no se acumula
                     // retraso cuando llegan dos frames juntos (Wi-Fi a ráfagas) y el movimiento va más fluido.
-                    c.releaseOutputBuffer(index, System.nanoTime())
+                    val now = System.nanoTime()
+                    c.releaseOutputBuffer(index, now)
                     decodedFrames++
+                    synchronized(arrivals) { arrivals.remove(bufferInfo.presentationTimeUs) }?.let {
+                        decodeNanos += now - it
+                        decodeCount++
+                    }
                 } catch (_: IllegalStateException) {
                     // El códec se cerró mientras se entregaba la salida.
                 }
@@ -95,6 +111,7 @@ class VideoDecoder(
      * grande y atasca todavía más al decodificador.
      */
     fun queue(frame: Frame): Boolean {
+        val arrived = System.nanoTime()
         val index = synchronized(freeInputs) {
             val deadline = System.nanoTime() + INPUT_WAIT_MS * 1_000_000L
             while (freeInputs.isEmpty() && !released) {
@@ -117,6 +134,11 @@ class VideoDecoder(
             } else {
                 buffer.clear()
                 buffer.put(frame.data, 0, frame.size)
+                synchronized(arrivals) {
+                    // Si el decodificador se traga algún frame sin sacarlo, no se acumula para siempre.
+                    if (arrivals.size >= 32) arrivals.remove(arrivals.keys.first())
+                    arrivals[frame.timestampUs] = arrived
+                }
                 codec.queueInputBuffer(index, 0, frame.size, frame.timestampUs, 0)
                 true
             }

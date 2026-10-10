@@ -217,19 +217,21 @@ object Dlp {
 
     /**
      * Informe de calidad: frames recibidos, perdidos y mostrados (los que sacó el decodificador) en el último
-     * segundo. Un host antiguo lee solo los dos primeros campos.
+     * segundo, y lo que tardó de media cada frame desde que llegó entero hasta salir del decodificador, en décimas de
+     * ms. Un host antiguo lee solo los dos primeros campos.
      */
-    fun rateReport(received: Int, lost: Int, decoded: Int, timestampUs: Long): ByteArray {
-        val b = ByteBuffer.allocate(HEADER_SIZE + 6).order(ByteOrder.LITTLE_ENDIAN)
+    fun rateReport(received: Int, lost: Int, decoded: Int, decodeMsX10: Int, timestampUs: Long): ByteArray {
+        val b = ByteBuffer.allocate(HEADER_SIZE + 8).order(ByteOrder.LITTLE_ENDIAN)
         b.putShort(0, MAGIC.toShort())
         b.put(2, VERSION.toByte())
         b.put(3, TYPE_RATE_REPORT.toByte())
         b.putShort(12, 1)
         b.putLong(14, timestampUs)
-        b.putShort(22, 6)
+        b.putShort(22, 8)
         b.putShort(HEADER_SIZE, received.coerceIn(0, 0xFFFF).toShort())
         b.putShort(HEADER_SIZE + 2, lost.coerceIn(0, 0xFFFF).toShort())
         b.putShort(HEADER_SIZE + 4, decoded.coerceIn(0, 0xFFFF).toShort())
+        b.putShort(HEADER_SIZE + 6, decodeMsX10.coerceIn(0, 0xFFFF).toShort())
         return b.array()
     }
 
