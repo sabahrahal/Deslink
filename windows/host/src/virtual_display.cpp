@@ -69,7 +69,7 @@ bool VirtualDisplay::Ioctl(DWORD code, const void* in, DWORD in_size) {
   return DeviceIoControl(device_, code, const_cast<void*>(in), in_size, nullptr, 0, &returned, nullptr) != FALSE;
 }
 
-bool VirtualDisplay::Plug(UINT width, UINT height, UINT refresh_hz) {
+bool VirtualDisplay::Plug(UINT width, UINT height, UINT refresh_hz, UINT mode_w, UINT mode_h) {
   const std::wstring path = FindDevicePath();
   if (path.empty()) {
     std::fprintf(stderr,
@@ -117,8 +117,8 @@ bool VirtualDisplay::Plug(UINT width, UINT height, UINT refresh_hz) {
     bool inactive = false;
     gdi_name_ = FindDeskLinkSource(&inactive);
     if (!gdi_name_.empty()) {
-      EnsureMode(width, height, refresh_hz);
-      std::printf("Monitor virtual activo: %ls, %ux%u a %u Hz.\n", gdi_name_.c_str(), width, height, refresh_hz);
+      EnsureMode(mode_w, mode_h, refresh_hz);
+      std::printf("Monitor virtual activo: %ls, %ux%u a %u Hz.\n", gdi_name_.c_str(), mode_w, mode_h, refresh_hz);
       Sleep(300);  // deja que DXGI vea la salida nueva
       return true;
     }
