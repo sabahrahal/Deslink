@@ -10,6 +10,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.desklink.Found
 import com.desklink.Link
@@ -140,9 +141,9 @@ class HomeScreenTest {
         compose.onNodeWithText("¿Necesitas más velocidad por USB?").assertIsDisplayed()
         compose.onNodeWithText("Ver cómo").performClick()
         compose.onNode(hasText("toca 7 veces", substring = true)).assertIsDisplayed()
-        compose.onNodeWithText("Abrir «Anclaje USB»").performClick()
+        compose.onNodeWithText("Abrir «Anclaje USB»").performScrollTo().performClick()
         assertEquals(1, tether)
-        compose.onAllNodesWithText("No mostrar más")[0].performClick()
+        compose.onNodeWithText("No mostrar más").performScrollTo().performClick()
         assertEquals(1, dismissed)
     }
 
