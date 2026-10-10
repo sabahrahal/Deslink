@@ -66,8 +66,9 @@ Ver [el protocolo](protocol-dlp.md) y [la fluidez automática](battery.md#fluide
 
 ## Guía de inicio (tablet)
 
-La primera vez que se abre la app de la tablet sale una guía corta: instalar DeskLink en el PC, activar la depuración
-USB (con un botón a los Ajustes, y si ya está activa lo dice), subir la «Escala» de Windows en vez de bajar la
+La primera vez que se abre la app de la tablet sale una guía corta: instalar DeskLink en el PC, conectar por Wi-Fi (sin
+configurar nada) o por cable (botones a «Anclaje USB», sin modo desarrollador, y a la depuración USB, opcional para más
+fluidez; si ya está activa lo dice), subir la «Escala» de Windows en vez de bajar la
 resolución para ver todo más grande, y el botón ☰ durante la sesión. Quien ya había conectado con una versión
 anterior no la ve de golpe; está siempre en Configuración avanzada > Ayuda > Guía de inicio. En el PC, el mismo
 consejo de la escala va bajo «Cambiar la resolución en Windows».

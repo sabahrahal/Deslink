@@ -62,8 +62,19 @@ class OnboardingScreenTest {
         show(onUsb = { opened++ })
         next(2)
         compose.onNode(hasTestTag("onboarding:cable")).assertIsDisplayed()
-        compose.onNodeWithText("Abrir ajustes de la tablet").performScrollTo().performClick()
+        compose.onNodeWithText("Abrir ajustes de depuración USB").performScrollTo().performClick()
         assertEquals(1, opened)
+    }
+
+    @Test
+    fun cableStepOffersTetheringWithoutDeveloperMode() {
+        var tether = 0
+        compose.setContent {
+            DeskLinkTheme(dark = true) { OnboardingScreen(UsbDebugHint.ENABLE_DEVELOPER, {}, {}, onOpenTether = { tether++ }) }
+        }
+        next(2)
+        compose.onNodeWithText("Abrir «Anclaje USB»").performScrollTo().performClick()
+        assertEquals(1, tether)
     }
 
     @Test
@@ -71,7 +82,7 @@ class OnboardingScreenTest {
         show(usb = UsbDebugHint.NONE)
         next(2)
         compose.onNodeWithText("La depuración USB ya está activa en esta tablet.").performScrollTo().assertIsDisplayed()
-        compose.onAllNodesWithText("Abrir ajustes de la tablet").assertCountEquals(0)
+        compose.onAllNodesWithText("Abrir ajustes de depuración USB").assertCountEquals(0)
     }
 
     @Test

@@ -158,9 +158,9 @@ fun HomeScreen(
 private fun UsbDebugCard(hint: UsbDebugHint, onOpen: () -> Unit) {
     DlCard(Modifier.testTag("usb-debug")) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Activa la depuración USB", style = DlText.Headline)
+            Text("Para más fluidez por cable: depuración USB", style = DlText.Headline)
             Text(
-                "Así el cable funciona solo al enchufarlo, sin elegir «Anclaje USB» ni ningún modo cada vez. Se hace una sola vez.",
+                "Opcional. Por Wi-Fi funciona sin tocar nada. Con la depuración USB el cable va solo al enchufarlo, sin activar «Anclaje USB» cada vez. Se hace una sola vez.",
                 style = DlText.Body,
                 color = palette.textSecondary,
             )
@@ -199,8 +199,8 @@ private fun Searching(state: HomeState) {
                 AnimatedVisibility(help) {
                     Column(Modifier.padding(start = 8.dp, top = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("1. Abre DeskLink en el PC y pulsa Iniciar.", style = DlText.Body)
-                        Text("2. Por cable: activa la depuración USB en la tablet, conecta el USB y acepta «Permitir depuración USB».", style = DlText.Body)
-                        Text("3. Por Wi-Fi: PC y tablet en la misma red, y DeskLink permitido en el cortafuegos de Windows.", style = DlText.Body)
+                        Text("2. Por Wi-Fi: PC y tablet en la misma red, y DeskLink permitido en el cortafuegos de Windows.", style = DlText.Body)
+                        Text("3. Por cable: conecta el USB y activa «Anclaje USB» en la tablet, o activa la depuración USB y acepta «Permitir depuración USB».", style = DlText.Body)
                         Text("Redes de esta tablet: ${state.networks}", style = DlText.Note, color = palette.textSecondary)
                     }
                 }
