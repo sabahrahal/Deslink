@@ -97,9 +97,9 @@ class HomeScreenTest {
     fun searchingShowsHelpOnlyWhenAsked() {
         show(HomeState(scans = 3, networks = "WiFi (192.168.1.40)"))
         compose.onNodeWithText("Buscando tu PC…").assertIsDisplayed()
-        compose.onAllNodes(hasText("Redes de esta tablet", substring = true)).assertCountEquals(0)
+        compose.onAllNodes(hasText("Redes de este dispositivo", substring = true)).assertCountEquals(0)
         compose.onNodeWithText("¿No aparece?").performClick()
-        compose.onNode(hasText("Redes de esta tablet", substring = true)).assertIsDisplayed()
+        compose.onNode(hasText("Redes de este dispositivo", substring = true)).assertIsDisplayed()
     }
 
     @Test
@@ -122,6 +122,40 @@ class HomeScreenTest {
         compose.onNode(hasText("toca 7 veces", substring = true)).assertIsDisplayed()
         compose.onNodeWithText("Abrir ajustes").performClick()
         assertEquals(true, opened)
+    }
+
+    @Test
+    fun usbSpeedTipExplainsTheCableAndCanBeDismissed() {
+        var tether = 0
+        var dismissed = 0
+        compose.setContent {
+            DeskLinkTheme(dark = true) {
+                HomeScreen(
+                    state = HomeState(scans = 1, debugOff = true),
+                    onConnect = {}, onConnectAddress = {}, onCancelAuto = {}, onOpenAdvanced = {},
+                    onOpenTether = { tether++ }, onDismissUsbTip = { dismissed++ },
+                )
+            }
+        }
+        compose.onNodeWithText("¿Necesitas más velocidad por USB?").assertIsDisplayed()
+        compose.onNodeWithText("Ver cómo").performClick()
+        compose.onNode(hasText("toca 7 veces", substring = true)).assertIsDisplayed()
+        compose.onNodeWithText("Abrir «Anclaje USB»").performClick()
+        assertEquals(1, tether)
+        compose.onAllNodesWithText("No mostrar más")[0].performClick()
+        assertEquals(1, dismissed)
+    }
+
+    @Test
+    fun usbSpeedTipHiddenWhenCableIsThere() {
+        show(HomeState(hosts = listOf(usb), scans = 1, debugOff = true))
+        compose.onAllNodes(hasTestTag("usb-speed")).assertCountEquals(0)
+    }
+
+    @Test
+    fun usbSpeedTipHiddenOnceDismissed() {
+        show(HomeState(scans = 1, debugOff = true, usbTipDismissed = true))
+        compose.onAllNodes(hasTestTag("usb-speed")).assertCountEquals(0)
     }
 
     @Test

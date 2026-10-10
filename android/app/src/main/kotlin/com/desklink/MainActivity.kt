@@ -50,7 +50,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         store = SettingsStore(this)
         settings = store.load()
-        home = home.copy(lastHost = store.lastHost, lastHostName = store.lastHostName)
+        home = home.copy(lastHost = store.lastHost, lastHostName = store.lastHostName, usbTipDismissed = store.usbTipDismissed)
         val display = Device.display(this)
         val version = try {
             packageManager.getPackageInfo(packageName, 0).versionName ?: ""
@@ -106,6 +106,7 @@ class MainActivity : ComponentActivity() {
                             networks = withContext(Dispatchers.IO) { Discovery.describeNetworks() },
                             usbDebug = UsbDebug.read(this@MainActivity),
                             cableExpected = UsbDebug.cableExpected(this@MainActivity),
+                            debugOff = !UsbDebug.debuggingOn(this@MainActivity),
                         )
                         val cable = hosts.firstOrNull { it.isCable }
                         if (plugPending && cable != null) {
@@ -190,6 +191,11 @@ class MainActivity : ComponentActivity() {
                                         showSettings = true
                                     },
                                     onOpenUsbDebug = { openUsbDebugSettings(home.usbDebug) },
+                                    onOpenTether = { openTetherSettings() },
+                                    onDismissUsbTip = {
+                                        store.usbTipDismissed = true
+                                        home = home.copy(usbTipDismissed = true)
+                                    },
                                 )
                             }
                         }

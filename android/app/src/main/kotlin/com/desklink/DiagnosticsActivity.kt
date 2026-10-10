@@ -90,7 +90,7 @@ class DiagnosticsActivity : Activity() {
                 TextView(this).apply {
                     setPadding(0, 32, 0, 0)
                     textSize = 16f
-                    text = "Conexión usada: " + (it.route?.description ?: "no identificada (IP fuera de las redes de la tablet)")
+                    text = "Conexión usada: " + (it.route?.description ?: "no identificada (IP fuera de las redes del dispositivo)")
                 },
             )
             results.addView(

@@ -599,7 +599,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
                 warnedDrain = true
                 Toast.makeText(
                     this,
-                    "La tablet se descarga aunque esté enchufada: el puerto USB da menos de lo que gasta. Usa un " +
+                    "El dispositivo se descarga aunque esté enchufado: el puerto USB da menos de lo que gasta. Usa un " +
                         "puerto USB-C o USB 3 del PC, un cargador de pared con WiFi, o baja el brillo.",
                     Toast.LENGTH_LONG,
                 ).show()

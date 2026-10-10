@@ -62,7 +62,7 @@ fun SettingsScreen(
                 Column {
                     Text("La calidad, el sonido y el táctil se eligen en el PC", style = DlText.Headline)
                     Text(
-                        "En la ventana de DeskLink del PC. La tablet usa lo que el PC decida y lo enseña al conectar.",
+                        "En la ventana de DeskLink del PC. El dispositivo usa lo que el PC decida y lo enseña al conectar.",
                         style = DlText.Note,
                         color = palette.textSecondary,
                     )

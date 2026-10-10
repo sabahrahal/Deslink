@@ -59,7 +59,7 @@ object Advisor {
         if (battery != null) out += adviseBattery(battery)
         if (thermalStatus != null && thermalStatus >= THERMAL_MODERATE) {
             out += Finding(
-                Severity.WARNING, "La tablet se está calentando",
+                Severity.WARNING, "El dispositivo se está calentando",
                 "El sistema puede bajar el rendimiento para enfriarse y eso causa tirones. Quita la funda, evita el sol " +
                     "o activa el modo ahorro (60 Hz y menos calidad).",
             )
@@ -149,7 +149,7 @@ object Advisor {
         if (net.wifiFrequencyMhz in 2400..2500) {
             out += Finding(
                 Severity.WARNING, "Estás en WiFi de 2,4 GHz",
-                "Esa banda va saturada y tiene poca velocidad. Conecta la tablet y el PC a la red de 5 GHz (o 6 GHz).",
+                "Esa banda va saturada y tiene poca velocidad. Conecta el dispositivo y el PC a la red de 5 GHz (o 6 GHz).",
             )
         }
         if (net.wifiRssiDbm != 0 && net.wifiRssiDbm < -70) {
@@ -166,7 +166,7 @@ object Advisor {
         val net = b.netMilliwatts
         if (b.pluggedUsbOrAc && net != null && net < -500) {
             out += Finding(
-                Severity.WARNING, "Está conectada pero se descarga",
+                Severity.WARNING, "Está conectado pero se descarga",
                 "El cable da menos energía de la que gasta la pantalla (${"%.1f".format(-net / 1000)} W de saldo negativo). " +
                     "Los puertos USB del PC suelen dar 2,5–4,5 W. Prueba con un puerto USB trasero o un cargador de pared, " +
                     "o activa el modo ahorro.",

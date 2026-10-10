@@ -64,7 +64,7 @@ acepta los toques, el host los convierte solo en ratón.
 
 Ver [el protocolo](protocol-dlp.md) y [la fluidez automática](battery.md#fluidez-automática).
 
-## Guía de inicio (tablet)
+## Guía de inicio (dispositivo)
 
 La primera vez que se abre la app de la tablet sale una guía corta: instalar DeskLink en el PC, conectar por Wi-Fi (sin
 configurar nada) o por cable (botones a «Anclaje USB», sin modo desarrollador, y a la depuración USB, opcional para más
@@ -72,3 +72,10 @@ fluidez; si ya está activa lo dice), subir la «Escala» de Windows en vez de b
 resolución para ver todo más grande, y el botón ☰ durante la sesión. Quien ya había conectado con una versión
 anterior no la ve de golpe; está siempre en Configuración avanzada > Ayuda > Guía de inicio. En el PC, el mismo
 consejo de la escala va bajo «Cambiar la resolución en Windows».
+
+## «¿Necesitas más velocidad por USB?»
+
+Si se pasa la guía deprisa, la pantalla de inicio de la app lo recuerda con una tarjeta: se muestra cuando la
+depuración USB está apagada, no hay cable conectado y no se ha cerrado antes. «Ver cómo» enseña los pasos con botones
+a «Anclaje USB» y a los ajustes de depuración USB; «No mostrar más» la oculta para siempre. Los textos hablan de
+«dispositivo» porque la app sirve igual para un móvil que para una tablet.

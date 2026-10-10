@@ -52,7 +52,7 @@ fun StreamOverlay(phase: Phase, detail: String, hostName: String, onRetry: () ->
                 )
                 VSpace(8.dp)
                 Text(
-                    detail.ifBlank { if (phase == Phase.CONNECTING) "Preparando la pantalla a la medida de esta tablet…" else "" },
+                    detail.ifBlank { if (phase == Phase.CONNECTING) "Preparando la pantalla a la medida de este dispositivo…" else "" },
                     style = DlText.Body,
                     color = palette.textSecondary,
                     textAlign = TextAlign.Center,

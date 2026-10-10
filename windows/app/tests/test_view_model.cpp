@@ -58,7 +58,7 @@ static void TestUsbAndWifiWhileWaiting() {
   in.stats[L"adb_pendientes"] = L"0";
   in.addresses = L"192.168.1.20";
   const View v = BuildView(in);
-  CHECK(v.title == L"Esperando a la tablet");
+  CHECK(v.title == L"Esperando al dispositivo");
   // Los dos caminos a la vez: cable USB listo y Wi-Fi con la IP.
   CHECK(v.connection.size() == 2);
   CHECK(Contains(v.connection[0].text, L"Cable USB") && v.connection[0].tone == Tone::kSuccess);
@@ -106,12 +106,12 @@ static void TestFluencyShowsEachStage() {
   in.stats = {{L"enlace", L"usb"}, {L"capturados", L"60.2"}, {L"codificados", L"59.8"}, {L"mbps", L"40"},
               {L"reducido", L"no"}, {L"tablet_fps", L"58"}};
   View v = BuildView(in);
-  CHECK(v.fluency == L"Captura 60 · Codificación 60 · Tablet 58 fps");
+  CHECK(v.fluency == L"Captura 60 · Codificación 60 · Dispositivo 58 fps");
   CHECK(v.notice.text.empty());
   // La tablet se queda atrás: se dice dónde.
   in.stats[L"tablet_fps"] = L"21";
   v = BuildView(in);
-  CHECK(Contains(v.notice.text, L"tablet") && v.notice.tone == Tone::kWarning);
+  CHECK(Contains(v.notice.text, L"dispositivo") && v.notice.tone == Tone::kWarning);
   // Tablet antigua (no lo cuenta) o imagen quieta: sin cifra de la tablet, sin aviso, o sin línea.
   in.stats[L"tablet_fps"] = L"-";
   v = BuildView(in);

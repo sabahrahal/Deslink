@@ -585,9 +585,9 @@ void OnHostLine(bool from_stderr, const std::wstring& line) {
     const std::wstring link = g.stats[L"enlace"];
     if (link != g.link && g.state != State::kStopping) {
       if (link == L"ninguno") {
-        Notify(L"Tablet desconectada", L"DeskLink sigue esperando a que vuelva a conectarse.");
+        Notify(L"Dispositivo desconectado", L"DeskLink sigue esperando a que vuelva a conectarse.");
       } else {
-        Notify(L"Tablet conectada", link == L"usb" ? L"Por cable USB." : L"Por Wi-Fi (" + g.stats[L"ip"] + L").");
+        Notify(L"Dispositivo conectado", link == L"usb" ? L"Por cable USB." : L"Por Wi-Fi (" + g.stats[L"ip"] + L").");
       }
       g.link = link;
     }
@@ -1092,7 +1092,7 @@ void Paint(gp::Graphics& gr, float width) {
   auto section = MakeFont(tokens::kSectionPx, true);
   Text(gr, L"DeskLink", gp::RectF(x, y, w, F(36)), *large, P().text);
   y += F(36);
-  Text(gr, L"Tu tablet como segunda pantalla", gp::RectF(x, y, w, F(18)), *note, P().text_secondary);
+  Text(gr, L"Tu dispositivo como segunda pantalla", gp::RectF(x, y, w, F(18)), *note, P().text_secondary);
   y += F(30);
 
   // Estado y botón principal.

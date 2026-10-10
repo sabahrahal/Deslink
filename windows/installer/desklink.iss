@@ -72,7 +72,7 @@ Source: "{#Stage}\driver\desklink-driver.exe"; DestDir: "{app}\driver"; Flags: i
 
 [Icons]
 Name: "{group}\DeskLink"; Filename: "{app}\{#MainExe}"; Parameters: "{#MainArgs}"; WorkingDir: "{app}"
-Name: "{group}\Actualizar la tablet"; Filename: "{app}\tools\actualizar-tablet.bat"; WorkingDir: "{app}\tools"
+Name: "{group}\Actualizar el dispositivo"; Filename: "{app}\tools\actualizar-tablet.bat"; WorkingDir: "{app}\tools"
 Name: "{group}\Actualizar DeskLink en el PC"; Filename: "{app}\tools\actualizar-pc.bat"; WorkingDir: "{app}\tools"
 Name: "{group}\Desinstalar DeskLink"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\DeskLink"; Filename: "{app}\{#MainExe}"; Parameters: "{#MainArgs}"; WorkingDir: "{app}"; Tasks: desktopicon
