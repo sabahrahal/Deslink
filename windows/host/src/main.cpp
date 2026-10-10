@@ -255,6 +255,8 @@ struct Options {
   UINT virtual_width = 2944;     // --size: resolución del monitor virtual (por defecto, la Lenovo Idea Tab Pro)
   UINT virtual_height = 1840;
   bool size_given = false;       // si no se pasa --size, se usa la última resolución recordada
+  UINT native_width = 0;         // tamaño nativo de la tablet (0: no se sabe): con él se crea el monitor virtual
+  UINT native_height = 0;
   bool usb = true;               // --no-usb: sin cable USB (TCP por adb reverse)
   bool open_tablet = true;       // --no-open-tablet: no abrir DeskLink en la tablet al enchufarla
   std::wstring adb_path;         // --adb: ruta de adb.exe (si no, se busca)
@@ -288,6 +290,19 @@ Effective Apply(const Options& o, const std::optional<dlp::QualityRequest>& tabl
   return e;
 }
 
+// Tamaño con el que se crea el monitor virtual: el nativo de la tablet si la resolución elegida cabe en él. Así
+// Windows ofrece siempre de la nativa hacia abajo (el driver solo lista modos menores que el del monitor) y, como el
+// tamaño no cambia, lo reconoce como el mismo monitor y conserva su posición y su escala.
+void MonitorSize(const Options& o, UINT* w, UINT* h) {
+  const bool fits = o.native_width >= o.virtual_width && o.native_height >= o.virtual_height;
+  *w = fits ? o.native_width : o.virtual_width;
+  *h = fits ? o.native_height : o.virtual_height;
+}
+
+// Hz del monitor virtual. Nunca menos de 60: los fps de la captura se reparten aparte (min_interval_us), y cambiar
+// los Hz obliga a quitar y volver a poner el monitor, con lo que Windows lo apaga, lo cambia de sitio y pierde modos.
+UINT MonitorHz(UINT fps) { return fps > 60 ? fps : 60; }
+
 // Lo que se usa con lo elegido y lo que dijo la tablet: fps, códec, tamaño del monitor virtual y tasa.
 // capture_w x capture_h: tamaño de la captura si no hay monitor virtual (duplicar un monitor).
 void Decide(Options* o, const dlp::HelloConfig& tablet, UINT capture_w, UINT capture_h) {
@@ -299,7 +314,10 @@ void Decide(Options* o, const dlp::HelloConfig& tablet, UINT capture_w, UINT cap
     const bool chosen = saved.ok && saved.tablet_w == tablet.width && saved.tablet_h == tablet.height;
     o->virtual_width = chosen ? saved.w : tablet.width;
     o->virtual_height = chosen ? saved.h : tablet.height;
+    o->native_width = tablet.width;
+    o->native_height = tablet.height;
   }
+  if (o->size_given) o->native_width = o->native_height = 0;
   const UINT w = o->virtual_display ? o->virtual_width : capture_w;
   const UINT h = o->virtual_display ? o->virtual_height : capture_h;
   o->bitrate_mbps = o->user_bitrate ? o->user_bitrate
@@ -749,6 +767,9 @@ int Run(int argc, char** argv) {
     if (opt.virtual_display) {
       if (!opt.size_given && LoadSavedSize(&opt.virtual_width, &opt.virtual_height)) {
         std::printf("Resolución recordada del monitor virtual: %ux%u.\n", opt.virtual_width, opt.virtual_height);
+        // La tablet para la que se eligió: el monitor se crea con su tamaño nativo antes de que salude.
+        opt.native_width = CachedSize().tablet_w;
+        opt.native_height = CachedSize().tablet_h;
       }
     }
     // Hasta que la tablet salude: 60 fps, el códec elegido (HEVC en automático) y la tasa para ese tamaño.
@@ -762,7 +783,9 @@ int Run(int argc, char** argv) {
                 opt.user_fps ? "fps fijos" : "fps automáticos", opt.audio_tablet ? "la tablet" : "el PC",
                 InputArg(opt.input_mode < 0 ? 0 : opt.input_mode), opt.battery_adapt ? " · baja si la batería no aguanta" : "");
     if (opt.virtual_display) {
-      if (!virtual_display.Plug(opt.virtual_width, opt.virtual_height, opt.fps)) break;
+      UINT mw = 0, mh = 0;
+      MonitorSize(opt, &mw, &mh);
+      if (!virtual_display.Plug(mw, mh, MonitorHz(opt.fps), opt.virtual_width, opt.virtual_height)) break;
     }
     pipe = build(10);
     if (!pipe) break;
@@ -1108,7 +1131,8 @@ int Run(int argc, char** argv) {
 
     // Rehace el pipeline (y el monitor virtual si cambia su modo) con la configuración actual de opt.
     // Si el monitor no acepta el modo nuevo se vuelve a fallback_w x fallback_h.
-    auto rebuild = [&](bool replug, UINT fallback_w, UINT fallback_h) -> bool {
+    // resize: solo cambia la resolución elegida, con el mismo monitor (se cambia el modo sin quitarlo).
+    auto rebuild = [&](bool replug, bool resize, UINT fallback_w, UINT fallback_h) -> bool {
       {
         std::lock_guard<std::mutex> lock(enc_mutex);
         enc_ptr = nullptr;
@@ -1118,15 +1142,20 @@ int Run(int argc, char** argv) {
       if (replug) {
         virtual_display.Unplug();
         Sleep(500);
-        if (!virtual_display.Plug(opt.virtual_width, opt.virtual_height, opt.fps)) {
+        UINT mw = 0, mh = 0;
+        MonitorSize(opt, &mw, &mh);
+        if (!virtual_display.Plug(mw, mh, MonitorHz(opt.fps), opt.virtual_width, opt.virtual_height)) {
           std::fprintf(stderr, "No se pudo poner el monitor virtual a %ux%u: vuelvo a %ux%u.\n", opt.virtual_width,
                        opt.virtual_height, fallback_w, fallback_h);
           opt.virtual_width = fallback_w;
           opt.virtual_height = fallback_h;
           virtual_display.Unplug();
           Sleep(500);
-          if (!virtual_display.Plug(opt.virtual_width, opt.virtual_height, opt.fps)) return false;
+          MonitorSize(opt, &mw, &mh);
+          if (!virtual_display.Plug(mw, mh, MonitorHz(opt.fps), opt.virtual_width, opt.virtual_height)) return false;
         }
+      } else if (resize) {
+        virtual_display.SetMode(opt.virtual_width, opt.virtual_height, MonitorHz(opt.fps));
       }
       pipe = build(50);
       if (!pipe) return false;
@@ -1187,10 +1216,15 @@ int Run(int argc, char** argv) {
           }
           if (view_only) touch.ReleaseAll();
         }
-        const bool replug = opt.virtual_display &&
-                            (opt.virtual_width != before.virtual_width || opt.virtual_height != before.virtual_height ||
-                             opt.fps != before.fps);
-        const bool rebuild_needed = replug || opt.fps != before.fps || opt.codec != before.codec ||
+        // El monitor solo se quita y se vuelve a poner si cambia su tamaño (otra tablet) o sus Hz (más de 60 fps).
+        UINT mw_before = 0, mh_before = 0, mw_after = 0, mh_after = 0;
+        MonitorSize(before, &mw_before, &mh_before);
+        MonitorSize(opt, &mw_after, &mh_after);
+        const bool replug = opt.virtual_display && (mw_after != mw_before || mh_after != mh_before ||
+                                                    MonitorHz(opt.fps) != MonitorHz(before.fps));
+        const bool resize = opt.virtual_display && !replug &&
+                            (opt.virtual_width != before.virtual_width || opt.virtual_height != before.virtual_height);
+        const bool rebuild_needed = replug || resize || opt.fps != before.fps || opt.codec != before.codec ||
                                     eff_after.scale_percent != pipe->scale_percent;
         if (eff_after.bitrate_mbps_x10 != eff_before.bitrate_mbps_x10) rate_reset = true;
         if (rebuild_needed) {
@@ -1199,7 +1233,7 @@ int Run(int argc, char** argv) {
                       opt.virtual_display ? opt.virtual_width : pipe->w,
                       opt.virtual_display ? opt.virtual_height : pipe->h, opt.fps, opt.bitrate_mbps,
                       opt.codec == VideoCodec::kHevc ? "HEVC" : "H.264");
-          if (!rebuild(replug, before.virtual_width, before.virtual_height)) {
+          if (!rebuild(replug, resize, before.virtual_width, before.virtual_height)) {
             std::fprintf(stderr, "Error: no se pudo aplicar la configuración nueva.\n");
             failed = true;
             break;
@@ -1246,7 +1280,7 @@ int Run(int argc, char** argv) {
       if (rescale_requested.exchange(false) && current_quality().scale_percent != pipe->scale_percent) {
         pipe->capture.Release();
         std::printf("Cambia la escala de codificación: reinicio la captura.\n");
-        if (!rebuild(false, opt.virtual_width, opt.virtual_height)) {
+        if (!rebuild(false, false, opt.virtual_width, opt.virtual_height)) {
           std::fprintf(stderr, "Error: no se pudo reiniciar la captura con la escala nueva.\n");
           failed = true;
           break;
@@ -1278,7 +1312,7 @@ int Run(int argc, char** argv) {
         }
         std::printf("La resolución cambió a %ux%u: reinicio la captura.\n", pipe->capture.width(),
                     pipe->capture.height());
-        if (!rebuild(false, opt.virtual_width, opt.virtual_height)) {
+        if (!rebuild(false, false, opt.virtual_width, opt.virtual_height)) {
           std::fprintf(stderr, "Error: no se pudo reiniciar la captura con la nueva resolución.\n");
           failed = true;
           break;
