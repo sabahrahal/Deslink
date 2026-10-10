@@ -950,7 +950,9 @@ int Run(int argc, char** argv) {
           for (char& c : text) {
             if (static_cast<unsigned char>(c) < 0x20) c = ' ';
           }
-          if (text != last_client_info) {
+          if (text.rfind("Sonido", 0) == 0) {
+            std::printf("%s\n", text.c_str());  // lo que oye la tablet: cambia cada vez, se escribe siempre
+          } else if (text != last_client_info) {
             last_client_info = text;
             std::printf("Tablet: %s\n", text.c_str());
           }
@@ -1121,6 +1123,7 @@ int Run(int argc, char** argv) {
     uint64_t captured = 0, composed = 0, last_composed = 0, last_stats_us = NowUs();
     uint64_t convert_us = 0, last_convert = 0, last_fed = 0, last_mailbox = 0, last_submitted = 0, last_dropped = 0;
     uint64_t last_encode_us = 0, last_encode_count = 0, last_sender_dropped = sender.dropped;
+    uint64_t latency_audio = 0, latency_audio_loud = 0;
     uint64_t latency_ticks = 0, latency_fed = 0, latency_encoded = 0, latency_sent = 0, latency_mailbox = 0,
              latency_encode_us = 0, latency_busy = 0;
     TouchInjector::Mode last_input_mode = touch.active();
@@ -1441,6 +1444,14 @@ int Run(int argc, char** argv) {
             if (tablet_decode_x10 >= 0) std::printf(" · decodificar en la tablet %.1f ms", tablet_decode_x10 / 10.0);
             std::printf(" (%llu frames en 5 s).\n", static_cast<unsigned long long>(sent));
           }
+          // Con el sonido en la tablet, cuánto se le manda y cuánto suena de verdad en el PC.
+          if (audio.running()) {
+            std::printf("Sonido: enviados %llu trozos de 10 ms en 5 s, %llu con algo audible.\n",
+                        static_cast<unsigned long long>(audio.frames() - latency_audio),
+                        static_cast<unsigned long long>(audio.loud_frames() - latency_audio_loud));
+          }
+          latency_audio = audio.frames();
+          latency_audio_loud = audio.loud_frames();
           latency_fed = pipe->encoder->fed_frames;
           latency_encoded = pipe->encoder->encode_count;
           latency_sent = sender.sent_frames;

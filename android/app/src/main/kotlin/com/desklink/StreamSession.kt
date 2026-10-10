@@ -16,6 +16,8 @@ class StreamSession(
     private val listener: Listener,
     /** Lo que la tablet dice de sí misma en cada HELLO (pantalla, frecuencia, HEVC); null = HELLO vacío. */
     private val helloConfig: Dlp.HelloConfig? = null,
+    /** Volumen multimedia de la tablet («5/15»), para el informe de sonido del log del PC. */
+    private val mediaVolume: () -> String = { "?" },
 ) {
     /** En qué punto está la conexión, para la pantalla de estado. */
     enum class Phase { CONNECTING, NO_ANSWER, STREAMING, RECONNECTING, FAILED }
@@ -396,7 +398,10 @@ class StreamSession(
                 ),
             )
             // Cada 5 s, qué tablet y qué decodificador, para que salga en el log del PC.
-            decoder?.let { if (++infoTicks % 5 == 1) send(Dlp.clientInfo(it.description, now)) }
+            if (++infoTicks % 5 == 1) {
+                decoder?.let { send(Dlp.clientInfo(it.description, now)) }
+                audio?.let { send(Dlp.clientInfo(it.report(mediaVolume()), now)) }
+            }
             lastLost = lost
             lastBytes = bytesReceived
             lastFrames = framesReceived
