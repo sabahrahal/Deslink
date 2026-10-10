@@ -41,6 +41,8 @@ object Dlp {
     /** Host -> tablet: lo que el PC decidió para la sesión (ver [SessionConfig]). */
     const val TYPE_SESSION_CONFIG = 17
     const val SESSION_CONFIG_SIZE = 10
+    /** Tablet -> host: texto para el log del PC (modelo y decodificador). */
+    const val TYPE_CLIENT_INFO = 18
     const val INPUT_VIEW_ONLY = 2
 
     /** [HelloConfig.codec] en el HELLO: qué puede decodificar la tablet. */
@@ -194,6 +196,12 @@ object Dlp {
         b.putShort(22, size.toShort())
         if (payload != null) System.arraycopy(payload, 0, b.array(), HEADER_SIZE, size)
         return b.array()
+    }
+
+    /** CLIENT_INFO: [text] en UTF-8, recortado para que quepa en un paquete. */
+    fun clientInfo(text: String, timestampUs: Long): ByteArray {
+        val bytes = text.toByteArray(Charsets.UTF_8)
+        return controlPacket(TYPE_CLIENT_INFO, timestampUs, if (bytes.size > 1176) bytes.copyOf(1176) else bytes)
     }
 
     /** HELLO con la configuración que pide la tablet (o vacío si [config] es null). */

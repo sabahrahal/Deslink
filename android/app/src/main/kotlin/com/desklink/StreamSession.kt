@@ -322,6 +322,7 @@ class StreamSession(
         var lastDecoded = 0L
         var lastDecodeNanos = 0L
         var lastDecodeCount = 0L
+        var infoTicks = 0
         var lastLost = 0L
         var lastTime = nowUs()
         var helloAttempts = 0
@@ -394,6 +395,8 @@ class StreamSession(
                     if (decodeMs >= 0) (decodeMs * 10).toInt() else 0, now,
                 ),
             )
+            // Cada 5 s, qué tablet y qué decodificador, para que salga en el log del PC.
+            decoder?.let { if (++infoTicks % 5 == 1) send(Dlp.clientInfo(it.description, now)) }
             lastLost = lost
             lastBytes = bytesReceived
             lastFrames = framesReceived

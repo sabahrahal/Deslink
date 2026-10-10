@@ -40,6 +40,7 @@ Tamaño máximo de paquete: 1200 bytes (1176 de payload), para no fragmentar en 
 | 8 | BURST_DATA | host a cliente | relleno; `packet_index`/`packet_count` numeran la ráfaga y el timestamp devuelve el nonce |
 | 16 | QUALITY_REQUEST | cliente a host | petición de la batería: fps máx. u16, Mbps máx. u16 en unidades de 100 kbps, escala u8, perfil u8 (0 alta, 1 equilibrado, 2 ahorro, 3 mínimo). La tablet solo lo manda si SESSION_CONFIG dice que el PC lo acepta (bit 1), al cambiar y cada 5 s. El host solo baja fps y, como mucho, la tasa al 60 % de la elegida; nunca cambia la escala por esto. Ver [batería](battery.md) |
 | 17 | SESSION_CONFIG | host a cliente | lo que decidió el PC, 10 bytes: calidad u8 (0 alta, 1 equilibrada, 2 ahorro), banderas u8 (bit 0 sonido en la tablet, bit 1 acepta QUALITY_REQUEST de la batería), táctil u8 (0 táctil, 1 ratón, 2 solo ver), reducido u8 (0 no, 1 Wi-Fi, 2 batería, 3 carga de la gráfica), fps u16 de ahora, tasa u16 de ahora y tasa elegida u16 (en 100 kbps). Tras cada STREAM_INFO, al cambiar y cada 2 s. Ver `protocol/include/dlp/session.h` |
+| 18 | CLIENT_INFO | cliente a host | texto UTF-8 (hasta 1176 bytes) que el host copia en su log: modelo de la tablet, versión de Android y qué decodificador abrió, con o sin modo de baja latencia. La tablet lo repite cada 5 s mientras hay vídeo; el host solo lo escribe cuando cambia |
 
 ## Configuración de la tablet (payload de HELLO)
 

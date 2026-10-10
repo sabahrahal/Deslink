@@ -1,6 +1,7 @@
 package com.desklink
 
 import android.media.MediaCodec
+import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.os.Build
 import android.os.Handler
@@ -42,6 +43,9 @@ class VideoDecoder(
     var decodeCount = 0L
         private set
 
+    /** Modelo, Android y decodificador, para el log del PC (CLIENT_INFO). */
+    val description: String
+
     init {
         val mime = if (info.codec == Dlp.CODEC_HEVC) MediaFormat.MIMETYPE_VIDEO_HEVC else MediaFormat.MIMETYPE_VIDEO_AVC
         codec = MediaCodec.createDecoderByType(mime)
@@ -56,8 +60,11 @@ class VideoDecoder(
         // claves propias del fabricante; un decodificador de otra marca no las ve.
         val name = codec.name.lowercase()
         when {
-            name.startsWith("c2.qti") || name.startsWith("omx.qcom") ->
+            name.startsWith("c2.qti") || name.startsWith("omx.qcom") -> {
                 format.setInteger("vendor.qti-ext-dec-low-latency.enable", 1)
+                // Saca cada frame en cuanto se decodifica, sin esperar a ordenarlo (el host no manda frames B).
+                format.setInteger("vendor.qti-ext-dec-picture-order.enable", 1)
+            }
             name.startsWith("c2.exynos") || name.startsWith("omx.exynos") ->
                 format.setInteger("vendor.rtc-ext-dec-low-latency.enable", 1)
             name.startsWith("c2.amlogic") || name.startsWith("omx.amlogic") ->
@@ -100,6 +107,7 @@ class VideoDecoder(
                 onError("Error del decodificador: ${e.diagnosticInfo}")
             }
         }, Handler(callbackThread.looper))
+        description = describe(codec, mime)
         codec.configure(format, surface, null, 0)
         codec.start()
     }
@@ -168,6 +176,22 @@ class VideoDecoder(
         }
         codec.release()
         callbackThread.quitSafely()
+    }
+
+    private fun describe(codec: MediaCodec, mime: String): String {
+        val info = codec.codecInfo
+        val lowLatency = if (Build.VERSION.SDK_INT >= 30) {
+            try {
+                if (info.getCapabilitiesForType(mime).isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_LowLatency)) "sí" else "no"
+            } catch (_: IllegalArgumentException) {
+                "no se sabe"
+            }
+        } else {
+            "no se sabe (Android anterior al 11)"
+        }
+        val hardware = if (Build.VERSION.SDK_INT >= 29) (if (info.isHardwareAccelerated) "por hardware" else "por software") else ""
+        return "${Build.MANUFACTURER} ${Build.MODEL} (Android ${Build.VERSION.RELEASE}, ${Build.HARDWARE}), " +
+            "decodificador ${codec.name} $hardware, modo de baja latencia: $lowLatency"
     }
 
     private companion object {

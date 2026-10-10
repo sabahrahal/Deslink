@@ -34,6 +34,7 @@ enum class PacketType : uint8_t {
   kDiscover = 12,        // cliente -> host: "¿hay alguien?"; el host responde STREAM_INFO sin empezar a enviar vídeo
   kQualityRequest = 16,  // cliente -> host: con «bajar si la batería no aguanta», lo que pide la batería de la tablet
   kSessionConfig = 17,   // host -> cliente: lo que eligió el PC (ver dlp/session.h); tras STREAM_INFO, al cambiar y cada 2 s
+  kClientInfo = 18,      // cliente -> host: texto UTF-8 para el log del PC (modelo y decodificador de la tablet)
 };
 
 enum Flags : uint8_t {
