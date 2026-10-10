@@ -54,7 +54,7 @@ class AudioPlayer(cable: Boolean) {
 
     /** Una línea para el log del PC: qué llega, qué suena y qué falló desde el principio. */
     fun report(volume: String): String =
-        "Sonido en la tablet: llegaron $received trozos, sonaron $played, ${buffer.lost} perdidos, " +
+        "Sonido en el dispositivo: llegaron $received trozos, sonaron $played, ${buffer.lost} perdidos, " +
             "${buffer.underruns} cortes, volumen multimedia $volume" +
             (if (decodeErrors > 0) ", $decodeErrors errores al decodificar" else "") +
             (lastError?.let { ", último error: $it" } ?: "")

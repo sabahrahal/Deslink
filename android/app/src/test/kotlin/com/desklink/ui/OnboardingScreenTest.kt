@@ -81,7 +81,7 @@ class OnboardingScreenTest {
     fun cableStepSaysWhenDebuggingIsAlreadyOn() {
         show(usb = UsbDebugHint.NONE)
         next(2)
-        compose.onNodeWithText("La depuración USB ya está activa en esta tablet.").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("La depuración USB ya está activa en este dispositivo.").performScrollTo().assertIsDisplayed()
         compose.onAllNodesWithText("Abrir ajustes de depuración USB").assertCountEquals(0)
     }
 
@@ -91,6 +91,6 @@ class OnboardingScreenTest {
         next(3)
         compose.onNode(hasTestTag("onboarding:tamano")).assertIsDisplayed()
         compose.onNode(hasText("sube la «Escala»", substring = true)).performScrollTo().assertIsDisplayed()
-        compose.onNode(hasText("con la tablet conectada", substring = true)).performScrollTo().assertIsDisplayed()
+        compose.onNode(hasText("con el dispositivo conectado", substring = true)).performScrollTo().assertIsDisplayed()
     }
 }

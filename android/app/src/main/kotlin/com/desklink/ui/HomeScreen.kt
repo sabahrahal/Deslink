@@ -51,7 +51,14 @@ data class HomeState(
     val usbDebug: UsbDebugHint = UsbDebugHint.NONE,
     /** Enchufada con la depuración USB activa: el cable aparece en unos segundos, cuando el PC lo prepara. */
     val cableExpected: Boolean = false,
+    /** La depuración USB está apagada (enchufada o no): se puede ofrecer el cable más rápido. */
+    val debugOff: Boolean = false,
+    /** El usuario ya dijo que no quiere ver el aviso del cable más rápido. */
+    val usbTipDismissed: Boolean = false,
 ) {
+    /** Aviso «¿Necesitas más velocidad por USB?»: sin cable ahora, depuración apagada y sin el de «enchufada». */
+    val showUsbTip: Boolean get() = debugOff && !usbTipDismissed && usbDebug == UsbDebugHint.NONE && hosts.none { it.isCable }
+
     /** El PC ya responde por la red pero el cable aún no: se avisa de que espere. */
     val waitingCable: Boolean get() =
         cableExpected && scans < HostGroups.CABLE_WAIT_SCANS && hosts.isNotEmpty() && hosts.none { it.isCable }
@@ -72,6 +79,8 @@ fun HomeScreen(
     onCancelAuto: () -> Unit,
     onOpenAdvanced: () -> Unit,
     onOpenUsbDebug: () -> Unit = {},
+    onOpenTether: () -> Unit = {},
+    onDismissUsbTip: () -> Unit = {},
 ) {
     // Camino elegido en cada tarjeta (true = cable USB). De serie, el cable.
     val preferUsb = remember { mutableStateMapOf<String, Boolean>() }
@@ -86,7 +95,7 @@ fun HomeScreen(
                 .animateContentSize(),
         ) {
             Text("DeskLink", style = DlText.LargeTitle)
-            Text("Tu tablet como segunda pantalla", style = DlText.Body, color = palette.textSecondary)
+            Text("Tu dispositivo como segunda pantalla", style = DlText.Body, color = palette.textSecondary)
             VSpace(24.dp)
 
             val pcs = state.pcs
@@ -121,6 +130,11 @@ fun HomeScreen(
 
             if (state.usbDebug != UsbDebugHint.NONE) {
                 UsbDebugCard(state.usbDebug, onOpenUsbDebug)
+                VSpace(12.dp)
+            }
+
+            if (state.showUsbTip) {
+                UsbSpeedCard(onOpenTether, onOpenUsbDebug, onDismissUsbTip)
                 VSpace(12.dp)
             }
 
@@ -165,7 +179,7 @@ private fun UsbDebugCard(hint: UsbDebugHint, onOpen: () -> Unit) {
                 color = palette.textSecondary,
             )
             if (hint == UsbDebugHint.ENABLE_DEVELOPER) {
-                Text("1. En Información de la tablet, toca 7 veces «Número de compilación».", style = DlText.Body)
+                Text("1. En Información del dispositivo, toca 7 veces «Número de compilación».", style = DlText.Body)
                 Text("2. Vuelve atrás, entra en «Opciones de desarrollador» y activa «Depuración USB».", style = DlText.Body)
             } else {
                 Text("1. En «Opciones de desarrollador», activa «Depuración USB».", style = DlText.Body)
@@ -176,6 +190,44 @@ private fun UsbDebugCard(hint: UsbDebugHint, onOpen: () -> Unit) {
             )
             VSpace(4.dp)
             PrimaryButton("Abrir ajustes", onOpen)
+        }
+    }
+}
+
+/** «¿Necesitas más velocidad por USB?»: por si se pasó la guía de inicio deprisa, con los pasos y los accesos directos. */
+@Composable
+private fun UsbSpeedCard(onOpenTether: () -> Unit, onOpenUsbDebug: () -> Unit, onDismiss: () -> Unit) {
+    var open by rememberSaveable { mutableStateOf(false) }
+    DlCard(Modifier.testTag("usb-speed")) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("¿Necesitas más velocidad por USB?", style = DlText.Headline)
+            Text(
+                "Por Wi-Fi funciona sin tocar nada. Por cable la imagen llega más rápido y con menos retardo.",
+                style = DlText.Body,
+                color = palette.textSecondary,
+            )
+            if (!open) {
+                VSpace(4.dp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SecondaryButton("Ver cómo", { open = true })
+                    Spacer(Modifier.width(12.dp))
+                    LinkText("No mostrar más", onDismiss)
+                }
+            }
+            AnimatedVisibility(open) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Fácil: enchufa el dispositivo al PC y activa «Anclaje USB» en sus ajustes. Hay que repetirlo en cada enchufe.", style = DlText.Body)
+                    SecondaryButton("Abrir «Anclaje USB»", onOpenTether)
+                    VSpace(4.dp)
+                    Text("Más rápido y automático (una sola vez):", style = DlText.Body)
+                    Text("1. En Información del dispositivo, toca 7 veces «Número de compilación».", style = DlText.Body)
+                    Text("2. En «Opciones de desarrollador», activa «Depuración USB».", style = DlText.Body)
+                    Text("3. Al enchufar al PC, marca «Permitir siempre desde este ordenador» y acepta.", style = DlText.Body)
+                    SecondaryButton("Abrir ajustes de depuración USB", onOpenUsbDebug)
+                    VSpace(4.dp)
+                    LinkText("No mostrar más", onDismiss)
+                }
+            }
         }
     }
 }
@@ -199,9 +251,9 @@ private fun Searching(state: HomeState) {
                 AnimatedVisibility(help) {
                     Column(Modifier.padding(start = 8.dp, top = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("1. Abre DeskLink en el PC y pulsa Iniciar.", style = DlText.Body)
-                        Text("2. Por Wi-Fi: PC y tablet en la misma red, y DeskLink permitido en el cortafuegos de Windows.", style = DlText.Body)
-                        Text("3. Por cable: conecta el USB y activa «Anclaje USB» en la tablet, o activa la depuración USB y acepta «Permitir depuración USB».", style = DlText.Body)
-                        Text("Redes de esta tablet: ${state.networks}", style = DlText.Note, color = palette.textSecondary)
+                        Text("2. Por Wi-Fi: PC y dispositivo en la misma red, y DeskLink permitido en el cortafuegos de Windows.", style = DlText.Body)
+                        Text("3. Por cable: conecta el USB y activa «Anclaje USB» en el dispositivo, o activa la depuración USB y acepta «Permitir depuración USB».", style = DlText.Body)
+                        Text("Redes de este dispositivo: ${state.networks}", style = DlText.Note, color = palette.textSecondary)
                     }
                 }
             }

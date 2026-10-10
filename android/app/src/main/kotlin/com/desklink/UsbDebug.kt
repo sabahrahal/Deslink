@@ -32,6 +32,10 @@ object UsbDebug {
 
     fun read(context: Context): UsbDebugHint = read(context, usbConnected(context))
 
+    /** ¿Está activa la depuración USB, enchufada o no? */
+    fun debuggingOn(context: Context): Boolean =
+        Settings.Global.getInt(context.contentResolver, Settings.Global.ADB_ENABLED, 0) == 1
+
     /** ¿Enchufada a un PC con la depuración USB activa? Entonces el cable va a aparecer en cuanto el PC lo prepare. */
     fun cableExpected(context: Context): Boolean {
         val adb = Settings.Global.getInt(context.contentResolver, Settings.Global.ADB_ENABLED, 0) == 1
