@@ -76,6 +76,7 @@ class FrameSender {
   // Tiempo que el hilo pasó enviando y bytes enviados: lo que aguanta el enlace (ver RateController::OnLinkLoad).
   std::atomic<uint64_t> busy_us{0};
   std::atomic<uint64_t> sent_bytes{0};
+  std::atomic<uint64_t> sent_frames{0};
   std::atomic<uint64_t> dropped{0};
 
  private:
@@ -94,6 +95,7 @@ class FrameSender {
       busy_us += static_cast<uint64_t>(
           std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count());
       sent_bytes += frame.data.size();
+      ++sent_frames;
     }
   }
 
