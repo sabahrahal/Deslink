@@ -2,6 +2,7 @@
 
 #include <windows.h>
 #include <audioclient.h>
+#include <endpointvolume.h>
 #include <mmdeviceapi.h>
 #include <mmreg.h>
 
@@ -47,6 +48,39 @@ std::wstring DefaultRenderId(IMMDeviceEnumerator* enumerator) {
   std::wstring out(id);
   CoTaskMemFree(id);
   return out;
+}
+
+// Mientras el sonido va a la tablet se silencian los altavoces del PC, para que no suene en los dos sitios. Qué
+// salida silenció DeskLink queda apuntado en el registro: si el host se cierra de golpe, la siguiente vez la
+// vuelve a activar.
+constexpr wchar_t kMuteKey[] = L"Software\\DeskLink";
+constexpr wchar_t kMuteValue[] = L"SonidoSilenciado";
+
+void RememberMuted(const std::wstring& id) {
+  RegSetKeyValueW(HKEY_CURRENT_USER, kMuteKey, kMuteValue, REG_SZ, id.c_str(),
+                  static_cast<DWORD>((id.size() + 1) * sizeof(wchar_t)));
+}
+
+void ForgetMuted() { RegDeleteKeyValueW(HKEY_CURRENT_USER, kMuteKey, kMuteValue); }
+
+bool SetEndpointMute(IMMDevice* device, BOOL mute, BOOL* was = nullptr) {
+  ComPtr<IAudioEndpointVolume> volume;
+  if (FAILED(device->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_ALL, nullptr,
+                              reinterpret_cast<void**>(&volume)))) {
+    return false;
+  }
+  if (was && FAILED(volume->GetMute(was))) return false;
+  return SUCCEEDED(volume->SetMute(mute, nullptr));
+}
+
+// La salida que DeskLink dejó silenciada en una sesión que no terminó bien.
+void RestoreLeftoverMute(IMMDeviceEnumerator* enumerator) {
+  wchar_t id[512];
+  DWORD size = sizeof(id);
+  if (RegGetValueW(HKEY_CURRENT_USER, kMuteKey, kMuteValue, RRF_RT_REG_SZ, nullptr, id, &size) != ERROR_SUCCESS) return;
+  ComPtr<IMMDevice> device;
+  if (SUCCEEDED(enumerator->GetDevice(id, &device))) SetEndpointMute(device.p, FALSE);
+  ForgetMuted();
 }
 
 enum class SampleFormat { kFloat32, kInt16, kInt24, kInt32, kUnsupported };
@@ -207,6 +241,7 @@ bool AudioCapture::CaptureDefaultDevice(void* encoder) {
                               reinterpret_cast<void**>(&enumerator)))) {
     return false;
   }
+  RestoreLeftoverMute(enumerator.p);
   ComPtr<IMMDevice> device;
   if (FAILED(enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &device))) return false;
   const std::wstring id = DefaultRenderId(enumerator.p);
@@ -233,6 +268,14 @@ bool AudioCapture::CaptureDefaultDevice(void* encoder) {
   if (FAILED(client->Start())) return false;
   std::printf("Sonido: capturando la salida predeterminada (%lu Hz, %u canales) para la tablet.\n",
               wf->nSamplesPerSec, wf->nChannels);
+  // Solo si estaba sonando: si el usuario ya la tenía silenciada, al terminar se queda como estaba.
+  BOOL was_muted = TRUE;
+  bool muted_by_us = false;
+  if (SetEndpointMute(device.p, TRUE, &was_muted) && !was_muted) {
+    muted_by_us = true;
+    RememberMuted(id);
+    std::printf("Sonido: silencio los altavoces del PC mientras suena en la tablet.\n");
+  }
 
   StereoResampler resampler;
   resampler.Reset(wf->nSamplesPerSec, wf->nChannels);
@@ -295,5 +338,10 @@ bool AudioCapture::CaptureDefaultDevice(void* encoder) {
     }
   }
   client->Stop();
+  if (muted_by_us) {
+    SetEndpointMute(device.p, FALSE);
+    ForgetMuted();
+    std::printf("Sonido: vuelven a sonar los altavoces del PC.\n");
+  }
   return true;
 }
