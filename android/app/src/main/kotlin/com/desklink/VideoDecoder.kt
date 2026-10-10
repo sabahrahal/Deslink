@@ -69,6 +69,10 @@ class VideoDecoder(
                 format.setInteger("vendor.rtc-ext-dec-low-latency.enable", 1)
             name.startsWith("c2.amlogic") || name.startsWith("omx.amlogic") ->
                 format.setInteger("vendor.low-latency.enable", 1)
+            // MediaTek no usa una clave «vendor.»: su decodificador lee esta (la misma que usa Moonlight). En una
+            // Lenovo con MediaTek, sin ella cada frame tardaba ~17 ms fijos en salir, fuera cual fuera su tamaño.
+            name.startsWith("c2.mtk") || name.startsWith("omx.mtk") ->
+                format.setInteger("vdec-lowlatency", 1)
         }
         // El host convierte a BT.709 de rango limitado y lo declara en el flujo; se repite aquí por si el
         // decodificador no lee la VUI (si no, algunos suponen BT.601 y el color sale desviado).
@@ -107,7 +111,7 @@ class VideoDecoder(
                 onError("Error del decodificador: ${e.diagnosticInfo}")
             }
         }, Handler(callbackThread.looper))
-        description = describe(codec, mime)
+        description = describe(codec, mime, format)
         codec.configure(format, surface, null, 0)
         codec.start()
     }
@@ -178,7 +182,7 @@ class VideoDecoder(
         callbackThread.quitSafely()
     }
 
-    private fun describe(codec: MediaCodec, mime: String): String {
+    private fun describe(codec: MediaCodec, mime: String, format: MediaFormat): String {
         val info = codec.codecInfo
         val lowLatency = if (Build.VERSION.SDK_INT >= 30) {
             try {
@@ -191,10 +195,17 @@ class VideoDecoder(
         }
         val hardware = if (Build.VERSION.SDK_INT >= 29) (if (info.isHardwareAccelerated) "por hardware" else "por software") else ""
         return "${Build.MANUFACTURER} ${Build.MODEL} (Android ${Build.VERSION.RELEASE}, ${Build.HARDWARE}), " +
-            "decodificador ${codec.name} $hardware, modo de baja latencia: $lowLatency"
+            "decodificador ${codec.name} $hardware, modo de baja latencia: $lowLatency" +
+            VENDOR_LOW_LATENCY_KEYS.filter { format.containsKey(it) }.let { if (it.isEmpty()) "" else ", ajuste propio: ${it.joinToString()}" }
     }
 
     private companion object {
+        /** Claves de baja latencia de cada fabricante que se ponen arriba (para decir en el log cuál se usó). */
+        val VENDOR_LOW_LATENCY_KEYS = listOf(
+            "vendor.qti-ext-dec-low-latency.enable", "vendor.rtc-ext-dec-low-latency.enable",
+            "vendor.low-latency.enable", "vdec-lowlatency",
+        )
+
         /** Lo más que espera [queue] a que el decodificador libere un buffer de entrada. */
         const val INPUT_WAIT_MS = 20L
     }
