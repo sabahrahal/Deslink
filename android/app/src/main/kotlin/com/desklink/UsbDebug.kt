@@ -61,6 +61,10 @@ object UsbDebug {
         false
     }
 
+    /** «Anclaje USB» (zona con cobertura y anclaje): no necesita modo desarrollador, pero hay que activarlo en cada enchufe. */
+    fun tetherIntent(): Intent = Intent().setClassName("com.android.settings", "com.android.settings.TetherSettings")
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
     /** La pantalla de Ajustes donde se hace el paso que falta. */
     fun settingsIntent(hint: UsbDebugHint): Intent = Intent(
         if (hint == UsbDebugHint.ENABLE_DEVELOPER) Settings.ACTION_DEVICE_INFO_SETTINGS

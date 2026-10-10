@@ -37,7 +37,7 @@ data class OnboardingPage(val id: String, val title: String, val body: String, v
 
 /**
  * Guía de inicio: sale la primera vez que se abre la app y luego desde Configuración avanzada > Ayuda. Recoge lo
- * que más dudas da: instalar el PC, el cable sin elegir modo USB, la resolución y la escala de Windows, y el menú
+ * que más dudas da: instalar el PC, el Wi-Fi y el cable (anclaje USB o depuración), la resolución y la escala de Windows, y el menú
  * durante la sesión.
  */
 object Onboarding {
@@ -45,7 +45,7 @@ object Onboarding {
         OnboardingPage(
             "bienvenida",
             "Tu tablet como segunda pantalla",
-            "DeskLink convierte la tablet en una pantalla más del PC, por cable USB o por Wi-Fi. Son tres cosas y listo.",
+            "DeskLink convierte la tablet en una pantalla más del PC, por Wi-Fi o por cable USB. Son tres cosas y listo.",
         ),
         OnboardingPage(
             "pc",
@@ -58,13 +58,12 @@ object Onboarding {
         ),
         OnboardingPage(
             "cable",
-            "Conecta por cable",
-            "El cable es lo más rápido. Activa la depuración USB una sola vez y después basta con enchufar, sin elegir ningún modo USB.",
+            "Conecta la tablet",
+            "Lo más fácil es el Wi-Fi: con el PC y la tablet en la misma red no hay que configurar nada. Abre DeskLink en las dos y pulsa Conectar.",
             listOf(
-                "En Información de la tablet, toca 7 veces «Número de compilación».",
-                "En «Opciones de desarrollador», activa «Depuración USB».",
-                "Al enchufar al PC, marca «Permitir siempre desde este ordenador».",
-                "Por Wi-Fi también funciona: PC y tablet en la misma red.",
+                "Wi-Fi: la misma red en el PC y en la tablet.",
+                "Cable, sin complicaciones: enchufa la tablet y activa «Anclaje USB» en sus ajustes.",
+                "Cable, más fluido (opcional): activa la depuración USB una sola vez (Información de la tablet, toca 7 veces «Número de compilación», y en «Opciones de desarrollador» activa «Depuración USB»).",
             ),
         ),
         OnboardingPage(
@@ -86,7 +85,7 @@ object Onboarding {
 }
 
 @Composable
-fun OnboardingScreen(usbDebug: UsbDebugHint, onOpenUsbDebug: () -> Unit, onDone: () -> Unit) {
+fun OnboardingScreen(usbDebug: UsbDebugHint, onOpenUsbDebug: () -> Unit, onDone: () -> Unit, onOpenTether: () -> Unit = {}) {
     var index by rememberSaveable { mutableIntStateOf(0) }
     val pages = Onboarding.pages
     val last = index == pages.lastIndex
@@ -119,10 +118,11 @@ fun OnboardingScreen(usbDebug: UsbDebugHint, onOpenUsbDebug: () -> Unit, onDone:
                         }
                     }
                     if (page.id == "cable") {
+                        SecondaryButton("Abrir «Anclaje USB»", onOpenTether)
                         if (usbDebug == UsbDebugHint.NONE) {
                             Text("La depuración USB ya está activa en esta tablet.", style = DlText.Note, color = palette.success)
                         } else {
-                            SecondaryButton("Abrir ajustes de la tablet", onOpenUsbDebug)
+                            SecondaryButton("Abrir ajustes de depuración USB", onOpenUsbDebug)
                         }
                     }
                 }

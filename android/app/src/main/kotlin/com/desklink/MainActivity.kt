@@ -140,6 +140,7 @@ class MainActivity : ComponentActivity() {
                         OnboardingScreen(
                             usbDebug = guideUsb,
                             onOpenUsbDebug = { openUsbDebugSettings(guideUsb) },
+                            onOpenTether = { openTetherSettings() },
                             onDone = {
                                 store.onboardingDone = true
                                 showGuide = false
@@ -249,6 +250,19 @@ class MainActivity : ComponentActivity() {
         } catch (_: Exception) {
             // Algún fabricante no tiene la pantalla directa: los Ajustes generales.
             startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
+        }
+    }
+
+    private fun openTetherSettings() {
+        try {
+            startActivity(UsbDebug.tetherIntent())
+        } catch (_: Exception) {
+            // Sin la pantalla directa: los ajustes de red, donde está «Anclaje a red».
+            try {
+                startActivity(Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS))
+            } catch (_: Exception) {
+                startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
+            }
         }
     }
 
