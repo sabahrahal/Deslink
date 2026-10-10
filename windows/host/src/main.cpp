@@ -550,6 +550,7 @@ int Run(int argc, char** argv) {
   // Para --status: último informe de la tablet y RTT medido con PING del host (0 = la tablet no contesta).
   std::atomic<uint32_t> tablet_received{0}, tablet_lost{0};
   std::atomic<int> tablet_decoded{-1};  // frames que mostró la tablet el último segundo (-1: tablet antigua)
+  std::string last_client_info;  // lo último que dijo CLIENT_INFO (solo lo toca el hilo que recibe)
   std::atomic<int> tablet_decode_x10{-1};  // décimas de ms que tarda la tablet en decodificar cada frame (-1: no lo dice)
   std::atomic<bool> peer_tether{false};  // la tablet llega por su anclaje USB (red sobre el cable)
   std::atomic<uint64_t> rtt_us{0};
@@ -917,6 +918,18 @@ int Run(int argc, char** argv) {
                                 static_cast<double>(busy) / span, now)) {
               publish_rate("el cable no da para más");
             }
+          }
+          break;
+        }
+        case dlp::PacketType::kClientInfo: {
+          // Qué tablet y qué decodificador: para leer el log sin tener que preguntar. Se repite; se escribe al cambiar.
+          std::string text(reinterpret_cast<const char*>(data + dlp::kHeaderSize), header->payload_size);
+          for (char& c : text) {
+            if (static_cast<unsigned char>(c) < 0x20) c = ' ';
+          }
+          if (text != last_client_info) {
+            last_client_info = text;
+            std::printf("Tablet: %s\n", text.c_str());
           }
           break;
         }
