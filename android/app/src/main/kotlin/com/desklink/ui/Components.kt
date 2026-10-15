@@ -1,5 +1,6 @@
 package com.desklink.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -7,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -24,16 +26,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.desklink.R
 
 // Piezas comunes, planas y sin brillos (docs/design.md): tarjetas blancas o grises, un solo color de acento.
 
@@ -195,3 +202,20 @@ fun StatusDot(color: Color, label: String) {
 @Composable
 fun VSpace(h: Dp) = Spacer(Modifier.height(h))
 
+/** El logo (design/logo/): los dos eslabones y «Desklink» en Montserrat Black, del color del acento. */
+@Composable
+fun BrandMark(modifier: Modifier = Modifier, iconHeight: Dp = 30.dp, textSize: TextUnit = DlType.LargeTitleSize) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        Image(
+            painterResource(R.drawable.ic_logo),
+            contentDescription = null,
+            modifier = Modifier.height(iconHeight).aspectRatio(1034f / 662f),
+        )
+        Spacer(Modifier.width(iconHeight * 0.4f))
+        Text(
+            "Desklink",
+            style = TextStyle(fontFamily = Montserrat, fontWeight = FontWeight.Black, fontSize = textSize, letterSpacing = (-0.3).sp),
+            color = palette.accent,
+        )
+    }
+}

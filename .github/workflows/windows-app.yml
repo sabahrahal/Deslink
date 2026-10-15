@@ -2,9 +2,9 @@ name: windows-app
 
 on:
   push:
-    paths: ['windows/app/**', 'windows/host/**', 'windows/driver/include/**', 'protocol/**', '.github/workflows/windows-app.yml']
+    paths: ['windows/app/**', 'design/fonts/**', 'windows/host/**', 'windows/driver/include/**', 'protocol/**', '.github/workflows/windows-app.yml']
   pull_request:
-    paths: ['windows/app/**', 'windows/host/**', 'windows/driver/include/**', 'protocol/**', '.github/workflows/windows-app.yml']
+    paths: ['windows/app/**', 'design/fonts/**', 'windows/host/**', 'windows/driver/include/**', 'protocol/**', '.github/workflows/windows-app.yml']
 
 jobs:
   build:

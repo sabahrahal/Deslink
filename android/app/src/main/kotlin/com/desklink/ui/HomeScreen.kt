@@ -94,7 +94,8 @@ fun HomeScreen(
                 .padding(horizontal = 20.dp, vertical = 24.dp)
                 .animateContentSize(),
         ) {
-            Text("DeskLink", style = DlText.LargeTitle)
+            BrandMark()
+            VSpace(6.dp)
             Text("Tu dispositivo como segunda pantalla", style = DlText.Body, color = palette.textSecondary)
             VSpace(24.dp)
 

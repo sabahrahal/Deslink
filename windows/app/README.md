@@ -56,5 +56,6 @@ Sale en `build/app/Release/desklink.exe`. `ctest --test-dir build/app -C Release
 USB, `adb.exe`, `AdbWinApi.dll` y `AdbWinUsbApi.dll`). La CI (`windows-app`) publica las dos juntas en el artefacto
 `desklink-windows`.
 
-El icono (`res/desklink.ico`, degradado azul) sale de `res/make_icon.py`; la bandeja dibuja la misma tableta
-en gris (detenido), ámbar (esperando), verde (conectado) o rojo (error).
+El icono (`res/desklink.ico`, los dos eslabones de `design/logo/`) sale de `tools/design/gen_logo.py --ico`; la
+cabecera de la ventana y la bandeja dibujan el mismo logo con GDI+ (`src/logo.h`), la bandeja en gris (detenido),
+ámbar (esperando), verde (conectado) o rojo (error). Las fuentes del logo (Montserrat) van como recursos.

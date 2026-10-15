@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generado por tools/design/gen_logo.py. No editar a mano. Icono para dentro de la app (cabecera). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="43.73dp"
+    android:height="28dp"
+    android:viewportWidth="1034"
+    android:viewportHeight="662">
+    <path
+        android:fillColor="#FF4D13C7"
+        android:pathData="M348,284 L348,176 C348,78.8 426.8,0 524,0 L858,0 C955.2,0 1034,78.8 1034,176 L1034,328 C1034,425.2 955.2,504 858,504 L717,504 L717,381 L851,381 C877.51,381 899,359.51 899,333 L899,178 C899,151.49 877.51,130 851,130 L536,130 C509.49,130 488,151.49 488,178 L488,284 Z" />
+    <path
+        android:fillColor="#FF7033FD"
+        android:fillType="evenOdd"
+        android:pathData="M0,374 C0,288.4 69.4,219 155,219 L509,219 C553,219 588.67,234.67 616,266 L806,481 C819.33,496.33 836,504 856,504 L731,504 C701.67,504 676.67,492.67 656,470 L614,424 L614,507 C614,592.6 544.6,662 459,662 L155,662 C69.4,662 0,592.6 0,507 Z M167,340 C148.22,340 133,355.22 133,374 L133,507 C133,525.78 148.22,541 167,541 L452,541 C470.78,541 486,525.78 486,507 L486,340 Z" />
+    <path android:pathData="M486,340 L533,340 L614,428 L614,514 L486,514 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="0"
+                android:startY="340"
+                android:endX="0"
+                android:endY="514"
+                android:startColor="#FF3F11A5"
+                android:endColor="#FF7033FD" />
+        </aapt:attr>
+    </path>
+</vector>

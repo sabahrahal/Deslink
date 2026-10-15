@@ -98,7 +98,7 @@ fun OnboardingScreen(usbDebug: UsbDebugHint, onOpenUsbDebug: () -> Unit, onDone:
                 .padding(horizontal = 24.dp, vertical = 24.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("DeskLink", style = DlText.Section, color = palette.textSecondary, modifier = Modifier.weight(1f))
+                BrandMark(Modifier.weight(1f), iconHeight = 20.dp, textSize = DlType.HeadlineSize)
                 if (!last) LinkText("Saltar", onDone)
             }
             VSpace(16.dp)

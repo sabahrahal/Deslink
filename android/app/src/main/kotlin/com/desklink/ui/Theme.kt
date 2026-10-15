@@ -12,6 +12,11 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.TextUnit
+import com.desklink.R
 
 /** Colores del modo en uso (claro u oscuro, como el sistema). Salen de design/tokens.json, igual que en el PC. */
 val LocalDlColors = staticCompositionLocalOf { LightColors }
@@ -21,14 +26,23 @@ val palette: DlColors
     @Composable @ReadOnlyComposable
     get() = LocalDlColors.current
 
+/** Montserrat, la fuente del logo (design/fonts/): Black para el nombre y los títulos grandes, Bold para el resto. */
+val Montserrat = FontFamily(
+    Font(R.font.montserrat_black, FontWeight.Black),
+    Font(R.font.montserrat_bold, FontWeight.Bold),
+)
+
+private fun style(size: TextUnit, weight: FontWeight, brand: Boolean) =
+    TextStyle(fontSize = size, fontWeight = weight, fontFamily = if (brand) Montserrat else FontFamily.Default)
+
 /** Estilos de texto de docs/design.md. */
 object DlText {
-    val LargeTitle = TextStyle(fontSize = DlType.LargeTitleSize, fontWeight = DlType.LargeTitleWeight)
-    val Title = TextStyle(fontSize = DlType.TitleSize, fontWeight = DlType.TitleWeight)
-    val Headline = TextStyle(fontSize = DlType.HeadlineSize, fontWeight = DlType.HeadlineWeight)
-    val Section = TextStyle(fontSize = DlType.SectionSize, fontWeight = DlType.SectionWeight)
-    val Body = TextStyle(fontSize = DlType.BodySize, fontWeight = DlType.BodyWeight)
-    val Note = TextStyle(fontSize = DlType.NoteSize, fontWeight = DlType.NoteWeight)
+    val LargeTitle = style(DlType.LargeTitleSize, DlType.LargeTitleWeight, DlType.LargeTitleBrand)
+    val Title = style(DlType.TitleSize, DlType.TitleWeight, DlType.TitleBrand)
+    val Headline = style(DlType.HeadlineSize, DlType.HeadlineWeight, DlType.HeadlineBrand)
+    val Section = style(DlType.SectionSize, DlType.SectionWeight, DlType.SectionBrand)
+    val Body = style(DlType.BodySize, DlType.BodyWeight, DlType.BodyBrand)
+    val Note = style(DlType.NoteSize, DlType.NoteWeight, DlType.NoteBrand)
 }
 
 private fun schemeFor(c: DlColors, dark: Boolean) = if (dark) {

@@ -1,5 +1,7 @@
-// Icono y manifiesto (controles comunes v6 y DPI) de desklink.exe.
+// Icono, manifiesto (controles comunes v6 y DPI) y fuentes del logo (Montserrat, design/fonts/) de desklink.exe.
 #include <windows.h>
 
 APP ICON "desklink.ico"
 CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "desklink.manifest"
+FONT_BLACK RCDATA "../../../design/fonts/Montserrat-Black.ttf"
+FONT_BOLD RCDATA "../../../design/fonts/Montserrat-Bold.ttf"

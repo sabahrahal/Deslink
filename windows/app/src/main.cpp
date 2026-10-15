@@ -24,6 +24,7 @@ using std::min;
 #include <cwctype>
 #include <deque>
 #include <functional>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <string>
@@ -31,6 +32,7 @@ using std::min;
 #include <vector>
 
 #include "host_process.h"
+#include "logo.h"
 #include "settings.h"
 #include "system_info.h"
 #include "tokens.h"
@@ -85,6 +87,9 @@ struct App {
   // Dibujo
   std::unique_ptr<gp::FontFamily> family;
   std::wstring semibold_family;
+  // Montserrat (la del logo), de los recursos: Black para el nombre y los títulos grandes, Bold para el resto.
+  std::unique_ptr<gp::PrivateFontCollection> brand_fonts;
+  std::unique_ptr<gp::FontFamily> brand_black, brand_bold;
   std::vector<Hit> hits;
   int hover = -1;
   bool mouse_tracked = false;
@@ -679,14 +684,91 @@ void SetMode(bool virtual_display) {
 // ---------------------------------------------------------------------------------------------------------------
 // Dibujo: piezas sueltas, planas, sin brillos ni degradados.
 
-std::unique_ptr<gp::Font> MakeFont(float px, bool semibold) {
+// brand: Montserrat (tokens::k…Brand); con weight >= 800, la Black.
+std::unique_ptr<gp::Font> MakeFont(float px, bool semibold, bool brand = false, int weight = 700) {
   std::unique_ptr<gp::Font> f;
+  if (brand) {
+    if (weight >= 800 && g.brand_black) {
+      f = std::make_unique<gp::Font>(g.brand_black.get(), F(px), gp::FontStyleRegular, gp::UnitPixel);
+    } else if (g.brand_bold) {
+      f = std::make_unique<gp::Font>(g.brand_bold.get(), F(px), gp::FontStyleBold, gp::UnitPixel);
+    }
+    if (f && f->GetLastStatus() == gp::Ok) return f;
+  }
   if (semibold && !g.semibold_family.empty()) {
     f = std::make_unique<gp::Font>(g.semibold_family.c_str(), F(px), gp::FontStyleRegular, gp::UnitPixel);
     if (f->GetLastStatus() == gp::Ok) return f;
   }
   return std::make_unique<gp::Font>(g.family.get(), F(px), semibold ? gp::FontStyleBold : gp::FontStyleRegular,
                                     gp::UnitPixel);
+}
+
+// Carga las Montserrat de desklink.rc. Sin ellas, MakeFont sigue con Segoe UI.
+void LoadBrandFonts() {
+  g.brand_fonts = std::make_unique<gp::PrivateFontCollection>();
+  for (const wchar_t* name : {L"FONT_BLACK", L"FONT_BOLD"}) {
+    HRSRC res = FindResourceW(g.inst, name, RT_RCDATA);
+    HGLOBAL data = res ? LoadResource(g.inst, res) : nullptr;
+    const void* bytes = data ? LockResource(data) : nullptr;
+    if (bytes) g.brand_fonts->AddMemoryFont(bytes, static_cast<INT>(SizeofResource(g.inst, res)));
+  }
+  const INT count = g.brand_fonts->GetFamilyCount();
+  if (count <= 0) return;
+  std::vector<gp::FontFamily> families(count);
+  INT found = 0;
+  g.brand_fonts->GetFamilies(count, families.data(), &found);
+  for (INT i = 0; i < found; ++i) {
+    WCHAR name[LF_FACESIZE] = {};
+    families[i].GetFamilyName(name);
+    if (wcscmp(name, L"Montserrat Black") == 0) g.brand_black.reset(families[i].Clone());
+    if (wcscmp(name, L"Montserrat") == 0) g.brand_bold.reset(families[i].Clone());
+  }
+}
+
+// El icono (logo.h) con la esquina de arriba a la izquierda en (x, y) y este alto. Sin shadow, la sombra va del
+// color de delante.
+void DrawLogo(gp::Graphics& gr, float x, float y, float height, COLORREF back = tokens::kLogoBack,
+              COLORREF front = tokens::kLogoFront, COLORREF shadow = tokens::kLogoFrontShadow) {
+  const float s = height / logo::kHeight;
+  auto build = [&](gp::GraphicsPath* path, const logo::Cmd* cmds, size_t n) {
+    gp::PointF cur;
+    for (size_t i = 0; i < n; ++i) {
+      const logo::Cmd& c = cmds[i];
+      auto pt = [&](int k) { return gp::PointF(x + c.p[2 * k] * s, y + c.p[2 * k + 1] * s); };
+      switch (c.op) {
+        case logo::kMove: path->StartFigure(); cur = pt(0); break;
+        case logo::kLine: path->AddLine(cur, pt(0)); cur = pt(0); break;
+        case logo::kCubic: path->AddBezier(cur, pt(0), pt(1), pt(2)); cur = pt(2); break;
+        case logo::kClose: path->CloseFigure(); break;
+      }
+    }
+  };
+  gp::GraphicsPath back_path, front_path, shadow_path;  // relleno alterno: el segundo trazo de kFront es el hueco
+  build(&back_path, logo::kBack, std::size(logo::kBack));
+  build(&front_path, logo::kFront, std::size(logo::kFront));
+  build(&shadow_path, logo::kShadow, std::size(logo::kShadow));
+  gp::SolidBrush back_brush(C(back)), front_brush(C(front));
+  gr.FillPath(&back_brush, &back_path);
+  gr.FillPath(&front_brush, &front_path);
+  gp::LinearGradientBrush shadow_brush(gp::PointF(0, y + logo::kShadowTop * s - 1),
+                                       gp::PointF(0, y + logo::kShadowBottom * s + 1), C(shadow), C(front));
+  gr.FillPath(&shadow_brush, &shadow_path);
+}
+
+// Icono cuadrado con el logo centrado (bandeja y, si falta el recurso, ventana).
+HICON CreateLogoIcon(int size, COLORREF back, COLORREF front, COLORREF shadow) {
+  gp::Bitmap bmp(size, size, PixelFormat32bppARGB);
+  {
+    gp::Graphics gr(&bmp);
+    gr.Clear(gp::Color(0, 0, 0, 0));
+    gr.SetSmoothingMode(gp::SmoothingModeAntiAlias);
+    gr.SetPixelOffsetMode(gp::PixelOffsetModeHalf);
+    const float w = static_cast<float>(size), h = w * logo::kHeight / logo::kWidth;
+    DrawLogo(gr, 0, (size - h) / 2, h, back, front, shadow);
+  }
+  HICON icon = nullptr;
+  bmp.GetHICON(&icon);
+  return icon;
 }
 
 void RoundRect(gp::GraphicsPath* path, const gp::RectF& r, float radius) {
@@ -920,7 +1002,7 @@ void Card(gp::Graphics& gr, float x, float* y, float w, const std::function<floa
 float StatusContent(gp::Graphics& gr, const View& v, bool draw, float x, float top, float w) {
   const float ix = x + F(kPad), iw = w - F(2 * kPad);
   float y = top + F(kPad);
-  auto title = MakeFont(tokens::kTitlePx, true);
+  auto title = MakeFont(tokens::kTitlePx, true, tokens::kTitleBrand, tokens::kTitleWeight);
   auto body = MakeFont(tokens::kBodyPx, false);
   auto note = MakeFont(tokens::kNotePx, false);
 
@@ -1087,10 +1169,14 @@ void Paint(gp::Graphics& gr, float width) {
   const float x = F(kMargin), w = width - F(2 * kMargin);
   float y = F(20);
 
-  auto large = MakeFont(tokens::kLargeTitlePx, true);
+  auto large = MakeFont(tokens::kLargeTitlePx, true, tokens::kLargeTitleBrand, tokens::kLargeTitleWeight);
   auto note = MakeFont(tokens::kNotePx, false);
-  auto section = MakeFont(tokens::kSectionPx, true);
-  Text(gr, L"DeskLink", gp::RectF(x, y, w, F(36)), *large, P().text);
+  auto section = MakeFont(tokens::kSectionPx, true, tokens::kSectionBrand, tokens::kSectionWeight);
+  // El logo: los dos eslabones y «Desklink» en Montserrat Black, del color del acento.
+  const float logo_h = F(26);
+  DrawLogo(gr, x, y + (F(36) - logo_h) / 2, logo_h);
+  const float logo_w = logo_h * logo::kWidth / logo::kHeight + F(10);
+  Text(gr, L"Desklink", gp::RectF(x + logo_w, y, w - logo_w, F(36)), *large, P().accent);
   y += F(36);
   Text(gr, L"Tu dispositivo como segunda pantalla", gp::RectF(x, y, w, F(18)), *note, P().text_secondary);
   y += F(30);
@@ -1477,18 +1563,27 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd_line, int) {
   g.mono_font = CreateFontW(-MulDiv(9, g.dpi, 72), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, FIXED_PITCH, L"Consolas");
 
-  // Iconos de la bandeja: la tableta en el color del estado (los del tema oscuro se ven en las dos barras).
+  LoadBrandFonts();
+
+  // Iconos de la bandeja: los eslabones en el color del estado (los del tema oscuro se ven en las dos barras); el
+  // de atrás, algo más oscuro para que se distingan.
   const COLORREF tray_colors[4] = {tokens::kDark.text_secondary, tokens::kDark.warning, tokens::kDark.success,
                                    tokens::kDark.error};
   for (int i = 0; i < 4; ++i) {
-    g.tray_icons[i] = CreateTabletIcon(tray_colors[i], tray_colors[i], GetSystemMetrics(SM_CXSMICON));
+    const COLORREF c = tray_colors[i];
+    const COLORREF back = RGB(GetRValue(c) * 3 / 4, GetGValue(c) * 3 / 4, GetBValue(c) * 3 / 4);
+    g.tray_icons[i] = CreateLogoIcon(GetSystemMetrics(SM_CXSMICON), back, c, back);
   }
   g.app_icon = LoadIconW(inst, L"APP");
-  if (!g.app_icon) g.app_icon = CreateTabletIcon(tokens::kLight.accent, tokens::kLight.accent, GetSystemMetrics(SM_CXICON));
+  if (!g.app_icon) {
+    g.app_icon = CreateLogoIcon(GetSystemMetrics(SM_CXICON), tokens::kLogoBack, tokens::kLogoFront,
+                                tokens::kLogoFrontShadow);
+  }
   g.app_icon_small = static_cast<HICON>(LoadImageW(inst, L"APP", IMAGE_ICON, GetSystemMetrics(SM_CXSMICON),
                                                    GetSystemMetrics(SM_CYSMICON), 0));
   if (!g.app_icon_small) {
-    g.app_icon_small = CreateTabletIcon(tokens::kLight.accent, tokens::kLight.accent, GetSystemMetrics(SM_CXSMICON));
+    g.app_icon_small = CreateLogoIcon(GetSystemMetrics(SM_CXSMICON), tokens::kLogoBack, tokens::kLogoFront,
+                                      tokens::kLogoFrontShadow);
   }
 
   WNDCLASSEXW wc{};
@@ -1556,6 +1651,9 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd_line, int) {
     DispatchMessageW(&msg);
   }
   g.family.reset();
+  g.brand_black.reset();
+  g.brand_bold.reset();
+  g.brand_fonts.reset();
   gp::GdiplusShutdown(g.gdiplus_token);
   ReleaseMutex(mutex);
   return 0;

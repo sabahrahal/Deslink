@@ -16,6 +16,7 @@ Objetivo: menos de 35 ms de cristal a cristal por WiFi y menos de 25 ms por USB.
 
 | Carpeta | Contenido |
 | --- | --- |
+| `design/` | Colores, textos, logo y fuentes comunes al PC y la tablet ([diseño](docs/design.md)) |
 | `protocol/` | Especificación DLP y librería C++ compartida (paquetes, FEC, cifrado) |
 | `windows/driver/` | Indirect Display Driver (IddCx, UMDF) |
 | `windows/host/` | Servicio C++20: captura, encoders, transportes, entrada, diagnóstico |

@@ -1,30 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Monitor (azul) con una tablet (del color del texto) delante: la tablet como segunda pantalla. -->
+<!-- Generado por tools/design/gen_logo.py. No editar a mano. Primer plano del icono adaptativo, centrado en 108 dp. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Monitor -->
     <path
-        android:strokeColor="@color/dl_accent"
-        android:strokeWidth="4"
-        android:strokeLineJoin="round"
-        android:fillColor="#00000000"
-        android:pathData="M33,36 h36 a4,4 0 0 1 4,4 v22 a4,4 0 0 1 -4,4 h-36 a4,4 0 0 1 -4,-4 v-22 a4,4 0 0 1 4,-4 z" />
+        android:fillColor="#FF4D13C7"
+        android:pathData="M44.96,51.49 L44.96,45.71 C44.96,40.51 49.17,36.29 54.37,36.29 L72.24,36.29 C77.44,36.29 81.66,40.51 81.66,45.71 L81.66,53.84 C81.66,59.04 77.44,63.26 72.24,63.26 L64.7,63.26 L64.7,56.68 L71.87,56.68 C73.29,56.68 74.44,55.53 74.44,54.11 L74.44,45.81 C74.44,44.4 73.29,43.25 71.87,43.25 L55.02,43.25 C53.6,43.25 52.45,44.4 52.45,45.81 L52.45,51.49 Z" />
     <path
-        android:strokeColor="@color/dl_accent"
-        android:strokeWidth="4"
-        android:strokeLineCap="round"
-        android:pathData="M44,73 h14" />
-    <!-- Tablet -->
-    <path
-        android:fillColor="@color/dl_background"
-        android:strokeColor="@color/dl_accent_alt"
-        android:strokeWidth="4"
-        android:strokeLineJoin="round"
-        android:pathData="M62,50 h14 a3,3 0 0 1 3,3 v20 a3,3 0 0 1 -3,3 h-14 a3,3 0 0 1 -3,-3 v-20 a3,3 0 0 1 3,-3 z" />
-    <path
-        android:fillColor="@color/dl_accent_alt"
-        android:pathData="M67,70 h4 v2 h-4 z" />
+        android:fillColor="#FF7033FD"
+        android:fillType="evenOdd"
+        android:pathData="M26.34,56.3 C26.34,51.72 30.05,48.01 34.63,48.01 L53.57,48.01 C55.93,48.01 57.83,48.85 59.3,50.52 L69.46,62.03 C70.18,62.85 71.07,63.26 72.14,63.26 L65.45,63.26 C63.88,63.26 62.54,62.65 61.44,61.44 L59.19,58.98 L59.19,63.42 C59.19,68 55.48,71.71 50.9,71.71 L34.63,71.71 C30.05,71.71 26.34,68 26.34,63.42 Z M35.27,54.48 C34.27,54.48 33.46,55.3 33.46,56.3 L33.46,63.42 C33.46,64.42 34.27,65.24 35.27,65.24 L50.52,65.24 C51.53,65.24 52.34,64.42 52.34,63.42 L52.34,54.48 Z" />
+    <path android:pathData="M52.34,54.48 L54.86,54.48 L59.19,59.19 L59.19,63.79 L52.34,63.79 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="0"
+                android:startY="54.48"
+                android:endX="0"
+                android:endY="63.79"
+                android:startColor="#FF3F11A5"
+                android:endColor="#FF7033FD" />
+        </aapt:attr>
+    </path>
 </vector>
