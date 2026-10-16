@@ -47,6 +47,11 @@ def contrast(a: str, b: str) -> float:
     return (la + 0.05) / (lb + 0.05)
 
 
+def entries(section):
+    """Las entradas de una sección, sin las notas («_comment»)."""
+    return [(k, v) for k, v in section.items() if not k.startswith("_")]
+
+
 def kotlin(t) -> str:
     colors = t["colors"]
     lines = [
@@ -72,12 +77,20 @@ def kotlin(t) -> str:
             lines.append(f"    {camel(name)} = Color(0xFF{c[mode].lstrip('#').upper()}),")
         lines.append(")")
         lines.append("")
-    lines.append("/** Tamaños y pesos de texto. */")
+    lines.append("/** Tamaños, pesos y fuente del texto (Brand = Montserrat, la del logo; si no, la del sistema). */")
     lines.append("object DlType {")
-    for name, s in t["type"].items():
+    for name, s in entries(t["type"]):
         lines.append(f"    /** {s['use']}. */")
         lines.append(f"    val {pascal(name)}Size = {s['size']}.sp")
         lines.append(f"    val {pascal(name)}Weight = FontWeight({s['weight']})")
+        lines.append(f"    const val {pascal(name)}Brand = {'true' if s['family'] == 'brand' else 'false'}")
+    lines.append("}")
+    lines.append("")
+    lines.append("/** Colores fijos del icono (los mismos en claro y oscuro). */")
+    lines.append("object DlLogo {")
+    for name, c in entries(t["logo"]):
+        lines.append(f"    /** {c['use']}. */")
+        lines.append(f"    val {pascal(name)} = Color(0xFF{c['color'].lstrip('#').upper()})")
     lines.append("}")
     lines.append("")
     shape = t["shape"]
@@ -112,10 +125,17 @@ def cpp(t) -> str:
             lines.append(f"    RGB(0x{r:02X}, 0x{g:02X}, 0x{b:02X}),  // {name}")
         lines.append("};")
         lines.append("")
-    lines.append("// Texto (px a 96 ppp) y peso.")
-    for name, s in t["type"].items():
+    lines.append("// Texto (px a 96 ppp), peso y fuente (Brand = Montserrat, la del logo; si no, Segoe UI).")
+    for name, s in entries(t["type"]):
         lines.append(f"constexpr float k{pascal(name)}Px = {s['size']};")
         lines.append(f"constexpr int k{pascal(name)}Weight = {s['weight']};")
+        lines.append(f"constexpr bool k{pascal(name)}Brand = {'true' if s['family'] == 'brand' else 'false'};")
+    lines.append("")
+    lines.append("// Colores fijos del icono (los mismos en claro y oscuro).")
+    for name, c in entries(t["logo"]):
+        r, g, b = rgb(c["color"])
+        lines.append(f"constexpr COLORREF kLogo{pascal(name)} = RGB(0x{r:02X}, 0x{g:02X}, 0x{b:02X});  // {c['use']}")
+    lines.append("")
     shape = t["shape"]
     lines.append(f"constexpr float kCardRadius = {shape['card_radius']};")
     lines.append(f"constexpr float kControlRadius = {shape['control_radius']};")
