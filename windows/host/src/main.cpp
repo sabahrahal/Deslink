@@ -1240,14 +1240,15 @@ int Run(int argc, char** argv) {
           }
           if (view_only) touch.ReleaseAll();
         }
-        // El monitor solo se quita y se vuelve a poner si cambia su tamaño (otra tablet) o sus Hz (más de 60 fps).
+        // El monitor solo se quita y se vuelve a poner si cambia su tamaño (otra tablet). Los Hz (más de 60 fps) se
+        // cambian como la resolución, con el mismo monitor: al quitarlo Windows olvidaba su resolución y su escala.
         UINT mw_before = 0, mh_before = 0, mw_after = 0, mh_after = 0;
         MonitorSize(before, &mw_before, &mh_before);
         MonitorSize(opt, &mw_after, &mh_after);
-        const bool replug = opt.virtual_display && (mw_after != mw_before || mh_after != mh_before ||
-                                                    MonitorHz(opt.fps) != MonitorHz(before.fps));
+        const bool replug = opt.virtual_display && (mw_after != mw_before || mh_after != mh_before);
         const bool resize = opt.virtual_display && !replug &&
-                            (opt.virtual_width != before.virtual_width || opt.virtual_height != before.virtual_height);
+                            (opt.virtual_width != before.virtual_width || opt.virtual_height != before.virtual_height ||
+                             MonitorHz(opt.fps) != MonitorHz(before.fps));
         const bool rebuild_needed = replug || resize || opt.fps != before.fps || opt.codec != before.codec ||
                                     eff_after.scale_percent != pipe->scale_percent;
         if (eff_after.bitrate_mbps_x10 != eff_before.bitrate_mbps_x10) rate_reset = true;
