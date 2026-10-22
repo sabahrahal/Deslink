@@ -161,7 +161,7 @@ class StreamSession(
                 lastRxUs = nowUs()
                 if (streamInfo != null && phase != Phase.STREAMING) setPhase(Phase.STREAMING)
                 when (header.type) {
-                    Dlp.TYPE_VIDEO -> onVideo(buf, length)
+                    Dlp.TYPE_VIDEO, Dlp.TYPE_VIDEO_FEC -> onVideo(buf, length)
                     Dlp.TYPE_STREAM_INFO -> onStreamInfo(buf, header)
                     Dlp.TYPE_PONG -> {
                         val now = nowUs()
@@ -402,6 +402,7 @@ class StreamSession(
                     (if (lat.frames > 0) " · ${lat.text()}" else if (decodeMs >= 0) " · decodificar ${"%.1f".format(decodeMs)} ms" else "") +
                     " · perdidos ${reassembler.framesDropped + decoderDrops}" +
                     " · reclamados ${reassembler.packetsRequested}" +
+                    (if (reassembler.packetsRecovered > 0) " · rehechos ${reassembler.packetsRecovered}" else "") +
                     when (inputMode?.active) {
                         Dlp.INPUT_TOUCH -> " · táctil directo"
                         Dlp.INPUT_MOUSE -> " · táctil como ratón"

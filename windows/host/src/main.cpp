@@ -251,6 +251,7 @@ struct Options {
   int input_mode = -1;   // --touch (0) / --mouse (1) / --view-only (2); si no, el guardado (táctil por defecto)
   bool touch = true;     // --no-touch desactiva el control táctil
   UINT pace_mbps = 100;  // reparte cada frame a esta tasa; 0 = de golpe (el anclaje USB pierde ráfagas)
+  UINT fec_group = 10;   // --fec: por WiFi, una paridad cada tantos paquetes (10 % más de datos); 0 = sin FEC
   bool virtual_display = false;  // --virtual: crea un monitor virtual (driver desklink-idd) y captura ese
   UINT virtual_width = 2944;     // --size: resolución del monitor virtual (por defecto, la Lenovo Idea Tab Pro)
   UINT virtual_height = 1840;
@@ -418,6 +419,9 @@ bool ParseArgs(int argc, char** argv, Options* o) {
       o->battery_adapt = true;
     } else if (a == "--view-only") {
       o->input_mode = 2;
+    } else if (a == "--fec") {
+      auto v = next("--fec"); if (!v) return false;
+      o->fec_group = static_cast<UINT>(std::atoi(v));
     } else if (a == "--pace") {
       auto v = next("--pace"); if (!v) return false;
       o->pace_mbps = static_cast<UINT>(std::atoi(v));
@@ -477,13 +481,13 @@ bool ParseArgs(int argc, char** argv, Options* o) {
       std::fprintf(stderr,
                    "Uso: desklink-host [--port 47800] [--output 0] [--fps auto|60] [--bitrate auto|50] "
                    "[--codec auto|hevc|h264] [--profile alta|equilibrada|ahorro] [--audio-tablet] [--battery-adapt] "
-                   "[--pace Mbps] [--refine 4] [--no-touch] [--touch|--mouse|--view-only] [--no-cursor] [--no-audio] "
+                   "[--pace Mbps] [--fec 10] [--refine 4] [--no-touch] [--touch|--mouse|--view-only] [--no-cursor] [--no-audio] "
                    "[--audio-bitrate 128] [--virtual [--size 2944x1840]] [--no-usb] [--no-open-tablet] [--adb ruta\\adb.exe] [--status] "
                    "[--stop-event nombre]\n");
       return false;
     }
   }
-  return o->refine <= 30 && o->audio_kbps >= 32 && o->audio_kbps <= 256;
+  return o->refine <= 30 && o->audio_kbps >= 32 && o->audio_kbps <= 256 && o->fec_group <= 64;
 }
 
 // Una línea «@ajustes clave=valor ...» de la app de bandeja (entrada estándar): lo que el usuario cambió en la
@@ -664,6 +668,9 @@ int Run(int argc, char** argv) {
     if (udp.peer_is_usb()) {
       udp.SendBatchToPeer(packets);  // por cable no hay pérdidas: TCP ya regula el ritmo, sin --pace
     } else {
+      // Por WiFi (o anclaje) una paridad por grupo: la tablet rehace un paquete perdido sin pedirlo. Los reenvíos
+      // siguen para cuando se pierden dos del mismo grupo (o la paridad); el historial guarda solo los de vídeo.
+      dlp::AddFec(&packets, static_cast<uint8_t>(opt.fec_group));
       SendPaced(packets, opt.pace_mbps, [&](const std::vector<uint8_t>& p) { udp.SendToPeer(p); });
     }
     bytes_sent += f.data.size();

@@ -35,6 +35,7 @@ enum class PacketType : uint8_t {
   kQualityRequest = 16,  // cliente -> host: con «bajar si la batería no aguanta», lo que pide la batería de la tablet
   kSessionConfig = 17,   // host -> cliente: lo que eligió el PC (ver dlp/session.h); tras STREAM_INFO, al cambiar y cada 2 s
   kClientInfo = 18,      // cliente -> host: texto UTF-8 para el log del PC (modelo y decodificador de la tablet)
+  kVideoFec = 19,        // host -> cliente: paridad de un grupo de paquetes VIDEO (ver AddFec)
 };
 
 enum Flags : uint8_t {
@@ -52,7 +53,12 @@ struct Header {
   uint16_t packet_count = 1;
   uint64_t timestamp_us = 0;  // reloj del emisor, en microsegundos
   uint16_t payload_size = 0;
+  // Byte 5 (antes reservado, 0): en VIDEO y VIDEO_FEC, cuántos paquetes cubre cada paridad (0 = el frame va sin FEC).
+  uint8_t fec_group = 0;
 };
+
+// Una paridad lleva delante la XOR de las longitudes (u16): puede pasar 2 bytes de kMaxPayload.
+constexpr size_t kMaxFecPayload = kMaxPayload + 2;
 
 // Bits de StreamInfo::host_flags.
 enum HostFlags : uint8_t {
@@ -156,6 +162,13 @@ std::optional<Header> ParseHeader(const uint8_t* data, size_t size);
 std::vector<std::vector<uint8_t>> PacketizeFrame(const uint8_t* data, size_t size,
                                                  uint32_t frame_id, bool keyframe,
                                                  uint64_t timestamp_us);
+
+// Corrección de errores para WiFi: tras cada grupo de [group] paquetes de un frame (ya troceado con PacketizeFrame) se
+// inserta un VIDEO_FEC con su paridad: la XOR de sus payloads (rellenos con ceros) y de sus longitudes. Con ella la
+// tablet rehace un paquete perdido del grupo sin pedirlo y esperar una ida y vuelta. VIDEO_FEC: packet_index = número
+// de grupo, packet_count = paquetes del frame, fec_group = group; payload = u16 XOR de longitudes + XOR de datos.
+// Marca también los VIDEO con fec_group. group < 2 los deja como estaban.
+void AddFec(std::vector<std::vector<uint8_t>>* packets, uint8_t group);
 
 std::vector<uint8_t> MakeControlPacket(PacketType type, const uint8_t* payload,
                                        size_t payload_size, uint64_t timestamp_us);
