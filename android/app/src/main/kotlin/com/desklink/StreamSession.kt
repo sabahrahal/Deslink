@@ -55,6 +55,8 @@ class StreamSession(
         private set
     /** Perfil que pide la tablet para no gastar batería; null = no pide nada (lo que decida el PC). */
     @Volatile private var batteryProfile: PowerProfile? = null
+    /** Decodificador a velocidad máxima (lo decide el perfil de batería de la tablet, ver [setFastDecode]). */
+    @Volatile private var fastDecode = true
     @Volatile var sessionConfig: Dlp.SessionConfig? = null
         private set
 
@@ -210,6 +212,13 @@ class StreamSession(
         }
     }
 
+    /** Decodificador a velocidad máxima o a la justa para los fps (perfiles de ahorro). */
+    fun setFastDecode(fast: Boolean) {
+        if (fast == fastDecode) return
+        fastDecode = fast
+        decoder?.setPace(fast, streamInfo?.fps ?: 0)
+    }
+
     private fun onSessionConfig(config: Dlp.SessionConfig) {
         val previous = sessionConfig
         sessionConfig = config
@@ -228,6 +237,7 @@ class StreamSession(
         ) {
             // Solo cambian los fps (perfil de batería): el decodificador sigue, sin esperar a otro frame clave.
             if (current.fps != info.fps) {
+                decoder?.setPace(fastDecode, info.fps)
                 streamInfo = info
                 listener.onStreamInfo(info)
             }
@@ -235,7 +245,7 @@ class StreamSession(
         }
         try {
             decoder?.release()
-            decoder = VideoDecoder(surface, info, latency) { listener.onError(it) }
+            decoder = VideoDecoder(surface, info, latency, fastDecode) { listener.onError(it) }
             streamInfo = info
             listener.onStreamInfo(info)
             setPhase(Phase.STREAMING)

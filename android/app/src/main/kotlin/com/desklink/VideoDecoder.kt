@@ -18,6 +18,8 @@ class VideoDecoder(
     info: Dlp.StreamInfo,
     /** Dónde se apunta el retardo de cada frame mostrado (null = no se mide). */
     private val latency: LatencyStats? = null,
+    /** Velocidad máxima del decodificador (ver [setPace]); false = la justa para los fps (perfiles de ahorro). */
+    fast: Boolean = true,
     private val onError: (String) -> Unit,
 ) {
     private val codec: MediaCodec
@@ -75,7 +77,8 @@ class VideoDecoder(
         // Ritmo «lo más rápido posible» en vez de los fps del flujo (el truco de Moonlight): con los fps el decodificador
         // va a la velocidad justa para no atrasarse y cada frame tarda casi un refresco en salir. En una Lenovo con
         // MediaTek y Android 16 bajó de ~20 a ~12 ms por frame, a costa de algo más de batería.
-        format.setInteger(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE.toInt())
+        // Los perfiles de ahorro vuelven al ritmo justo.
+        format.setInteger(MediaFormat.KEY_OPERATING_RATE, operatingRate(fast, info.fps))
         if (Build.VERSION.SDK_INT >= 30) format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
         // Antes de Android 11 (y en algunos que ignoran KEY_LOW_LATENCY) el modo de baja latencia va con
         // claves propias del fabricante; un decodificador de otra marca no las ve.
@@ -258,6 +261,16 @@ class VideoDecoder(
         vendorInfo = ", activado: ${enabled.joinToString { short(it) }.ifEmpty { "nada" }}" +
             ", ajustes del fabricante (${names.size}, ${prefix}…): ${names.sorted().joinToString { short(it) }}"
     }
+
+    /** Cambia la velocidad del decodificador (perfil de batería o fps nuevos) sin rehacerlo; si no lo admite, se ignora. */
+    fun setPace(fast: Boolean, fps: Int) {
+        try {
+            codec.setParameters(android.os.Bundle().apply { putInt(MediaFormat.KEY_OPERATING_RATE, operatingRate(fast, fps)) })
+        } catch (_: IllegalStateException) {
+        }
+    }
+
+    private fun operatingRate(fast: Boolean, fps: Int) = if (fast) Short.MAX_VALUE.toInt() else if (fps > 0) fps else 60
 
     private fun describe(codec: MediaCodec, mime: String, format: MediaFormat): String {
         val info = codec.codecInfo

@@ -25,11 +25,13 @@ enum class PowerProfile(
     val sustainedPerformance: Boolean,
     /** Fija el modo de pantalla con la menor frecuencia que acomoda los fps del stream. */
     val lowRefreshMode: Boolean,
+    /** Decodificador a su velocidad máxima (menos retardo, más consumo); si no, a la justa para los fps. */
+    val fastDecode: Boolean,
 ) {
-    MAXIMA("maxima", "Máxima calidad", 0, 0, 0, 100, null, true, true, false),
-    EQUILIBRADO("equilibrado", "Equilibrado", 1, 60, 30, 100, null, true, false, true),
-    AHORRO("ahorro", "Ahorro", 2, 30, 12, 75, 0.5f, false, false, true),
-    MINIMO("minimo", "Mínimo", 3, 30, 8, 60, 0.35f, false, false, true);
+    MAXIMA("maxima", "Máxima calidad", 0, 0, 0, 100, null, true, true, false, true),
+    EQUILIBRADO("equilibrado", "Equilibrado", 1, 60, 30, 100, null, true, false, true, true),
+    AHORRO("ahorro", "Ahorro", 2, 30, 12, 75, 0.5f, false, false, true, false),
+    MINIMO("minimo", "Mínimo", 3, 30, 8, 60, 0.35f, false, false, true, false);
 
     val selectable: Boolean get() = this != MINIMO
 
