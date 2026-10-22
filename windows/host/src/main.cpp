@@ -570,6 +570,11 @@ int Run(int argc, char** argv) {
   std::atomic<int> tablet_decoded{-1};  // frames que mostró la tablet el último segundo (-1: tablet antigua)
   std::string last_client_info;  // lo último que dijo CLIENT_INFO (solo lo toca el hilo que recibe)
   std::atomic<int> tablet_decode_x10{-1};  // décimas de ms que tarda la tablet en decodificar cada frame (-1: no lo dice)
+  // Retardo por etapas que mide la tablet (RATE_REPORT de tablets nuevas), en décimas de ms; 0 = no lo sabe. Ver
+  // LatencyStats en la app: total = de entrar al codificador a verse en pantalla; llegar = hasta tener el frame
+  // entero en la tablet; reenvíos = esperando paquetes reclamados; pantalla = de decodificado a encendido.
+  std::atomic<uint32_t> tablet_total_x10{0}, tablet_arrive_x10{0}, tablet_hold_x10{0}, tablet_screen_x10{0},
+      tablet_worst_x10{0};
   std::atomic<bool> peer_tether{false};  // la tablet llega por su anclaje USB (red sobre el cable)
   std::atomic<uint64_t> rtt_us{0};
   PacketHistory history;
@@ -925,6 +930,14 @@ int Run(int argc, char** argv) {
           tablet_decode_x10 = header->payload_size >= dlp::kRateReportSize + 4 && (q[6] | q[7])
                                   ? (q[6] | (q[7] << 8))
                                   : -1;
+          // Tablets nuevas: el retardo por etapas (con la hora del PC que va en el PONG).
+          if (header->payload_size >= dlp::kRateReportLatencySize) {
+            tablet_total_x10 = q[8] | (q[9] << 8);
+            tablet_arrive_x10 = q[10] | (q[11] << 8);
+            tablet_hold_x10 = q[12] | (q[13] << 8);
+            tablet_screen_x10 = q[14] | (q[15] << 8);
+            tablet_worst_x10 = q[16] | (q[17] << 8);
+          }
           if (rate.OnReport(tablet_received, lost, NowUs())) {
             publish_rate(lost ? "la tablet pierde frames" : "enlace limpio");
           }
@@ -1056,10 +1069,16 @@ int Run(int argc, char** argv) {
           SendPaced(burst, pace, [&](const std::vector<uint8_t>& p) { udp.SendTo(from, p); });
           break;
         }
-        case dlp::PacketType::kPing:
-          udp.SendTo(from, dlp::MakeControlPacket(dlp::PacketType::kPong, nullptr, 0,
+        case dlp::PacketType::kPing: {
+          // La hora del PC en el payload: la tablet calcula con ella la diferencia de relojes y, así, cuánto tarda
+          // cada frame de punta a punta. Una tablet antigua solo lee la cabecera.
+          uint8_t payload[8];
+          const uint64_t now = NowUs();
+          for (int i = 0; i < 8; ++i) payload[i] = static_cast<uint8_t>(now >> (8 * i));
+          udp.SendTo(from, dlp::MakeControlPacket(dlp::PacketType::kPong, payload, sizeof(payload),
                                                   header->timestamp_us));
           break;
+        }
         case dlp::PacketType::kPong: {
           // Respuesta a un PING del host (con --status): lleva de vuelta nuestro propio timestamp.
           const uint64_t now = NowUs();
@@ -1118,6 +1137,8 @@ int Run(int argc, char** argv) {
     uint64_t last_rect_check_us = 0;
     ID3D11Texture2D* last_nv12 = nullptr;
     bool dirty = false;      // la imagen guardada (o el cursor) cambió y aún no se convirtió ni envió
+    uint64_t dirty_since_us = 0;  // cuándo llegó el primer cambio aún sin enviar (lo que espera por el límite de fps)
+    uint64_t capture_wait_us = 0, capture_wait_n = 0, latency_capture_wait = 0, latency_capture_n = 0;
     int flush_left = 0;      // repeticiones pendientes para vaciar el codificador
     UINT refine_left = 0;    // repeticiones lentas pendientes para afinar la calidad de la imagen quieta
     uint64_t captured = 0, composed = 0, last_composed = 0, last_stats_us = NowUs();
@@ -1353,6 +1374,7 @@ int Run(int argc, char** argv) {
         rtt_us = 0;
         tablet_received = tablet_lost = 0;
         tablet_decoded = -1;
+        tablet_total_x10 = 0;
         std::printf("Cliente desconectado (sin respuesta durante 5 s). Esperando cliente.\n");
       }
 
@@ -1363,12 +1385,16 @@ int Run(int argc, char** argv) {
       if (result == DesktopCapture::Result::kFrame) {
         pipe->converter.Store(frame);
         pipe->capture.Release();
+        if (!dirty) dirty_since_us = NowUs();
         dirty = true;
         ++captured;
       } else {
         pipe->capture.Release();
         // Solo se movió el cursor: se redibujará sobre la última imagen.
-        if (result == DesktopCapture::Result::kCursorMoved && opt.cursor && pipe->converter.has_image()) dirty = true;
+        if (result == DesktopCapture::Result::kCursorMoved && opt.cursor && pipe->converter.has_image()) {
+          if (!dirty) dirty_since_us = NowUs();
+          dirty = true;
+        }
       }
 
       // Se envía la última imagen si es nueva y toca por fps. Tras la última imagen nueva se repite
@@ -1394,6 +1420,8 @@ int Run(int argc, char** argv) {
         pipe->encoder->Submit(last_nv12, now);
         last_submit_us = now;
         if (dirty) {
+          if (now > dirty_since_us) capture_wait_us += now - dirty_since_us;
+          ++capture_wait_n;
           dirty = false;
           flush_left = 2;
           refine_left = opt.refine;
@@ -1437,13 +1465,30 @@ int Run(int argc, char** argv) {
           const uint64_t encoded = pipe->encoder->encode_count - latency_encoded;
           const uint64_t sent = sender.sent_frames - latency_sent;
           if (fed >= 25 && encoded && sent) {
-            std::printf("Latencia: en cola %.1f ms · codificador %.1f ms · envío %.1f ms · ida y vuelta %.1f ms",
-                        (pipe->encoder->mailbox_wait_us - latency_mailbox) / 1000.0 / fed,
-                        (pipe->encoder->encode_us - latency_encode_us) / 1000.0 / encoded,
-                        (sender.busy_us - latency_busy) / 1000.0 / sent, rtt_us.load() / 1000.0);
+            const uint64_t waits = capture_wait_n - latency_capture_n;
+            const double capture_ms = waits ? (capture_wait_us - latency_capture_wait) / 1000.0 / waits : 0.0;
+            const double mailbox_ms = (pipe->encoder->mailbox_wait_us - latency_mailbox) / 1000.0 / fed;
+            const double encode_ms = (pipe->encoder->encode_us - latency_encode_us) / 1000.0 / encoded;
+            const double send_ms = (sender.busy_us - latency_busy) / 1000.0 / sent;
+            std::printf("Latencia: espera de captura %.1f ms · en cola %.1f ms · codificador %.1f ms · envío %.1f ms · "
+                        "ida y vuelta %.1f ms",
+                        capture_ms, mailbox_ms, encode_ms, send_ms, rtt_us.load() / 1000.0);
             if (tablet_decode_x10 >= 0) std::printf(" · decodificar en la tablet %.1f ms", tablet_decode_x10 / 10.0);
             std::printf(" (%llu frames en 5 s).\n", static_cast<unsigned long long>(sent));
+            // La tablet mide desde que el frame entra al codificador (con la hora del PC del PONG) hasta que se enciende
+            // en su pantalla. La red es lo que queda de «llegar» al quitar lo que el PC tarda en cola, codificar y enviar.
+            if (const uint32_t total = tablet_total_x10.load()) {
+              const double arrive_ms = tablet_arrive_x10 / 10.0;
+              const double net_ms = std::max(0.0, arrive_ms - mailbox_ms - encode_ms - send_ms);
+              std::printf("Retardo de punta a punta: %.1f ms (peor %.1f ms) = espera de captura %.1f + llegar a la tablet "
+                          "%.1f (de ello, red ~%.1f) + esperar reenvíos %.1f + decodificar %.1f + pantalla %.1f.\n",
+                          capture_ms + total / 10.0, capture_ms + tablet_worst_x10 / 10.0, capture_ms, arrive_ms,
+                          net_ms, tablet_hold_x10 / 10.0, tablet_decode_x10 >= 0 ? tablet_decode_x10 / 10.0 : 0.0,
+                          tablet_screen_x10 / 10.0);
+            }
           }
+          latency_capture_wait = capture_wait_us;
+          latency_capture_n = capture_wait_n;
           // Con el sonido en la tablet, cuánto se le manda y cuánto suena de verdad en el PC.
           if (audio.running()) {
             std::printf("Sonido: enviados %llu trozos de 10 ms en 5 s, %llu con algo audible.\n",

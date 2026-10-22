@@ -16,6 +16,8 @@ import android.view.Surface
 class VideoDecoder(
     surface: Surface,
     info: Dlp.StreamInfo,
+    /** Dónde se apunta el retardo de cada frame mostrado (null = no se mide). */
+    private val latency: LatencyStats? = null,
     private val onError: (String) -> Unit,
 ) {
     private val codec: MediaCodec
@@ -32,8 +34,19 @@ class VideoDecoder(
     var decodedFrames = 0L
         private set
 
-    /** Cuándo llegó entero cada frame que está dentro del decodificador (por su marca de tiempo), para medir cuánto tarda. */
-    private val arrivals = LinkedHashMap<Long, Long>()
+    /** Tiempos de un frame (reloj de la tablet, µs) mientras pasa por el decodificador y hasta verse. */
+    private class Timing(val completeUs: Long, val queuedNanos: Long) {
+        var decodedNanos = 0L
+    }
+
+    /** Cada frame que está dentro del decodificador, por su marca de tiempo, para medir cuánto tarda. */
+    private val arrivals = LinkedHashMap<Long, Timing>()
+
+    /** Frames ya decodificados que esperan el aviso de que se encendieron en pantalla. */
+    private val awaitingShow = LinkedHashMap<Long, Timing>()
+
+    /** Android avisó al menos una vez de un frame en pantalla (algunos dispositivos no lo hacen nunca). */
+    @Volatile private var showCallbacks = false
 
     /** Suma de lo que tardaron los frames ya mostrados (llegada → salida del decodificador) y cuántos son. */
     @Volatile
@@ -97,8 +110,10 @@ class VideoDecoder(
                     c.releaseOutputBuffer(index, now)
                     decodedFrames++
                     synchronized(arrivals) { arrivals.remove(bufferInfo.presentationTimeUs) }?.let {
-                        decodeNanos += now - it
+                        decodeNanos += now - it.queuedNanos
                         decodeCount++
+                        it.decodedNanos = now
+                        onDecoded(bufferInfo.presentationTimeUs, it)
                     }
                 } catch (_: IllegalStateException) {
                     // El códec se cerró mientras se entregaba la salida.
@@ -110,6 +125,15 @@ class VideoDecoder(
             override fun onError(c: MediaCodec, e: MediaCodec.CodecException) {
                 onError("Error del decodificador: ${e.diagnosticInfo}")
             }
+        }, Handler(callbackThread.looper))
+        // Cuándo se encendió de verdad cada frame en la pantalla (el refresco en que se mostró). Los frames que Android
+        // descarta porque en ese refresco ya había otro más nuevo no avisan.
+        codec.setOnFrameRenderedListener({ _, presentationTimeUs, nanoTime ->
+            val first = !showCallbacks
+            showCallbacks = true
+            val t = synchronized(awaitingShow) { awaitingShow.remove(presentationTimeUs) }
+            // El primer aviso: ese frame ya se apuntó sin pantalla (aún no se sabía si este dispositivo avisa).
+            if (t != null && !first) record(presentationTimeUs, t, nanoTime)
         }, Handler(callbackThread.looper))
         description = describe(codec, mime, format)
         codec.configure(format, surface, null, 0)
@@ -157,7 +181,7 @@ class VideoDecoder(
                 synchronized(arrivals) {
                     // Si el decodificador se traga algún frame sin sacarlo, no se acumula para siempre.
                     if (arrivals.size >= 32) arrivals.remove(arrivals.keys.first())
-                    arrivals[frame.timestampUs] = arrived
+                    arrivals[frame.timestampUs] = Timing(frame.completeUs, arrived)
                 }
                 codec.queueInputBuffer(index, 0, frame.size, frame.timestampUs, 0)
                 true
@@ -165,6 +189,20 @@ class VideoDecoder(
         } catch (_: IllegalStateException) {
             false
         }
+    }
+
+    private fun onDecoded(ptsUs: Long, t: Timing) {
+        if (latency == null) return
+        // Hasta que Android avise de un frame en pantalla se apunta al salir del decodificador, sin la etapa de pantalla.
+        if (!showCallbacks) record(ptsUs, t, null)
+        synchronized(awaitingShow) {
+            if (awaitingShow.size >= 32) awaitingShow.remove(awaitingShow.keys.first())
+            awaitingShow[ptsUs] = t
+        }
+    }
+
+    private fun record(ptsUs: Long, t: Timing, shownNanos: Long?) {
+        latency?.record(ptsUs, t.completeUs, t.queuedNanos / 1000, t.decodedNanos / 1000, shownNanos?.div(1000))
     }
 
     fun release() {

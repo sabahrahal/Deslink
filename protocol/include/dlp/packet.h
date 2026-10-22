@@ -96,6 +96,9 @@ constexpr size_t kMaxHostName = 64;
 constexpr size_t kHelloConfigSize = 14;
 constexpr size_t kBurstRequestSize = 6;
 constexpr size_t kRateReportSize = 4;
+// RATE_REPORT con el retardo por etapas que mide la tablet: los 8 bytes de siempre más 5 u16 en décimas de ms (total,
+// llegar, esperar reenvíos, pantalla y el peor total). Ver docs/protocol-dlp.md.
+constexpr size_t kRateReportLatencySize = 18;
 constexpr size_t kTouchContactSize = 7;
 constexpr size_t kMaxTouchContacts = 10;
 constexpr size_t kInputModeRequestSize = 1;  // cliente -> host
