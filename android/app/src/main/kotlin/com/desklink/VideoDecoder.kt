@@ -89,8 +89,13 @@ class VideoDecoder(
                 format.setInteger("vendor.low-latency.enable", 1)
             // MediaTek no usa una clave «vendor.»: su decodificador lee esta (la misma que usa Moonlight). En una
             // Lenovo con MediaTek, sin ella cada frame tardaba ~17 ms fijos en salir, fuera cual fuera su tamaño.
-            name.startsWith("c2.mtk") || name.startsWith("omx.mtk") ->
+            name.startsWith("c2.mtk") || name.startsWith("omx.mtk") -> {
                 format.setInteger("vdec-lowlatency", 1)
+                // Con Android 16 eso ya no basta (~19 ms fijos). Se apaga además el posproceso de imagen de MediaTek
+                // (interpolar movimiento, mejorar calidad, reescalar): no aporta nada a un escritorio y retiene frames.
+                MTK_OFF.forEach { format.setInteger(it, 1) }
+                if (MTK_VILTE) format.setInteger(MTK_VILTE_KEY, 1)
+            }
         }
         // El host convierte a BT.709 de rango limitado y lo declara en el flujo; se repite aquí por si el
         // decodificador no lee la VUI (si no, algunos suponen BT.601 y el color sale desviado).
@@ -242,7 +247,8 @@ class VideoDecoder(
             return
         }
         val enabled = mutableListOf<String>()
-        for (name in names.filter { LOW_LATENCY_NAME.containsMatchIn(it) }) {
+        val wanted = names.filter { LOW_LATENCY_NAME.containsMatchIn(it) || it in MTK_OFF || (MTK_VILTE && it == MTK_VILTE_KEY) }
+        for (name in wanted) {
             try {
                 if (codec.getParameterDescriptor(name)?.type != MediaFormat.TYPE_INTEGER) continue
                 codec.subscribeToVendorParameters(listOf(name))
@@ -252,8 +258,11 @@ class VideoDecoder(
                 // Ajuste de solo lectura o que el códec rechaza: se sigue con los demás.
             }
         }
-        vendorInfo = ", baja latencia activada: ${enabled.joinToString().ifEmpty { "ninguna" }}" +
-            ", ajustes del fabricante (${names.size}): ${names.sorted().joinToString()}"
+        // Sin el prefijo común (p. ej. «vendor.mtk.ext.vdec.»), para que la lista entera quepa en el log del PC.
+        val prefix = names.reduceOrNull { a, b -> a.commonPrefixWith(b) }?.substringBeforeLast('.', "")?.let { if (it.isEmpty()) "" else "$it." } ?: ""
+        fun short(n: String) = n.removePrefix(prefix)
+        vendorInfo = ", activado: ${enabled.joinToString { short(it) }.ifEmpty { "nada" }}" +
+            ", ajustes del fabricante (${names.size}, ${prefix}…): ${names.sorted().joinToString { short(it) }}"
     }
 
     private fun describe(codec: MediaCodec, mime: String, format: MediaFormat): String {
@@ -285,6 +294,20 @@ class VideoDecoder(
 
         /** Menos que esto entre salir del decodificador y «encenderse» no es un refresco real (ver arriba). */
         const val MIN_REAL_SHOW_NANOS = 100_000L
+
+        /** Posproceso de imagen de MediaTek que se apaga (1 = apagado). */
+        val MTK_OFF = listOf(
+            "vendor.mtk.ext.vdec.vpp.disabled.value",
+            "vendor.mtk.ext.vdec.vpp.motion.intpl.disabled.value",
+            "vendor.mtk.ext.vdec.vpp.quality.tuner.disabled.value",
+            "vendor.mtk.ext.vdec.vpp.independent.disabled.motion-intpl",
+            "vendor.mtk.ext.vdec.vpp.independent.disabled.quality-tuner",
+            "vendor.mtk.ext.vdec.vpp.independent.disabled.resolution-scaler",
+        )
+
+        /** Modo videollamada de MediaTek (ViLTE): en prueba, por si saca los frames antes. */
+        const val MTK_VILTE_KEY = "vendor.mtk.ext.vdec.vilte.feature-on"
+        const val MTK_VILTE = false
 
         /** Nombre de un ajuste del fabricante que parece de baja latencia (low-latency, lowlatency, low_latency...). */
         val LOW_LATENCY_NAME = Regex("low[-_.]?latency", RegexOption.IGNORE_CASE)
