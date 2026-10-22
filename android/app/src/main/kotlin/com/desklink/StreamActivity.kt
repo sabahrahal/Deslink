@@ -197,7 +197,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         window.setSustainedPerformanceMode(p.sustainedPerformance)
         val lp = window.attributes
         lp.screenBrightness = brightnessFor(p)
-        lp.preferredDisplayModeId = if (p.lowRefreshMode && streamFps > 0) lowRefreshModeId(streamFps) else 0
+        lp.preferredDisplayModeId = if (streamFps > 0) refreshModeId(streamFps, p.lowRefreshMode) else 0
         window.attributes = lp
         if (wifiModeChanged && wifiLock != null) {
             releaseWifiLock()
@@ -222,15 +222,19 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         }
     }
 
-    /** Modo de pantalla de la misma resolución con la menor frecuencia que acomoda [fps] (0 = sin preferencia). */
+    /**
+     * Modo de pantalla de la misma resolución con la menor ([low]) o la mayor frecuencia que acomoda [fps]
+     * (0 = sin preferencia).
+     */
     @Suppress("DEPRECATION")
-    private fun lowRefreshModeId(fps: Int): Int {
+    private fun refreshModeId(fps: Int, low: Boolean): Int {
         val display = (if (Build.VERSION.SDK_INT >= 30) display else windowManager.defaultDisplay) ?: return 0
         val current = display.mode
         val modes = display.supportedModes.filter {
             it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight
         }
-        val rate = PowerProfile.pickRefreshRate(modes.map { it.refreshRate }, fps) ?: return 0
+        val rates = modes.map { it.refreshRate }
+        val rate = (if (low) PowerProfile.pickRefreshRate(rates, fps) else PowerProfile.pickFastRefreshRate(rates, fps)) ?: return 0
         return modes.first { it.refreshRate == rate }.modeId
     }
 
@@ -561,9 +565,10 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
             if (Build.VERSION.SDK_INT >= 30 && info.fps > 0) {
                 surfaceView.holder.surface.setFrameRate(info.fps.toFloat(), android.view.Surface.FRAME_RATE_COMPATIBILITY_DEFAULT)
             }
-            // Con los perfiles de ahorro además se fija el modo de pantalla (p. ej. 60 Hz en vez de 144 Hz).
+            // Y se fija el modo de pantalla: con los perfiles de ahorro el más lento que acomoda los fps (60 Hz en vez de
+            // 144 Hz); con los demás el más rápido (120 Hz para 60 fps), para que cada frame espere menos al refresco.
             streamFps = info.fps
-            if (profile.lowRefreshMode) applyProfile(profile)
+            applyProfile(profile)
         }
     }
 
