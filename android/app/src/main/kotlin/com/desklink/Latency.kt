@@ -51,7 +51,8 @@ class ClockSync {
  * tablet. Etapas (medias del último periodo, en µs):
  * - [Snapshot.arriveUs]: codificar en el PC, enviar y cruzar la red hasta tener el frame entero (necesita [ClockSync]).
  * - [Snapshot.holdUs]: el frame ya está entero pero espera a que se recupere uno anterior (reenvíos).
- * - [Snapshot.decodeUs]: dentro del decodificador de la tablet.
+ * - [Snapshot.inputWaitUs]: esperando a que el decodificador tenga libre un buffer de entrada.
+ * - [Snapshot.decodeUs]: dentro del decodificador de la tablet (de entrarle a salir).
  * - [Snapshot.screenUs]: de salir del decodificador a encenderse en la pantalla (el siguiente refresco).
  * - [Snapshot.totalUs]: todo junto, de punta a punta (necesita [ClockSync]); [Snapshot.maxTotalUs] el peor frame.
  * Se llama desde el hilo del decodificador y se lee una vez por segundo desde otro: todo va sincronizado.
@@ -61,6 +62,7 @@ class LatencyStats(private val clock: ClockSync) {
         val frames: Int,
         val arriveUs: Long,
         val holdUs: Long,
+        val inputWaitUs: Long,
         val decodeUs: Long,
         val screenUs: Long,
         val totalUs: Long,
@@ -75,6 +77,7 @@ class LatencyStats(private val clock: ClockSync) {
             val parts = buildList {
                 if (arriveUs >= 0) add("PC y red ${ms(arriveUs)}")
                 if (holdUs > 0) add("esperar reenvíos ${ms(holdUs)}")
+                if (inputWaitUs > 0) add("esperar entrada ${ms(inputWaitUs)}")
                 add("decodificar ${ms(decodeUs)}")
                 if (screenUs >= 0) add("pantalla ${ms(screenUs)}")
             }
@@ -89,6 +92,7 @@ class LatencyStats(private val clock: ClockSync) {
     private var arriveSum = 0L
     private var arriveN = 0
     private var holdSum = 0L
+    private var inputWaitSum = 0L
     private var decodeSum = 0L
     private var screenSum = 0L
     private var screenN = 0
@@ -98,14 +102,16 @@ class LatencyStats(private val clock: ClockSync) {
 
     /**
      * Un frame que ya salió del decodificador. [hostUs] es su marca de tiempo (reloj del PC); el resto, en el reloj de
-     * la tablet: [completeUs] cuando llegó su último paquete, [queuedUs] cuando entró al decodificador, [decodedUs]
-     * cuando salió y [shownUs] cuando se encendió en pantalla (null si Android no lo dice).
+     * la tablet: [completeUs] cuando llegó su último paquete, [queuedUs] cuando se le pasó al decodificador, [inputUs]
+     * cuando por fin le entró (tras esperar un buffer de entrada libre), [decodedUs] cuando salió y [shownUs] cuando se
+     * encendió en pantalla (null si Android no lo dice).
      */
     @Synchronized
-    fun record(hostUs: Long, completeUs: Long, queuedUs: Long, decodedUs: Long, shownUs: Long?) {
+    fun record(hostUs: Long, completeUs: Long, queuedUs: Long, decodedUs: Long, shownUs: Long?, inputUs: Long = queuedUs) {
         frames++
         holdSum += (queuedUs - completeUs).coerceAtLeast(0)
-        decodeSum += (decodedUs - queuedUs).coerceAtLeast(0)
+        inputWaitSum += (inputUs - queuedUs).coerceAtLeast(0)
+        decodeSum += (decodedUs - maxOf(inputUs, queuedUs)).coerceAtLeast(0)
         if (shownUs != null && shownUs >= decodedUs) {
             screenSum += shownUs - decodedUs
             screenN++
@@ -130,6 +136,7 @@ class LatencyStats(private val clock: ClockSync) {
             frames = frames,
             arriveUs = if (arriveN > 0) arriveSum / arriveN else -1,
             holdUs = if (frames > 0) holdSum / frames else 0,
+            inputWaitUs = if (frames > 0) inputWaitSum / frames else 0,
             decodeUs = if (frames > 0) decodeSum / frames else 0,
             screenUs = if (screenN > 0) screenSum / screenN else -1,
             totalUs = if (totalN > 0) totalSum / totalN else -1,
@@ -137,7 +144,7 @@ class LatencyStats(private val clock: ClockSync) {
         )
         frames = 0
         arriveSum = 0; arriveN = 0
-        holdSum = 0; decodeSum = 0
+        holdSum = 0; inputWaitSum = 0; decodeSum = 0
         screenSum = 0; screenN = 0
         totalSum = 0; totalN = 0
         maxTotal = 0

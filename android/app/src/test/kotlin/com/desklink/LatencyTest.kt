@@ -75,6 +75,16 @@ class LatencyTest {
         assertEquals(5_000L, snap.decodeUs)
     }
 
+    @Test fun inputWaitIsNotDecoding() {
+        val s = LatencyStats(ClockSync())
+        // Se le pasa a 1 ms, no hay buffer de entrada libre hasta los 9 y sale a 12: 8 de espera y 3 de decodificar.
+        s.record(hostUs = 7, completeUs = 1_000, queuedUs = 1_000, decodedUs = 12_000, shownUs = null, inputUs = 9_000)
+        val snap = s.take()
+        assertEquals(8_000L, snap.inputWaitUs)
+        assertEquals(3_000L, snap.decodeUs)
+        assertTrue(snap.text().contains("esperar entrada"))
+    }
+
     @Test fun rateReportCarriesLatency() {
         val c = ClockSync()
         c.onPong(0, 500_000, 0)

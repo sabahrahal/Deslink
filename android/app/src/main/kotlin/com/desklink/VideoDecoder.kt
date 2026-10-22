@@ -36,6 +36,8 @@ class VideoDecoder(
 
     /** Tiempos de un frame (reloj de la tablet, µs) mientras pasa por el decodificador y hasta verse. */
     private class Timing(val completeUs: Long, val queuedNanos: Long) {
+        /** Cuándo entró de verdad al decodificador, tras esperar un buffer de entrada libre. */
+        var inputNanos = queuedNanos
         var decodedNanos = 0L
     }
 
@@ -58,6 +60,9 @@ class VideoDecoder(
 
     /** Modelo, Android y decodificador, para el log del PC (CLIENT_INFO). */
     val description: String
+
+    /** Ajustes propios del fabricante que admite el decodificador y cuáles de baja latencia se activaron, para el log. */
+    private var vendorInfo = ""
 
     init {
         val mime = if (info.codec == Dlp.CODEC_HEVC) MediaFormat.MIMETYPE_VIDEO_HEVC else MediaFormat.MIMETYPE_VIDEO_AVC
@@ -133,11 +138,15 @@ class VideoDecoder(
             showCallbacks = true
             val t = synchronized(awaitingShow) { awaitingShow.remove(presentationTimeUs) }
             // El primer aviso: ese frame ya se apuntó sin pantalla (aún no se sabía si este dispositivo avisa).
-            if (t != null && !first) record(presentationTimeUs, t, nanoTime)
+            // Algunos (p. ej. MediaTek con Android 16) no dicen cuándo se encendió, sino la hora pedida al soltarlo, que
+            // es la misma con la que se apuntó la salida: eso daba «pantalla 0,0 ms». Un refresco real nunca es tan rápido.
+            val shown = nanoTime.takeIf { t != null && it - t.decodedNanos >= MIN_REAL_SHOW_NANOS }
+            if (t != null && !first) record(presentationTimeUs, t, shown)
         }, Handler(callbackThread.looper))
-        description = describe(codec, mime, format)
         codec.configure(format, surface, null, 0)
         codec.start()
+        enableVendorLowLatency()
+        description = describe(codec, mime, format) + vendorInfo
     }
 
     /** Ajusta el ritmo previsto (perfil de batería) sin rehacer el decodificador; si no lo admite, se ignora. */
@@ -181,7 +190,7 @@ class VideoDecoder(
                 synchronized(arrivals) {
                     // Si el decodificador se traga algún frame sin sacarlo, no se acumula para siempre.
                     if (arrivals.size >= 32) arrivals.remove(arrivals.keys.first())
-                    arrivals[frame.timestampUs] = Timing(frame.completeUs, arrived)
+                    arrivals[frame.timestampUs] = Timing(frame.completeUs, arrived).also { it.inputNanos = System.nanoTime() }
                 }
                 codec.queueInputBuffer(index, 0, frame.size, frame.timestampUs, 0)
                 true
@@ -202,7 +211,7 @@ class VideoDecoder(
     }
 
     private fun record(ptsUs: Long, t: Timing, shownNanos: Long?) {
-        latency?.record(ptsUs, t.completeUs, t.queuedNanos / 1000, t.decodedNanos / 1000, shownNanos?.div(1000))
+        latency?.record(ptsUs, t.completeUs, t.queuedNanos / 1000, t.decodedNanos / 1000, shownNanos?.div(1000), t.inputNanos / 1000)
     }
 
     fun release() {
@@ -218,6 +227,33 @@ class VideoDecoder(
         }
         codec.release()
         callbackThread.quitSafely()
+    }
+
+    /**
+     * Desde Android 12 el decodificador dice qué ajustes propios del fabricante admite. Si alguno es de baja latencia
+     * (en una Lenovo con MediaTek y Android 16 `vdec-lowlatency` no hacía nada: ~17 ms fijos por frame), se activa aquí.
+     * Todo va al log del PC para saber qué probar en cada tablet.
+     */
+    private fun enableVendorLowLatency() {
+        if (Build.VERSION.SDK_INT < 31) return
+        val names = try {
+            codec.supportedVendorParameters
+        } catch (_: IllegalStateException) {
+            return
+        }
+        val enabled = mutableListOf<String>()
+        for (name in names.filter { LOW_LATENCY_NAME.containsMatchIn(it) }) {
+            try {
+                if (codec.getParameterDescriptor(name)?.type != MediaFormat.TYPE_INTEGER) continue
+                codec.subscribeToVendorParameters(listOf(name))
+                codec.setParameters(android.os.Bundle().apply { putInt(name, 1) })
+                enabled += name
+            } catch (_: RuntimeException) {
+                // Ajuste de solo lectura o que el códec rechaza: se sigue con los demás.
+            }
+        }
+        vendorInfo = ", baja latencia activada: ${enabled.joinToString().ifEmpty { "ninguna" }}" +
+            ", ajustes del fabricante (${names.size}): ${names.sorted().joinToString()}"
     }
 
     private fun describe(codec: MediaCodec, mime: String, format: MediaFormat): String {
@@ -246,5 +282,11 @@ class VideoDecoder(
 
         /** Lo más que espera [queue] a que el decodificador libere un buffer de entrada. */
         const val INPUT_WAIT_MS = 20L
+
+        /** Menos que esto entre salir del decodificador y «encenderse» no es un refresco real (ver arriba). */
+        const val MIN_REAL_SHOW_NANOS = 100_000L
+
+        /** Nombre de un ajuste del fabricante que parece de baja latencia (low-latency, lowlatency, low_latency...). */
+        val LOW_LATENCY_NAME = Regex("low[-_.]?latency", RegexOption.IGNORE_CASE)
     }
 }
