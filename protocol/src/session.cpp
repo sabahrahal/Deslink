@@ -145,6 +145,14 @@ bool RateController::OnKeyframeRequest(uint64_t now_us) {
   return Decrease(now_us);
 }
 
+bool RateController::OnLinkQuality(uint32_t sent_packets, uint32_t resent_packets, bool backlog, uint64_t now_us) {
+  if (usb_) return false;
+  const bool many_resends = sent_packets >= 100 && static_cast<uint64_t>(resent_packets) * 100 >
+                                                       static_cast<uint64_t>(sent_packets) * 3;
+  if (!backlog && !many_resends) return false;
+  return Decrease(now_us);
+}
+
 bool RateController::SetMax(uint32_t max_bps, uint64_t now_us) {
   max_bps = std::max<uint32_t>(max_bps, 1'000'000);
   if (max_bps == max_) return false;

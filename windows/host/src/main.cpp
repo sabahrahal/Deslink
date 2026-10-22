@@ -565,6 +565,9 @@ int Run(int argc, char** argv) {
 
   std::atomic<uint32_t> next_frame_id{1};
   std::atomic<uint64_t> bytes_sent{0}, frames_encoded{0}, encode_latency_us{0}, keyframes_sent{0}, retransmits{0}, touch_packets{0};
+  std::atomic<uint64_t> packets_sent{0};
+  // El envío se atrasó y tiró frames: la tasa lo lee con el siguiente informe de la tablet (RateController).
+  std::atomic<bool> send_backlog{false};
   // Para --status: último informe de la tablet y RTT medido con PING del host (0 = la tablet no contesta).
   std::atomic<uint32_t> tablet_received{0}, tablet_lost{0};
   std::atomic<int> tablet_decoded{-1};  // frames que mostró la tablet el último segundo (-1: tablet antigua)
@@ -664,6 +667,7 @@ int Run(int argc, char** argv) {
       SendPaced(packets, opt.pace_mbps, [&](const std::vector<uint8_t>& p) { udp.SendToPeer(p); });
     }
     bytes_sent += f.data.size();
+    packets_sent += packets.size();
     if (f.keyframe) ++keyframes_sent;
   });
 
@@ -672,7 +676,10 @@ int Run(int argc, char** argv) {
     const uint64_t now = NowUs();
     if (now > ts_us) encode_latency_us += now - ts_us;
     // El envío va más de 4 frames atrasado: se tiran y se pide un frame clave.
-    if (sender.Push(data, size, keyframe, ts_us)) enc_keyframe();
+    if (sender.Push(data, size, keyframe, ts_us)) {
+      send_backlog = true;
+      enc_keyframe();
+    }
   };
 
   // SESSION_CONFIG: lo que eligió el PC y por qué la imagen va por debajo, si es así (ver dlp/session.h).
@@ -815,6 +822,7 @@ int Run(int argc, char** argv) {
     rate.Reset(current_quality().bitrate_mbps_x10 * 100'000u, true, NowUs());
     // Lo que pasa de verdad por el enlace desde el último informe de la tablet (solo por cable, ver OnLinkLoad).
     uint64_t link_last_us = NowUs(), link_last_busy = sender.busy_us, link_last_bytes = sender.sent_bytes;
+    uint64_t quality_last_sent = packets_sent, quality_last_resent = retransmits;
     auto publish_rate = [&](const char* why) {
       enc_bitrate(rate.current_bps());
       rate_bps = rate.current_bps();
@@ -940,6 +948,18 @@ int Run(int argc, char** argv) {
             tablet_hold_x10 = q[12] | (q[13] << 8);
             tablet_screen_x10 = q[14] | (q[15] << 8);
             tablet_worst_x10 = q[16] | (q[17] << 8);
+          }
+          {
+            // Por WiFi también se recorta si se reenvía mucho o el envío se atrasa, aunque no se pierdan frames.
+            const uint64_t sent = packets_sent.load(), resent = retransmits.load();
+            const bool backlog = send_backlog.exchange(false);
+            if (rate.OnLinkQuality(static_cast<uint32_t>(std::min<uint64_t>(sent - quality_last_sent, UINT32_MAX)),
+                                   static_cast<uint32_t>(std::min<uint64_t>(resent - quality_last_resent, UINT32_MAX)),
+                                   backlog, NowUs())) {
+              publish_rate(backlog ? "el envío se atrasa" : "muchos reenvíos");
+            }
+            quality_last_sent = sent;
+            quality_last_resent = resent;
           }
           if (rate.OnReport(tablet_received, lost, NowUs())) {
             publish_rate(lost ? "la tablet pierde frames" : "enlace limpio");

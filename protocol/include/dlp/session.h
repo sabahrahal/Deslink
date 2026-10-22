@@ -85,6 +85,10 @@ class RateController {
   // Informe de la tablet (frames recibidos y perdidos en el último segundo). Devuelve true si cambió la tasa.
   bool OnReport(uint32_t received, uint32_t lost, uint64_t now_us);
   bool OnKeyframeRequest(uint64_t now_us);
+  // Por WiFi, señales de que el enlace va justo aunque no se pierdan frames enteros (una vez por segundo): el envío se
+  // atrasó y se tiraron frames ([backlog]), o hubo que reenviar más del 3 % de los paquetes (cada reenvío retrasa su
+  // frame una ida y vuelta). Recortan como una pérdida. Por cable no hace nada.
+  bool OnLinkQuality(uint32_t sent_packets, uint32_t resent_packets, bool backlog, uint64_t now_us);
   // Cambia el máximo (otra calidad o batería); vuelve al máximo nuevo si el enlace va limpio.
   bool SetMax(uint32_t max_bps, uint64_t now_us);
   // Por cable no se pierden frames, pero el túnel de adb tiene un tope (en algunas tablets ~20 Mbps): si el envío

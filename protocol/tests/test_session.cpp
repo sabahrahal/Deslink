@@ -115,6 +115,30 @@ static void TestRateControllerWifi() {
   CHECK(r.current_bps() == 42'500'000);
 }
 
+static void TestRateControllerWifiLinkQuality() {
+  RateController r;
+  uint64_t t = 1'000'000;
+  r.Reset(30'000'000, false, t);
+  for (int i = 0; i < 20; ++i) r.OnReport(60, 0, t += 1'000'000);
+  CHECK(r.current_bps() == 30'000'000);
+  // Pocos reenvíos (2 %): nada.
+  CHECK(!r.OnLinkQuality(2000, 40, false, t += 1'000'000));
+  // Más del 3 % reenviado: recorta aunque no se pierdan frames, y no vuelve a subir enseguida.
+  CHECK(r.OnLinkQuality(2000, 100, false, t += 1'000'000));
+  CHECK(r.current_bps() == 25'500'000);
+  CHECK(!r.OnReport(60, 0, t += 1'000'000));
+  CHECK(r.current_bps() == 25'500'000);
+  // Envío atrasado: también recorta (como mucho una vez por segundo).
+  CHECK(r.OnLinkQuality(10, 0, true, t += 1'000'000));
+  CHECK(!r.OnLinkQuality(10, 0, true, t += 500'000));
+  // Con pocos paquetes (escritorio quieto) los reenvíos no cuentan.
+  CHECK(!r.OnLinkQuality(50, 20, false, t += 2'000'000));
+  // Por cable no hace nada.
+  RateController u;
+  u.Reset(30'000'000, true, t);
+  CHECK(!u.OnLinkQuality(2000, 1000, true, t += 1'000'000));
+}
+
 static void TestRateControllerUsbAndMax() {
   RateController r;
   uint64_t t = 1'000'000;
@@ -203,6 +227,7 @@ int main() {
   TestAutoValues();
   TestCombineLimits();
   TestRateControllerWifi();
+  TestRateControllerWifiLinkQuality();
   TestRateControllerUsbAndMax();
   TestRateControllerUsbLink();
   TestFpsGovernor();
