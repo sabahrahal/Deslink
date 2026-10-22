@@ -72,7 +72,10 @@ class VideoDecoder(
         // Un frame clave a 2944x1840 supera el tamaño de entrada por defecto de algunos decodificadores.
         format.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, (info.width * info.height * 3 / 2).coerceIn(1 shl 20, 16 shl 20))
         format.setInteger(MediaFormat.KEY_PRIORITY, 0) // tiempo real
-        format.setInteger(MediaFormat.KEY_OPERATING_RATE, if (info.fps > 0) info.fps else 60)
+        // Ritmo «lo más rápido posible» en vez de los fps del flujo (el truco de Moonlight): con los fps el decodificador
+        // va a la velocidad justa para no atrasarse y cada frame tarda casi un refresco en salir. En una Lenovo con
+        // MediaTek y Android 16 bajó de ~20 a ~12 ms por frame, a costa de algo más de batería.
+        format.setInteger(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE.toInt())
         if (Build.VERSION.SDK_INT >= 30) format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
         // Antes de Android 11 (y en algunos que ignoran KEY_LOW_LATENCY) el modo de baja latencia va con
         // claves propias del fabricante; un decodificador de otra marca no las ve.
@@ -152,15 +155,6 @@ class VideoDecoder(
         codec.start()
         enableVendorLowLatency()
         description = describe(codec, mime, format) + vendorInfo
-    }
-
-    /** Ajusta el ritmo previsto (perfil de batería) sin rehacer el decodificador; si no lo admite, se ignora. */
-    fun setOperatingRate(fps: Int) {
-        if (fps <= 0) return
-        try {
-            codec.setParameters(android.os.Bundle().apply { putInt(MediaFormat.KEY_OPERATING_RATE, fps) })
-        } catch (_: IllegalStateException) {
-        }
     }
 
     /**

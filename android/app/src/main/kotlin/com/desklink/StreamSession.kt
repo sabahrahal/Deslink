@@ -228,7 +228,6 @@ class StreamSession(
         ) {
             // Solo cambian los fps (perfil de batería): el decodificador sigue, sin esperar a otro frame clave.
             if (current.fps != info.fps) {
-                decoder?.setOperatingRate(info.fps)
                 streamInfo = info
                 listener.onStreamInfo(info)
             }
