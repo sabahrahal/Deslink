@@ -745,7 +745,10 @@ int Run(int argc, char** argv) {
                   opt.codec == VideoCodec::kHevc ? "HEVC" : "H.264");
     }
     if (!p->converter.Init(p->gpu, p->w, p->h, ew, eh, 24)) return nullptr;
-    p->converter.SetDrawCursor(opt.cursor);
+    // En el monitor virtual Windows ya pinta el cursor dentro de la imagen (el driver no tiene cursor por hardware),
+    // y a la escala de ese monitor: dibujarlo otra vez salía doble, uno grande y otro pequeño desplazado.
+    // Desktop Duplication solo lo deja fuera en un monitor de verdad.
+    p->converter.SetDrawCursor(opt.cursor && !opt.virtual_display);
     p->encoder = std::make_unique<MfEncoder>();
     // El codificador se crea a los fps del host: con menos fps simplemente recibe menos frames (como con el
     // escritorio quieto), así un cambio de perfil no obliga a rehacerlo.
@@ -1392,7 +1395,8 @@ int Run(int argc, char** argv) {
       } else {
         pipe->capture.Release();
         // Solo se movió el cursor: se redibujará sobre la última imagen.
-        if (result == DesktopCapture::Result::kCursorMoved && opt.cursor && pipe->converter.has_image()) {
+        if (result == DesktopCapture::Result::kCursorMoved && opt.cursor && !opt.virtual_display &&
+            pipe->converter.has_image()) {
           if (!dirty) dirty_since_us = NowUs();
           dirty = true;
         }
