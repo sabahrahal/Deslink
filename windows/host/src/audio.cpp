@@ -52,8 +52,9 @@ std::wstring DefaultRenderId(IMMDeviceEnumerator* enumerator) {
 
 // Mientras el sonido va a la tablet se silencian los altavoces del PC, para que no suene en los dos sitios. Qué
 // salida silenció Extendesk queda apuntado en el registro: si el host se cierra de golpe, la siguiente vez la
-// vuelve a activar.
-constexpr wchar_t kMuteKey[] = L"Software\\DeskLink";
+// vuelve a activar. (Antes del nombre Extendesk se apuntaba en Software\DeskLink: se mira también ahí.)
+constexpr wchar_t kMuteKey[] = L"Software\\Extendesk";
+constexpr wchar_t kLegacyMuteKey[] = L"Software\\DeskLink";
 constexpr wchar_t kMuteValue[] = L"SonidoSilenciado";
 
 void RememberMuted(const std::wstring& id) {
@@ -61,7 +62,10 @@ void RememberMuted(const std::wstring& id) {
                   static_cast<DWORD>((id.size() + 1) * sizeof(wchar_t)));
 }
 
-void ForgetMuted() { RegDeleteKeyValueW(HKEY_CURRENT_USER, kMuteKey, kMuteValue); }
+void ForgetMuted() {
+  RegDeleteKeyValueW(HKEY_CURRENT_USER, kMuteKey, kMuteValue);
+  RegDeleteKeyValueW(HKEY_CURRENT_USER, kLegacyMuteKey, kMuteValue);
+}
 
 bool SetEndpointMute(IMMDevice* device, BOOL mute, BOOL* was = nullptr) {
   ComPtr<IAudioEndpointVolume> volume;
@@ -77,7 +81,12 @@ bool SetEndpointMute(IMMDevice* device, BOOL mute, BOOL* was = nullptr) {
 void RestoreLeftoverMute(IMMDeviceEnumerator* enumerator) {
   wchar_t id[512];
   DWORD size = sizeof(id);
-  if (RegGetValueW(HKEY_CURRENT_USER, kMuteKey, kMuteValue, RRF_RT_REG_SZ, nullptr, id, &size) != ERROR_SUCCESS) return;
+  if (RegGetValueW(HKEY_CURRENT_USER, kMuteKey, kMuteValue, RRF_RT_REG_SZ, nullptr, id, &size) != ERROR_SUCCESS) {
+    size = sizeof(id);
+    if (RegGetValueW(HKEY_CURRENT_USER, kLegacyMuteKey, kMuteValue, RRF_RT_REG_SZ, nullptr, id, &size) != ERROR_SUCCESS) {
+      return;
+    }
+  }
   ComPtr<IMMDevice> device;
   if (SUCCEEDED(enumerator->GetDevice(id, &device))) SetEndpointMute(device.p, FALSE);
   ForgetMuted();

@@ -289,7 +289,7 @@ void AdbReverse::Loop() {
   if (adb_.empty()) {
     missing_ = true;
     std::printf("USB por cable: no encontré adb.exe. Copia adb.exe, AdbWinApi.dll y AdbWinUsbApi.dll (de las "
-                "platform-tools de Android) junto a desklink-host.exe para conectar la tablet por USB sin anclaje.\n");
+                "platform-tools de Android) junto a extendesk-host.exe para conectar la tablet por USB sin anclaje.\n");
     return;
   }
   std::printf("USB por cable: usando %s\n", Utf8(adb_).c_str());
@@ -325,8 +325,8 @@ void AdbReverse::Loop() {
             // Se abre la app en la tablet, que conecta sola por el cable. Si no está instalada, am start falla y
             // no pasa nada. A diferencia del modo accesorio USB, no deja nada registrado en la tablet.
             const bool opened = open_app_ && !busy_ &&
-                                Run(L"-s \"" + Widen(serial) + L"\" shell am start -n app.extendesk/com.desklink.MainActivity "
-                                    L"-a com.desklink.action.USB_ATTACHED", nullptr, 5000);
+                                Run(L"-s \"" + Widen(serial) + L"\" shell am start -n app.extendesk/app.extendesk.MainActivity "
+                                    L"-a app.extendesk.action.USB_ATTACHED", nullptr, 5000);
             std::printf(opened ? "Tablet %s conectada por USB (ADB): abro Extendesk en ella.\n"
                                : "Tablet %s conectada por USB (ADB). Abre Extendesk en ella y pulsa Conectar.\n",
                         serial.c_str());

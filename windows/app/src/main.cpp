@@ -1,6 +1,6 @@
-// Extendesk: app de bandeja para Windows. Arranca desklink-host.exe sin consola con los ajustes guardados, muestra
+// Extendesk: app de bandeja para Windows. Arranca extendesk-host.exe sin consola con los ajustes guardados, muestra
 // el estado de la conexión (cable USB o Wi-Fi, fps, Mbps, RTT) y explica los errores con palabras normales.
-// La captura y la codificación siguen en desklink-host.exe, que también se puede usar solo desde una consola.
+// La captura y la codificación siguen en extendesk-host.exe, que también se puede usar solo desde una consola.
 //
 // El PC manda: calidad, sonido y táctil se eligen aquí y el host se los dice a la tablet. Lo que se ve sale de
 // view_model.h (probado en tests/test_view_model.cpp); este archivo solo lo pinta con GDI+, en una columna, con
@@ -43,8 +43,8 @@ namespace gp = Gdiplus;
 
 namespace {
 
-constexpr wchar_t kMainClass[] = L"DeskLinkMain";
-constexpr wchar_t kLogClass[] = L"DeskLinkLog";
+constexpr wchar_t kMainClass[] = L"ExtendeskMain";
+constexpr wchar_t kLogClass[] = L"ExtendeskLog";
 constexpr wchar_t kAppName[] = L"Extendesk";
 constexpr UINT WM_TRAY = WM_APP + 1;
 constexpr UINT WM_APP_SHOW = WM_APP + 4;  // otra copia de la app pide mostrar esta ventana
@@ -177,7 +177,7 @@ std::wstring FriendlyError(const std::wstring& line) {
            L"reinstala el driver.";
   }
   if (has(L"bind al puerto") || has(L"USB: no se pudo escuchar")) {
-    return Format(L"El puerto %d ya está en uso. ¿Hay otro Extendesk abierto (por ejemplo desklink-host.exe en una "
+    return Format(L"El puerto %d ya está en uso. ¿Hay otro Extendesk abierto (por ejemplo extendesk-host.exe en una "
                   L"consola)? Ciérralo y pulsa Iniciar.",
                   g.settings.port);
   }
@@ -435,12 +435,12 @@ void StartHost() {
   }
   g.args = HostArguments(g.settings);
   std::wstring error;
-  if (!g.host.Start(g.wnd, AppDirectory() + L"\\desklink-host.exe", g.args, &error)) {
+  if (!g.host.Start(g.wnd, AppDirectory() + L"\\extendesk-host.exe", g.args, &error)) {
     g.error = error;
     SetState(State::kError);
     return;
   }
-  AddLog(L"--- desklink-host.exe " + g.args);
+  AddLog(L"--- extendesk-host.exe " + g.args);
   g.started_at = GetTickCount64();
   SetState(State::kStarting);
 }
@@ -478,7 +478,7 @@ void ApplyChanges() {
 void RepairDriver() {
   if (g.repairing_driver) return;
   const std::wstring dir = AppDirectory() + L"\\driver";
-  const std::wstring exe = dir + L"\\desklink-driver.exe";
+  const std::wstring exe = dir + L"\\extendesk-driver.exe";
   if (GetFileAttributesW(exe.c_str()) == INVALID_FILE_ATTRIBUTES) {
     g.error = L"No encuentro el driver junto a Extendesk. Vuelve a instalar Extendesk con Extendesk-Setup.exe.";
     g.error_mapped = true;
@@ -522,7 +522,7 @@ void RepairDriver() {
 
 void OnDriverDone(DWORD code) {
   g.repairing_driver = false;
-  // La salida de desklink-driver.exe va al registro de la app (Configuración avanzada > Ver registro).
+  // La salida de extendesk-driver.exe va al registro de la app (Configuración avanzada > Ver registro).
   const std::wstring log_path = AppDirectory() + L"\\driver\\reparar.log";
   HANDLE f = CreateFileW(log_path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
   if (f != INVALID_HANDLE_VALUE) {
@@ -646,7 +646,7 @@ void OnHostExit(DWORD code) {
     }
     return;
   }
-  AddLog(Format(L"--- desklink-host.exe terminó (código %lu).", code));
+  AddLog(Format(L"--- extendesk-host.exe terminó (código %lu).", code));
   if (g.error.empty()) {
     g.error = Format(L"El host se cerró inesperadamente (código %lu). Abre «Ver registro» para el detalle.", code);
   }
@@ -712,7 +712,7 @@ std::unique_ptr<gp::Font> MakeFont(float px, bool semibold, bool brand = false, 
                                     gp::UnitPixel);
 }
 
-// Carga las Montserrat de desklink.rc. Sin ellas, MakeFont sigue con Segoe UI.
+// Carga las Montserrat de extendesk.rc. Sin ellas, MakeFont sigue con Segoe UI.
 void LoadBrandFonts() {
   g.brand_fonts = std::make_unique<gp::PrivateFontCollection>();
   for (const wchar_t* name : {L"FONT_BLACK", L"FONT_BOLD"}) {
@@ -1570,7 +1570,7 @@ LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
 int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd_line, int) {
   // Una sola copia: si ya está abierta, se muestra esa.
-  HANDLE mutex = CreateMutexW(nullptr, TRUE, L"Local\\DeskLinkApp");
+  HANDLE mutex = CreateMutexW(nullptr, TRUE, L"Local\\ExtendeskApp");
   if (GetLastError() == ERROR_ALREADY_EXISTS) {
     if (HWND other = FindWindowW(kMainClass, nullptr)) PostMessageW(other, WM_APP_SHOW, 0, 0);
     return 0;

@@ -1,0 +1,167 @@
+package app.extendesk.ui
+
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import app.extendesk.Found
+import app.extendesk.Link
+import app.extendesk.Route
+import app.extendesk.Transport
+import app.extendesk.UsbDebugHint
+import java.net.InetAddress
+import org.junit.Assert.assertEquals
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.annotation.Config
+
+/** La pantalla de inicio enseña cada cosa donde debe (Robolectric, sin tablet). */
+@RunWith(AndroidJUnit4::class)
+@Config(sdk = [34])
+class HomeScreenTest {
+    @get:Rule val compose = createComposeRule()
+
+    private val wifi = Route("wlan0", InetAddress.getByName("192.168.1.40"), Transport.WIFI)
+    private val usb = Found(Link.CABLE_HOST, null, "ESCRITORIO", acceptsConfig = true)
+    private val net = Found("192.168.1.20", wifi, "ESCRITORIO", acceptsConfig = true)
+
+    private fun show(
+        state: HomeState,
+        onConnect: (Found) -> Unit = {},
+        onAdvanced: () -> Unit = {},
+        onUsbDebug: () -> Unit = {},
+    ) {
+        compose.setContent {
+            ExtendeskTheme(dark = true) {
+                HomeScreen(
+                    state,
+                    onConnect = onConnect,
+                    onConnectAddress = {},
+                    onCancelAuto = {},
+                    onOpenAdvanced = onAdvanced,
+                    onOpenUsbDebug = onUsbDebug,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun usbAndWifiAreOneCardWithBothOptions() {
+        var connected: Found? = null
+        show(HomeState(hosts = listOf(net, usb), scans = 1), onConnect = { connected = it })
+        // Una sola tarjeta para el PC, con un solo botón Conectar.
+        compose.onAllNodesWithText("ESCRITORIO").assertCountEquals(1)
+        compose.onAllNodesWithText("Conectar").assertCountEquals(1)
+        compose.onNode(hasTestTag("pc:escritorio")).assertIsDisplayed()
+        // Las dos formas de conectar dentro de la tarjeta, el cable elegido de serie.
+        compose.onNodeWithText("Cable USB").assertIsSelected()
+        compose.onNodeWithText("Wi-Fi").assertIsNotSelected()
+        compose.onNodeWithText("Por cable USB · la conexión más rápida").assertIsDisplayed()
+
+        compose.onNodeWithText("Conectar").performClick()
+        assertEquals(Link.CABLE_HOST, connected?.ip)
+
+        compose.onNodeWithText("Wi-Fi").performClick()
+        compose.onNodeWithText("Wi-Fi").assertIsSelected()
+        compose.onNodeWithText("Por Wi-Fi · 192.168.1.20").assertIsDisplayed()
+        compose.onNodeWithText("Conectar").performClick()
+        assertEquals("192.168.1.20", connected?.ip)
+    }
+
+    @Test
+    fun usbTetheringShowsAsCable() {
+        val rndis = Route("rndis0", InetAddress.getByName("192.168.42.129"), Transport.USB)
+        val tether = Found("192.168.42.10", rndis, "ESCRITORIO", acceptsConfig = true)
+        show(HomeState(hosts = listOf(net, tether), scans = 1))
+        compose.onNodeWithText("Cable USB").assertIsSelected()
+        compose.onNodeWithText("Wi-Fi").assertIsNotSelected()
+        compose.onNodeWithText("Por cable USB (anclaje de red) · el más estable · 192.168.42.10").assertIsDisplayed()
+    }
+
+    @Test
+    fun onlyWifiHasNoUsbOption() {
+        show(HomeState(hosts = listOf(net), scans = 1))
+        compose.onNodeWithText("ESCRITORIO").assertIsDisplayed()
+        compose.onAllNodesWithText("Cable USB").assertCountEquals(0)
+    }
+
+    @Test
+    fun searchingShowsHelpOnlyWhenAsked() {
+        show(HomeState(scans = 3, networks = "WiFi (192.168.1.40)"))
+        compose.onNodeWithText("Buscando tu PC…").assertIsDisplayed()
+        compose.onAllNodes(hasText("Redes de este dispositivo", substring = true)).assertCountEquals(0)
+        compose.onNodeWithText("¿No aparece?").performClick()
+        compose.onNode(hasText("Redes de este dispositivo", substring = true)).assertIsDisplayed()
+    }
+
+    @Test
+    fun advancedSettingsIsALinkOnHome() {
+        var opened = false
+        show(HomeState(), onAdvanced = { opened = true })
+        compose.onNodeWithText("Extendesk").assertIsDisplayed()
+        compose.onNodeWithText("Configuración avanzada").performClick()
+        assertEquals(true, opened)
+        // Calidad, sonido y táctil no están en la tablet: se eligen en el PC.
+        compose.onAllNodesWithText("Calidad").assertCountEquals(0)
+        compose.onAllNodesWithText("Sonido").assertCountEquals(0)
+    }
+
+    @Test
+    fun usbDebugCardOnlyWhenPluggedWithoutDebugging() {
+        var opened = false
+        show(HomeState(scans = 1, usbDebug = UsbDebugHint.ENABLE_DEVELOPER), onUsbDebug = { opened = true })
+        compose.onNode(hasTestTag("usb-debug")).assertIsDisplayed()
+        compose.onNode(hasText("toca 7 veces", substring = true)).assertIsDisplayed()
+        compose.onNodeWithText("Abrir ajustes").performClick()
+        assertEquals(true, opened)
+    }
+
+    @Test
+    fun usbSpeedTipExplainsTheCableAndCanBeDismissed() {
+        var tether = 0
+        var dismissed = 0
+        compose.setContent {
+            ExtendeskTheme(dark = true) {
+                HomeScreen(
+                    state = HomeState(scans = 1, debugOff = true),
+                    onConnect = {}, onConnectAddress = {}, onCancelAuto = {}, onOpenAdvanced = {},
+                    onOpenTether = { tether++ }, onDismissUsbTip = { dismissed++ },
+                )
+            }
+        }
+        compose.onNodeWithText("¿Necesitas más velocidad por USB?").assertIsDisplayed()
+        compose.onNodeWithText("Ver cómo").performClick()
+        compose.onNode(hasText("toca 7 veces", substring = true)).assertIsDisplayed()
+        compose.onNodeWithText("Abrir «Anclaje USB»").performScrollTo().performClick()
+        assertEquals(1, tether)
+        compose.onNodeWithText("No mostrar más").performScrollTo().performClick()
+        assertEquals(1, dismissed)
+    }
+
+    @Test
+    fun usbSpeedTipHiddenWhenCableIsThere() {
+        show(HomeState(hosts = listOf(usb), scans = 1, debugOff = true))
+        compose.onAllNodes(hasTestTag("usb-speed")).assertCountEquals(0)
+    }
+
+    @Test
+    fun usbSpeedTipHiddenOnceDismissed() {
+        show(HomeState(scans = 1, debugOff = true, usbTipDismissed = true))
+        compose.onAllNodes(hasTestTag("usb-speed")).assertCountEquals(0)
+    }
+
+    @Test
+    fun noUsbDebugCardWhenNothingIsMissing() {
+        show(HomeState(hosts = listOf(usb), scans = 1))
+        compose.onAllNodes(hasTestTag("usb-debug")).assertCountEquals(0)
+    }
+}

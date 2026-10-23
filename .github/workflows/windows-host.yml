@@ -27,9 +27,9 @@ jobs:
         run: ctest --test-dir build/host -C Release --output-on-failure
       - uses: actions/upload-artifact@v4
         with:
-          name: desklink-host-windows
+          name: extendesk-host-windows
           path: |
-            build/host/Release/desklink-host.exe
+            build/host/Release/extendesk-host.exe
             build/host/Release/adb.exe
             build/host/Release/AdbWinApi.dll
             build/host/Release/AdbWinUsbApi.dll

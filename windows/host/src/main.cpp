@@ -33,6 +33,7 @@
 #include "touch.h"
 #include "udp.h"
 #include "virtual_display.h"
+#include "../../common/app_data.h"
 
 namespace {
 
@@ -47,8 +48,8 @@ void OnSignal(int) { g_running = false; }
 class SingleInstance {
  public:
   SingleInstance() {
-    quit_ = CreateEventW(nullptr, TRUE, FALSE, L"Local\\DeskLinkHost.Quit");
-    mutex_ = CreateMutexW(nullptr, FALSE, L"Local\\DeskLinkHost");
+    quit_ = CreateEventW(nullptr, TRUE, FALSE, L"Local\\ExtendeskHost.Quit");
+    mutex_ = CreateMutexW(nullptr, FALSE, L"Local\\ExtendeskHost");
     if (!mutex_) return;
     DWORD r = WaitForSingleObject(mutex_, 0);
     if (r == WAIT_TIMEOUT) {
@@ -133,11 +134,10 @@ void SendPaced(const std::vector<std::vector<uint8_t>>& packets, uint32_t pace_m
   }
 }
 
-// Ajustes que se recuerdan entre sesiones, uno por fichero en %APPDATA%\DeskLink.
+// Ajustes que se recuerdan entre sesiones, uno por fichero en %APPDATA%\Extendesk.
 std::wstring ConfigPath(const wchar_t* name) {
-  wchar_t base[MAX_PATH];
-  if (!GetEnvironmentVariableW(L"APPDATA", base, MAX_PATH)) return {};
-  return std::wstring(base) + L"\\DeskLink\\" + name;
+  const std::wstring dir = AppDataDir();
+  return dir.empty() ? dir : dir + L"\\" + name;
 }
 
 // Resolución que el usuario dejó en Configuración de pantalla de Windows para el monitor virtual, y la tablet para la
@@ -265,7 +265,7 @@ struct Options {
   bool open_tablet = true;       // --no-open-tablet: no abrir Extendesk en la tablet al enchufarla
   std::wstring adb_path;         // --adb: ruta de adb.exe (si no, se busca)
   UINT refine = 4;               // --refine: repeticiones extra al quedarse quieta la imagen para afinar la calidad
-  bool status = false;           // --status: líneas «@...» para la app de bandeja (desklink.exe) en vez de las estadísticas
+  bool status = false;           // --status: líneas «@...» para la app de bandeja (extendesk.exe) en vez de las estadísticas
   std::wstring stop_event;       // --stop-event: evento con nombre que, al activarse, cierra el host limpiamente
   bool audio = true;             // --no-audio: nunca envía el sonido del PC (aunque la tablet lo pida)
   UINT audio_kbps = 128;         // --audio-bitrate: kbps de Opus
@@ -493,7 +493,7 @@ bool ParseArgs(int argc, char** argv, Options* o) {
       }
     } else {
       std::fprintf(stderr,
-                   "Uso: desklink-host [--port 47800] [--output 0] [--fps auto|60] [--bitrate auto|50] "
+                   "Uso: extendesk-host [--port 47800] [--output 0] [--fps auto|60] [--bitrate auto|50] "
                    "[--codec auto|hevc|h264] [--profile alta|equilibrada|ahorro] [--audio-tablet] [--battery-adapt] "
                    "[--encoder auto|nvenc|amf|mf] [--pace Mbps] [--fec 10] [--refine 4] [--no-touch] [--touch|--mouse|--view-only] [--no-cursor] [--no-audio] "
                    "[--audio-bitrate 128] [--virtual [--size 2944x1840]] [--no-usb] [--no-open-tablet] [--adb ruta\\adb.exe] [--status] "

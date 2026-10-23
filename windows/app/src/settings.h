@@ -3,7 +3,8 @@
 #include <string>
 
 // Ajustes de Extendesk. El PC es el único sitio donde se eligen (docs/ajustes.md): la tablet solo dice lo que puede
-// hacer y enseña lo que el PC decide. Se guardan en %APPDATA%\DeskLink\desklink.ini.
+// hacer y enseña lo que el PC decide. Se guardan en %APPDATA%\Extendesk\extendesk.ini
+// (antes %APPDATA%\DeskLink\desklink.ini: se pasa sola la primera vez).
 //
 // A la vista en la ventana: modo, calidad, dónde suena el sonido y el táctil. En «Configuración avanzada»: fps, Mbps,
 // códec, monitor que se duplica, bajar la calidad si la batería de la tablet no aguanta, cable USB, abrir la
@@ -25,7 +26,7 @@ struct Settings {
   bool stream_on_open = true;   // empezar a transmitir al abrir la app (y al arrancar con Windows)
   int port = 47800;
   std::wstring adb;             // ruta de adb.exe; vacía = la busca el host
-  std::wstring extra;           // opciones extra para desklink-host.exe
+  std::wstring extra;           // opciones extra para extendesk-host.exe
 };
 
 std::wstring SettingsPath();
@@ -41,7 +42,7 @@ bool ParseSize(const std::wstring& text, unsigned* w, unsigned* h);
 // Deja cada valor dentro de lo admitido (lo que venga del .ini puede estar escrito a mano).
 void Sanitize(Settings* s);
 
-// Opciones de línea de comandos de desklink-host.exe para estos ajustes (sin --status ni --stop-event).
+// Opciones de línea de comandos de extendesk-host.exe para estos ajustes (sin --status ni --stop-event).
 std::wstring HostArguments(const Settings& s);
 
 // Línea «@ajustes ...» con lo que el host puede cambiar en marcha (calidad, fps, Mbps, códec, sonido, táctil,

@@ -1,6 +1,6 @@
 # windows/app
 
-`desklink.exe`: la app de Extendesk para Windows. Vive en la bandeja (junto al reloj) y maneja `desklink-host.exe`
+`extendesk.exe`: la app de Extendesk para Windows. Vive en la bandeja (junto al reloj) y maneja `extendesk-host.exe`
 sin consola: lo arranca con los ajustes guardados, enseña el estado y explica los errores. Win32 nativo en C++
 (sin .NET ni WinUI): un solo .exe pequeño, sin instalar nada más.
 
@@ -22,7 +22,8 @@ de `src/view_model.cpp`, sin Windows, y lo prueba `tests/test_view_model.cpp`.
   transmitir al abrir, el puerto y **Ver registro** (la salida completa del host, con «Copiar todo»).
 - Casi todo se aplica en marcha: la app manda al host una línea `@ajustes …` por su entrada. El monitor, el puntero
   y el cable USB necesitan reiniciar la transmisión: aparece **Aplicar cambios**. El modo reinicia solo.
-- Se guarda en `%APPDATA%\DeskLink\desklink.ini` (`config=3`; los `.ini` anteriores se pasan solos).
+- Se guarda en `%APPDATA%\Extendesk\extendesk.ini` (`config=3`; los `.ini` anteriores, también el `%APPDATA%\DeskLink\desklink.ini`
+  de antes del nombre Extendesk, se pasan solos).
 - **Errores en claro**: falta el driver, puerto ocupado, la GPU no puede codificar, el monitor ya no existe…
 - Si el host se cae después de funcionar un rato, se vuelve a arrancar solo. Al cerrar la ventana la app sigue en la
   bandeja; para cerrarla del todo: clic derecho en el icono > **Salir** (quita el monitor virtual y el túnel de adb).
@@ -32,7 +33,7 @@ Opciones que solo están en el `.ini`: `port`, `adb` (ruta de adb.exe) y `extra`
 
 ## Cómo se habla con el host
 
-`desklink.exe` lanza `desklink-host.exe` (de la misma carpeta) con las opciones de siempre más:
+`extendesk.exe` lanza `extendesk-host.exe` (de la misma carpeta) con las opciones de siempre más:
 
 - `--status`: además del texto normal, una línea por segundo `@estado enlace=usb|wifi|ninguno ip=… codificados=…
   mbps=… cod_ms=… rtt_ms=… perdidos=… size=AxB fps_obj=… mbps_obj=… codec=… reducido=no|wifi|bateria|carga adb=N
@@ -51,11 +52,11 @@ cmake -S windows/app -B build/app -A x64
 cmake --build build/app --config Release
 ```
 
-Sale en `build/app/Release/desklink.exe`. `ctest --test-dir build/app -C Release` corre las pruebas de la ventana
-(también en Linux: sin Windows solo se compilan las pruebas). Tiene que ir en la misma carpeta que `desklink-host.exe` (y, para el cable
+Sale en `build/app/Release/extendesk.exe`. `ctest --test-dir build/app -C Release` corre las pruebas de la ventana
+(también en Linux: sin Windows solo se compilan las pruebas). Tiene que ir en la misma carpeta que `extendesk-host.exe` (y, para el cable
 USB, `adb.exe`, `AdbWinApi.dll` y `AdbWinUsbApi.dll`). La CI (`windows-app`) publica las dos juntas en el artefacto
-`desklink-windows`.
+`extendesk-windows`.
 
-El icono (`res/desklink.ico`, los dos eslabones de `design/logo/`) sale de `tools/design/gen_logo.py --ico`; la
+El icono (`res/extendesk.ico`, los dos eslabones de `design/logo/`) sale de `tools/design/gen_logo.py --ico`; la
 cabecera de la ventana y la bandeja dibujan el mismo logo con GDI+ (`src/logo.h`), la bandeja en gris (detenido),
 ámbar (esperando), verde (conectado) o rojo (error). Las fuentes del logo (Montserrat) van como recursos.

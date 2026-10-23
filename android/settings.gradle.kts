@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "DeskLink"
+rootProject.name = "Extendesk"
 include(":app")

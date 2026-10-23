@@ -12,7 +12,7 @@
 constexpr UINT WM_HOST_LINE = WM_APP + 2;
 constexpr UINT WM_HOST_EXIT = WM_APP + 3;
 
-// desklink-host.exe como proceso hijo, sin consola. Va dentro de un «job» que lo cierra si la app muere de golpe,
+// extendesk-host.exe como proceso hijo, sin consola. Va dentro de un «job» que lo cierra si la app muere de golpe,
 // y se le pide que pare con un evento con nombre (--stop-event), para que quite el monitor virtual y el túnel de
 // adb antes de salir.
 class HostProcess {

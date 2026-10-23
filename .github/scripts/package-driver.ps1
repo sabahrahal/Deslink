@@ -1,4 +1,4 @@
-# Empaqueta y firma el driver ya compilado (MSBuild) junto con desklink-driver.exe.
+# Empaqueta y firma el driver ya compilado (MSBuild) junto con extendesk-driver.exe.
 # Lo usan windows-driver.yml (paquete suelto) y release.yml (instalador).
 #
 #   package-driver.ps1 -Out pkg
@@ -22,7 +22,7 @@ $inf2cat = "$($ver.FullName)\x86\Inf2Cat.exe"
 
 # Certificado nuevo en cada compilación. La clave privada nunca sale de esta máquina de la CI
 # (no se puede exportar y la máquina se destruye al terminar): nadie puede firmar otra cosa con él.
-$cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=DeskLink Driver $env:GITHUB_RUN_NUMBER" `
+$cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=Extendesk Driver $env:GITHUB_RUN_NUMBER" `
         -CertStoreLocation Cert:\CurrentUser\My -KeyExportPolicy NonExportable -NotAfter (Get-Date).AddYears(5)
 Export-Certificate -Cert $cert -FilePath "$pkg/desklink-idd.cer" -Type CERT | Out-Null
 
@@ -34,7 +34,7 @@ if ($LASTEXITCODE) { throw 'Inf2Cat' }
 if ($LASTEXITCODE) { throw 'signtool (cat)' }
 Remove-Item "Cert:\CurrentUser\My\$($cert.Thumbprint)" -DeleteKey
 
-Copy-Item build/setup/Release/desklink-driver.exe $pkg
+Copy-Item build/setup/Release/extendesk-driver.exe $pkg
 Copy-Item windows/driver/setup/*.bat $pkg
 
 # Hash git del código del driver y de su interfaz: igual en todas las compilaciones mientras no cambie.

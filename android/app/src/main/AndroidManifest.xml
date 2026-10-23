@@ -11,7 +11,7 @@
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:label="Extendesk"
-        android:theme="@style/Theme.DeskLink">
+        android:theme="@style/Theme.Extendesk">
 
         <!-- Desde Android 16, en tablets se ignora la orientación fija. La sesión debe seguir en horizontal (la
              pantalla del PC es apaisada): se mantiene el comportamiento anterior mientras Android lo permita. -->
@@ -28,9 +28,9 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- El PC abre la app al enchufar la tablet: adb shell am start -a com.desklink.action.USB_ATTACHED -->
+            <!-- El PC abre la app al enchufar la tablet: adb shell am start -a app.extendesk.action.USB_ATTACHED -->
             <intent-filter>
-                <action android:name="com.desklink.action.USB_ATTACHED" />
+                <action android:name="app.extendesk.action.USB_ATTACHED" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
@@ -44,6 +44,6 @@
             android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout"
             android:exported="false"
             android:screenOrientation="sensorLandscape"
-            android:theme="@style/Theme.DeskLink.Stream" />
+            android:theme="@style/Theme.Extendesk.Stream" />
     </application>
 </manifest>

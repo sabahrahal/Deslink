@@ -4,10 +4,14 @@
 
 #include <cstdio>
 #include <cwchar>
+#include <vector>
+
+#include "../../common/app_data.h"
 
 namespace {
 
-constexpr wchar_t kSection[] = L"DeskLink";
+constexpr wchar_t kSection[] = L"Extendesk";
+constexpr wchar_t kLegacySection[] = L"DeskLink";
 // 3: el PC elige todo (calidad, sonido, táctil, resolución, fps, Mbps, códec). En la 2 lo elegía la tablet.
 constexpr int kConfigVersion = 3;
 
@@ -29,12 +33,27 @@ void WriteString(const std::wstring& path, const wchar_t* key, const std::wstrin
   WritePrivateProfileStringW(kSection, key, v.c_str(), path.c_str());
 }
 
+// Antes del nombre Extendesk el archivo era desklink.ini, con la sección [DeskLink]: se pasa la primera vez.
+void MigrateLegacyIni(const std::wstring& path, const std::wstring& legacy_path) {
+  if (GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES || !MoveFileW(legacy_path.c_str(), path.c_str())) {
+    return;
+  }
+  std::vector<wchar_t> section(32768);
+  if (GetPrivateProfileSectionW(kLegacySection, section.data(), static_cast<DWORD>(section.size()), path.c_str()) == 0) {
+    return;
+  }
+  WritePrivateProfileSectionW(kSection, section.data(), path.c_str());
+  WritePrivateProfileStringW(kLegacySection, nullptr, nullptr, path.c_str());
+}
+
 }  // namespace
 
 std::wstring SettingsPath() {
-  wchar_t base[MAX_PATH];
-  if (!GetEnvironmentVariableW(L"APPDATA", base, MAX_PATH)) return {};
-  return std::wstring(base) + L"\\DeskLink\\desklink.ini";
+  const std::wstring dir = AppDataDir();
+  if (dir.empty()) return {};
+  const std::wstring path = dir + L"\\extendesk.ini";
+  MigrateLegacyIni(path, dir + L"\\desklink.ini");
+  return path;
 }
 
 bool LoadSettings(Settings* s) {
