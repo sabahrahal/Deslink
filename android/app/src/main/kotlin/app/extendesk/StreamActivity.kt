@@ -193,7 +193,9 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         val wifiModeChanged = p.lowLatencyWifi != profile.lowLatencyWifi
         profile = p
         val adapt = config?.batteryAdapt == true
-        session?.setBatteryProfile(if (adapt && p != governorBase()) p else null)
+        // También el perfil del PC al volver a él: si no, el PC se quedaba con la última petición de bajar y seguía
+        // avisando de la batería aunque ya se hubiera recuperado.
+        session?.setBatteryProfile(if (adapt) p else null)
         session?.setFastDecode(p.fastDecode)
         // Rendimiento sostenido: frecuencias estables (sin tirones por calor) a costa de no dejar bajar del todo.
         window.setSustainedPerformanceMode(p.sustainedPerformance)

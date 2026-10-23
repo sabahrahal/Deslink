@@ -61,21 +61,20 @@ static void TestUsbAndWifiWhileWaiting() {
   in.addresses = L"192.168.1.20";
   const View v = BuildView(in);
   CHECK(v.title == L"Esperando al dispositivo");
-  // Los dos caminos a la vez: cable USB listo y Wi-Fi con la IP.
-  CHECK(v.connection.size() == 2);
+  // Solo lo útil: el cable ya detectado. Las IP de este PC no salen (van al registro).
+  CHECK(v.connection.size() == 1);
   CHECK(Contains(v.connection[0].text, L"Cable USB") && v.connection[0].tone == Tone::kSuccess);
-  CHECK(Contains(v.connection[1].text, L"Wi-Fi") && Contains(v.connection[1].text, L"192.168.1.20"));
-  // Sin dispositivo enchufado: un solo paso, el que diga el dispositivo (no «anclaje» ni «depuración»).
+  CHECK(!Contains(v.connection[0].text, L"192.168"));
+  // Sin dispositivo enchufado no hay nada que decir más allá del texto del estado.
   in.stats[L"adb"] = L"0";
-  CHECK(Contains(BuildView(in).connection[0].text, L"enchufa el dispositivo"));
-  CHECK(!Contains(BuildView(in).connection[0].text, L"depuración"));
+  CHECK(BuildView(in).connection.empty());
   in.stats[L"adb"] = L"1";
   // Se cortó sin avisar: la pantalla extra aguanta unos segundos y la ventana lo cuenta.
   {
     ViewInput g = in;
     g.stats[L"gracia"] = L"12";
     const View gv = BuildView(g);
-    CHECK(gv.title == L"Reconectando…" && Contains(gv.detail, L"12 s"));
+    CHECK(gv.title == L"Reconectando…" && Contains(gv.detail, L"12 s") && gv.connection.empty());
   }
 
   // Falta aceptar la depuración USB: aviso en ámbar.
@@ -84,6 +83,11 @@ static void TestUsbAndWifiWhileWaiting() {
   // Sin red: el Wi-Fi lo dice.
   in.addresses.clear();
   CHECK(BuildView(in).connection[1].tone == Tone::kWarning);
+  // Parado, iniciando o con error: nada de cable ni Wi-Fi en la tarjeta.
+  for (State st : {State::kStopped, State::kStarting, State::kError}) {
+    in.state = st;
+    CHECK(BuildView(in).connection.empty());
+  }
 }
 
 static void TestConnectedShowsStatsAndNotice() {
@@ -93,7 +97,8 @@ static void TestConnectedShowsStatsAndNotice() {
               {L"size", L"2944x1840"}, {L"reducido", L"no"}};
   View v = BuildView(in);
   CHECK(v.title == L"Conectado por cable USB" && v.dot == Tone::kSuccess);
-  CHECK(v.stats == L"120 fps · 48,2 Mbps · 3 ms");
+  // Sin cifras en la tarjeta: fps, Mbps y retardo van al registro.
+  CHECK(!Contains(v.title + v.detail, L"fps") && !Contains(v.title + v.detail, L"Mbps"));
   CHECK(v.notice.text.empty());
   CHECK(v.connection.empty());  // conectado no hace falta
   CHECK(v.primary == L"Detener" && v.primary_stop);
@@ -102,8 +107,14 @@ static void TestConnectedShowsStatsAndNotice() {
   in.stats[L"ip"] = L"192.168.1.33";
   in.stats[L"reducido"] = L"wifi";
   v = BuildView(in);
-  CHECK(v.title == L"Conectado por Wi-Fi" && Contains(v.detail, L"192.168.1.33"));
+  CHECK(v.title == L"Conectado por Wi-Fi" && !Contains(v.detail, L"192.168.1.33"));
   CHECK(Contains(v.notice.text, L"Wi-Fi") && v.notice.tone == Tone::kWarning);
+  // La batería: el aviso dice qué hacer. Con la imagen quieta no se avisa (no hay fluidez que perder).
+  in.stats[L"reducido"] = L"bateria";
+  CHECK(Contains(BuildView(in).notice.text, L"cargador"));
+  in.stats[L"codificados"] = L"0";
+  CHECK(BuildView(in).notice.text.empty());
+  in.stats[L"codificados"] = L"119.6";
   in.stats[L"reducido"] = L"carga";
   CHECK(Contains(BuildView(in).notice.text, L"gráfica"));
   // Que el dispositivo decodifica lento es técnico: no sale en la ventana, va al registro.
@@ -238,8 +249,8 @@ static void TestLanguages() {
   in.state = State::kConnected;
   in.stats = {{L"enlace", L"wifi"}, {L"ip", L"192.168.1.33"}, {L"codificados", L"59.6"}, {L"mbps", L"48.2"}};
   View v = BuildView(in);
-  CHECK(v.title == L"Connected over Wi-Fi" && v.detail == L"Device 192.168.1.33.");
-  CHECK(v.stats == L"60 fps · 48.2 Mbps");  // punto decimal en inglés
+  CHECK(v.title == L"Connected over Wi-Fi" && Contains(v.detail, L"same network"));
+  CHECK(BuildDiagnostics(in.stats).stats == L"48.2 Mbps");  // punto decimal en inglés
   CHECK(v.primary == L"Stop");
   CHECK((Get(v.main, "calidad").options == std::vector<std::wstring>{L"High", L"Balanced", L"Saver"}));
   CHECK(HelpUrl("calidad") == L"https://www.extendesk.app/en/help#calidad");  // las mismas secciones en cada idioma

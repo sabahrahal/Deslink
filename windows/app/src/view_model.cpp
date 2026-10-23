@@ -125,7 +125,7 @@ View BuildView(const ViewInput& in) {
         v.detail = Tr("st_usb_detail");
       } else {
         v.title = Tr("st_wifi");
-        v.detail = Tr("st_wifi_detail", {Stat(in, L"ip")});
+        v.detail = Tr("st_wifi_detail");
       }
       v.dot = Tone::kSuccess;
       break;
@@ -147,25 +147,20 @@ View BuildView(const ViewInput& in) {
   }
   if (!in.error.empty() && (in.state == State::kError || in.state == State::kRestarting)) v.error = in.error;
 
-  if (connected) {
-    const double fps = StatNum(in, L"codificados");
-    v.stats = fps < 1 ? Tr("still_image") : Fmt(L"%.0f fps", fps);
-    v.stats += L" · " + Fmt(L"%.1f Mbps", StatNum(in, L"mbps"));
-    if (StatNum(in, L"rtt_ms") > 0) v.stats += L" · " + Fmt(L"%.0f ms", StatNum(in, L"rtt_ms"));
-    // Lo que el usuario puede entender y le explica por qué baja la imagen. Los fps de cada etapa y el aviso del
-    // decodificador del dispositivo van al registro (BuildDiagnostics).
+  // Conectado, la tarjeta solo dice por dónde y, si la imagen va por debajo, por qué y qué hacer. Las cifras (fps,
+  // Mbps, retardo, fps de cada etapa) y los avisos técnicos van al registro (BuildDiagnostics).
+  // Con la imagen quieta no se avisa de nada: no hay fluidez que perder y el aviso solo despistaba.
+  if (connected && StatNum(in, L"codificados") >= 1) {
     const std::wstring reduced = Stat(in, L"reducido");
     if (reduced == L"wifi") v.notice = {Tr("notice_wifi"), Tone::kWarning};
     else if (reduced == L"bateria") v.notice = {Tr("notice_battery"), Tone::kWarning};
     else if (reduced == L"carga") v.notice = {Tr("notice_load"), Tone::kWarning};
   }
 
-  // Por dónde puede llegar la tablet: el cable USB y el Wi-Fi, los dos a la vez si los hay.
-  if (in.state == State::kWaiting || in.state == State::kStarting || in.state == State::kStopped ||
-      in.state == State::kError) {
-    if (in.state != State::kWaiting || in.stats.find(L"adb") == in.stats.end()) {
-      v.connection.push_back({Tr("usb_on_start"), Tone::kSecondary});
-    } else {
+  // Esperando: solo lo que el usuario tiene que saber o hacer para conectar (el cable ya detectado, aceptar la
+  // depuración USB, que falte adb o que el PC no tenga red). Las IP de este PC van al registro.
+  if (in.state == State::kWaiting && StatInt(in, L"gracia", 0) <= 0) {
+    if (in.stats.find(L"adb") != in.stats.end()) {
       const int ready = StatInt(in, L"adb", 0);
       const int pending = StatInt(in, L"adb_pendientes", 0);
       if (ready < 0) {
@@ -174,13 +169,9 @@ View BuildView(const ViewInput& in) {
         v.connection.push_back({Tr("usb_accept"), Tone::kWarning});
       } else if (ready > 0) {
         v.connection.push_back({Tr("usb_ready"), Tone::kSuccess});
-      } else {
-        v.connection.push_back({Tr("usb_plug"), Tone::kSecondary});
       }
     }
-    v.connection.push_back(in.addresses.empty()
-                               ? Line{Tr("wifi_no_network"), Tone::kWarning}
-                               : Line{Tr("wifi_same", {in.addresses}), Tone::kSecondary});
+    if (in.addresses.empty()) v.connection.push_back({Tr("wifi_no_network"), Tone::kWarning});
   }
 
   switch (in.state) {

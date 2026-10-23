@@ -66,7 +66,9 @@ gp::Color C(COLORREF c, BYTE alpha = 255) { return gp::Color(alpha, GetRValue(c)
 constexpr int kClientW = 540;  // ancho del área cliente a 96 ppp al abrirla por primera vez; el alto sale del contenido
 constexpr int kMinClientW = 480;  // lo menos que se puede estrechar o encoger la ventana
 constexpr int kMinClientH = 360;
-constexpr float kMaxColumn = 760;  // más ancha, la columna se queda en el centro (ventana maximizada)
+// Lo más ancha que se puede hacer: más, las filas se separan tanto que cuesta leerlas. De alto, como mucho lo que
+// mide el contenido (no queda hueco vacío debajo) y la pantalla.
+constexpr int kMaxClientW = 720;
 constexpr ULONGLONG kDiagnosticsEveryMs = 10000;  // cada cuánto van al registro los fps por etapa
 constexpr float kMargin = 24;
 constexpr float kPad = 16;  // relleno dentro de las tarjetas
@@ -130,7 +132,8 @@ struct App {
   bool repairing_driver = false;
   bool autostart = false;
   std::vector<std::wstring> monitors;
-  std::wstring addresses;
+  std::wstring addresses;      // IP de este PC sin los adaptadores virtuales (vacía: sin red)
+  std::wstring all_addresses;  // todas, para el registro
   DirectWifi direct_wifi;
   bool direct_wifi_busy = false;
 } g;
@@ -405,12 +408,29 @@ void ShowLog() {
 // ---------------------------------------------------------------------------------------------------------------
 // Estado.
 
+// Adaptadores que no llevan a la red del dispositivo: los de WSL, Hyper-V, máquinas virtuales y VPN.
+bool IsVirtualAdapter(const std::wstring& ip_and_name) {
+  for (const wchar_t* s : {L"vEthernet", L"WSL", L"Hyper-V", L"VirtualBox", L"VMware", L"Loopback"}) {
+    if (ip_and_name.find(s) != std::wstring::npos) return true;
+  }
+  return false;
+}
+
+// Las IP de este PC ya no salen en la ventana: van al registro cuando cambian (con el dispositivo se conecta solo;
+// la IP solo hace falta para escribirla a mano en él). La ventana solo avisa si no hay ninguna red.
 void UpdateAddresses() {
   const auto ips = LocalAddresses();
-  std::wstring text;
-  for (size_t i = 0; i < ips.size() && i < 2; ++i) text += (i ? L", " : L"") + ips[i];
-  if (text != g.addresses) {
-    g.addresses = text;
+  std::wstring all, real;
+  for (const auto& ip : ips) {
+    all += (all.empty() ? L"" : L", ") + ip;
+    if (!IsVirtualAdapter(ip)) real += (real.empty() ? L"" : L", ") + ip;
+  }
+  if (all != g.all_addresses) {
+    g.all_addresses = all;
+    AddLog(L"IP de este PC: " + (all.empty() ? std::wstring(L"ninguna") : all));
+  }
+  if (real != g.addresses) {
+    g.addresses = real;
     Redraw();
   }
 }
@@ -1052,12 +1072,8 @@ float StatusContent(gp::Graphics& gr, const View& v, bool draw, float x, float t
   if (draw) Text(gr, v.detail, gp::RectF(ix, y, iw, dh + F(2)), *body, P().text_secondary, Align::kLeft, true);
   y += dh + F(4);
 
-  if (!v.stats.empty()) {
-    y += F(4);
-    if (draw) Text(gr, v.stats, gp::RectF(ix, y, iw, F(22)), *body, P().text);
-    y += F(24);
-  }
   if (!v.notice.text.empty()) {
+    y += F(4);
     const float nh = TextHeight(gr, v.notice.text, *note, iw);
     if (draw) Text(gr, v.notice.text, gp::RectF(ix, y, iw, nh + F(2)), *note, ToneColor(v.notice.tone), Align::kLeft, true);
     y += nh + F(4);
@@ -1144,7 +1160,10 @@ float RowsContent(gp::Graphics& gr, const std::vector<Row>& rows, bool draw, flo
           const std::string id = r.id;
           const float menu_x = ix + iw, menu_y = row_top + F(46);
           const int hit = AddHit(row, [id, menu_x, menu_y] { OnChoice(id, menu_x, menu_y); });
-          if (Hovered(hit)) FillRound(gr, gp::RectF(x + F(4), row_top + F(3), w - F(8), F(46)), F(6), P().surface_secondary);
+          if (Hovered(hit)) {
+            FillRound(gr, gp::RectF(x + F(6), row_top + F(4), w - F(12), F(44)), F(tokens::kControlRadius),
+                      P().surface_secondary);
+          }
           const float value_w = std::min(iw * 0.55f, TextWidth(gr, r.value, *body) + F(4));
           Text(gr, r.label, gp::RectF(ix, y, iw - value_w - F(28), F(32)), *body, P().text);
           Text(gr, r.value, gp::RectF(ix + iw - value_w - F(18), y, value_w, F(32)), *body, P().text_secondary,
@@ -1186,8 +1205,12 @@ float RowsContent(gp::Graphics& gr, const std::vector<Row>& rows, bool draw, flo
         break;
       }
       case Control::kLink: {
+        // La fila entera se pulsa, con su explicación: el resalte la cubre toda, dentro de la tarjeta y con las
+        // esquinas redondeadas (antes era de alto fijo y cortaba la explicación por la mitad).
+        const float hint_h = r.hint.empty() ? 0 : TextHeight(gr, r.hint, *note, iw);
+        const float row_h = F(10) + F(32) + hint_h + F(10);
         if (draw) {
-          const int hit = AddHit(gp::RectF(x, row_top, w, F(52)),
+          const int hit = AddHit(gp::RectF(x, row_top, w, row_h),
                                  r.id == "resolucion" ? std::function<void()>(OpenDisplaySettings)
                                  : r.id == "ayuda"    ? std::function<void()>([] { OpenHelp(""); })
                                                       : std::function<void()>(ShowLog));
@@ -1195,7 +1218,10 @@ float RowsContent(gp::Graphics& gr, const std::vector<Row>& rows, bool draw, flo
             Text(gr, r.label, gp::RectF(ix, y, iw, F(32)), *body, Hovered(hit) ? P().text : P().accent);
           } else {
             // Como una fila de ajuste: nombre a la izquierda y lo de ahora a la derecha, en el acento (se pulsa).
-            if (Hovered(hit)) FillRound(gr, gp::RectF(x + F(4), row_top + F(3), w - F(8), F(46)), F(6), P().surface_secondary);
+            if (Hovered(hit)) {
+              FillRound(gr, gp::RectF(x + F(6), row_top + F(4), w - F(12), row_h - F(8)), F(tokens::kControlRadius),
+                        P().surface_secondary);
+            }
             const float value_w = std::min(iw * 0.55f, TextWidth(gr, r.value, *body) + F(4));
             Text(gr, r.label, gp::RectF(ix, y, iw - value_w - F(28), F(32)), *body, P().text);
             Text(gr, r.value, gp::RectF(ix + iw - value_w - F(18), y, value_w, F(32)), *body, P().accent, Align::kRight);
@@ -1204,9 +1230,8 @@ float RowsContent(gp::Graphics& gr, const std::vector<Row>& rows, bool draw, flo
         }
         y += F(32);
         if (!r.hint.empty()) {
-          const float hh = TextHeight(gr, r.hint, *note, iw);
-          if (draw) Text(gr, r.hint, gp::RectF(ix, y, iw, hh + F(2)), *note, P().text_secondary, Align::kLeft, true);
-          y += hh;
+          if (draw) Text(gr, r.hint, gp::RectF(ix, y, iw, hint_h + F(2)), *note, P().text_secondary, Align::kLeft, true);
+          y += hint_h;
         }
         break;
       }
@@ -1226,8 +1251,7 @@ void Paint(gp::Graphics& gr, float width) {
   gr.TranslateTransform(0.0f, -g.scroll);
 
   const View v = BuildView(Input());
-  const float w = std::min(width - F(2 * kMargin), F(kMaxColumn));
-  const float x = std::floor((width - w) / 2);
+  const float x = F(kMargin), w = width - F(2 * kMargin);
   float y = F(20);
 
   auto large = MakeFont(tokens::kLargeTitlePx, true, tokens::kLargeTitleBrand, tokens::kLargeTitleWeight);
@@ -1353,10 +1377,11 @@ void OnPaint(HWND hwnd) {
 
   // La ventana toma el alto del contenido sin lo avanzado, sin pasar del alto de la pantalla: al abrir «Configuración
   // avanzada» no crece ni se mueve (antes saltaba hacia arriba); se desplaza con la rueda hasta ella.
-  // Si el usuario le cambió el tamaño (o está maximizada), se queda con el suyo y el contenido se desplaza.
-  const int want = g.user_sized || IsZoomed(hwnd)
-                       ? h
-                       : std::min(static_cast<int>(std::ceil(g.base_bottom)), MaxClientHeight(hwnd));
+  // Si el usuario le cambió el tamaño, se queda con el suyo (sin pasar del alto del contenido: al plegar
+  // «Configuración avanzada» encoge) y el contenido se desplaza.
+  const int content_h = std::max(static_cast<int>(std::ceil(g.content_bottom)), static_cast<int>(F(kMinClientH)));
+  const int want = g.user_sized ? std::min(h, content_h)
+                                : std::min(static_cast<int>(std::ceil(g.base_bottom)), MaxClientHeight(hwnd));
   if (want > 0 && std::abs(want - h) > 1) {
     RECT wr{0, 0, w, want};
     AdjustWindowRectEx(&wr, GetWindowLongW(hwnd, GWL_STYLE), FALSE, GetWindowLongW(hwnd, GWL_EXSTYLE));
@@ -1465,6 +1490,10 @@ LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
       AdjustWindowRectEx(&r, GetWindowLongW(hwnd, GWL_STYLE), FALSE, GetWindowLongW(hwnd, GWL_EXSTYLE));
       auto* mmi = reinterpret_cast<MINMAXINFO*>(lp);
       mmi->ptMinTrackSize = {r.right - r.left, r.bottom - r.top};
+      const int content_h = std::max(static_cast<int>(std::ceil(g.content_bottom)), static_cast<int>(F(kMinClientH)));
+      RECT big{0, 0, static_cast<LONG>(F(kMaxClientW)), static_cast<LONG>(content_h)};
+      AdjustWindowRectEx(&big, GetWindowLongW(hwnd, GWL_STYLE), FALSE, GetWindowLongW(hwnd, GWL_EXSTYLE));
+      mmi->ptMaxTrackSize = {big.right - big.left, std::max(big.bottom - big.top, r.bottom - r.top)};
       return 0;
     }
     case WM_SIZING:  // solo llega cuando el usuario arrastra un borde
@@ -1472,7 +1501,7 @@ LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
       break;
     case WM_EXITSIZEMOVE:
       // Se recuerda el tamaño que dejó el usuario (a 96 ppp) para la próxima vez.
-      if (g.user_sized && !IsZoomed(hwnd)) {
+      if (g.user_sized) {
         RECT rc;
         GetClientRect(hwnd, &rc);
         g.settings.window_w = static_cast<int>(std::lround(rc.right / g.scale));
@@ -1714,8 +1743,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd_line, int) {
   g.autostart = StartsWithWindows();
   g.monitors = MonitorNames();
 
-  // Se puede agrandar y maximizar; el contenido se adapta al ancho y se desplaza si no cabe de alto.
-  const DWORD style = WS_OVERLAPPEDWINDOW;
+  // Se puede agrandar hasta cierto tamaño (WM_GETMINMAXINFO), sin maximizar; el contenido se adapta al ancho.
+  const DWORD style = WS_OVERLAPPEDWINDOW & ~WS_MAXIMIZEBOX;
   RECT r{0, 0, static_cast<LONG>(F(kClientW)), static_cast<LONG>(F(640))};
   AdjustWindowRectEx(&r, style, FALSE, 0);
   g.wnd = CreateWindowExW(0, kMainClass, kAppName, style, CW_USEDEFAULT, CW_USEDEFAULT, r.right - r.left,
@@ -1749,8 +1778,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd_line, int) {
     ReleaseDC(g.wnd, screen);
     // El tamaño que dejó el usuario la última vez o, si no hay, el del contenido.
     g.user_sized = g.settings.window_w > 0 && g.settings.window_h > 0;
-    const int client_w = g.user_sized ? std::max(static_cast<int>(F(static_cast<float>(g.settings.window_w))),
-                                                 static_cast<int>(F(kMinClientW)))
+    const int client_w = g.user_sized ? std::clamp(static_cast<int>(F(static_cast<float>(g.settings.window_w))),
+                                                   static_cast<int>(F(kMinClientW)), static_cast<int>(F(kMaxClientW)))
                                       : static_cast<int>(F(kClientW));
     const int client_h = std::min(g.user_sized ? static_cast<int>(F(static_cast<float>(g.settings.window_h)))
                                                : static_cast<int>(std::ceil(g.base_bottom)),
