@@ -1,10 +1,10 @@
-// desklink-driver: instala o desinstala el monitor virtual de DeskLink.
+// extendesk-driver: instala o desinstala el monitor virtual de Extendesk.
 //
-//   desklink-driver instalar      (como administrador)
-//   desklink-driver desinstalar   (como administrador)
-//   desklink-driver estado        (0 si el monitor virtual está instalado y funcionando)
+//   extendesk-driver instalar      (como administrador)
+//   extendesk-driver desinstalar   (como administrador)
+//   extendesk-driver estado        (0 si el monitor virtual está instalado y funcionando)
 //
-// Con --sin-pausa no espera a Enter al terminar (lo usa el instalador de DeskLink, que lo lanza sin ventana).
+// Con --sin-pausa no espera a Enter al terminar (lo usa el instalador de Extendesk, que lo lanza sin ventana).
 //
 // Instalar hace tres cosas: confía en el certificado con el que se firmó el driver (desklink-idd.cer,
 // en los almacenes «Entidades de certificación raíz de confianza» y «Editores de confianza» del equipo),
@@ -18,10 +18,11 @@
 #include <wincrypt.h>
 
 #include <cstdio>
+#include <initializer_list>
 #include <string>
 #include <vector>
 
-#include "../include/desklink_idd.h"
+#include "../include/extendesk_idd.h"
 
 namespace {
 
@@ -52,15 +53,18 @@ bool ReadFileBytes(const std::wstring& path, std::vector<BYTE>* out) {
   return ok;
 }
 
-// Certificados cuyo sujeto es «DeskLink...». Se usan para quitar los de instalaciones anteriores.
-void RemoveDeskLinkCerts(const wchar_t* store_name) {
+// Certificados del driver: sujeto «Extendesk Driver...» o, los de antes del nombre Extendesk, «DeskLink Driver...».
+// Se usan para quitar los de instalaciones anteriores.
+void RemoveDriverCerts(const wchar_t* store_name) {
   HCERTSTORE store = CertOpenStore(CERT_STORE_PROV_SYSTEM_W, 0, 0, CERT_SYSTEM_STORE_LOCAL_MACHINE, store_name);
   if (!store) return;
-  PCCERT_CONTEXT cert = nullptr;
-  while ((cert = CertFindCertificateInStore(store, X509_ASN_ENCODING, 0, CERT_FIND_SUBJECT_STR_W,
-                                            L"DeskLink Driver", cert)) != nullptr) {
-    PCCERT_CONTEXT dup = CertDuplicateCertificateContext(cert);
-    CertDeleteCertificateFromStore(dup);  // libera dup
+  for (const wchar_t* subject : {L"Extendesk Driver", L"DeskLink Driver"}) {
+    PCCERT_CONTEXT cert = nullptr;
+    while ((cert = CertFindCertificateInStore(store, X509_ASN_ENCODING, 0, CERT_FIND_SUBJECT_STR_W, subject,
+                                              cert)) != nullptr) {
+      PCCERT_CONTEXT dup = CertDuplicateCertificateContext(cert);
+      CertDeleteCertificateFromStore(dup);  // libera dup
+    }
   }
   CertCloseStore(store, 0);
 }
@@ -80,7 +84,7 @@ bool AddCert(const std::vector<BYTE>& der, const wchar_t* store_name) {
 
 // Recorre los dispositivos (también los que no están conectados) con nuestro id de hardware.
 template <typename Fn>
-int ForEachDeskLinkDevice(Fn fn) {
+int ForEachDriverDevice(Fn fn) {
   HDEVINFO set = SetupDiGetClassDevsW(nullptr, nullptr, nullptr, DIGCF_ALLCLASSES);
   if (set == INVALID_HANDLE_VALUE) return 0;
   int found = 0;
@@ -92,7 +96,7 @@ int ForEachDeskLinkDevice(Fn fn) {
       continue;
     }
     for (const wchar_t* id = ids; *id; id += wcslen(id) + 1) {
-      if (_wcsicmp(id, DESKLINK_IDD_HARDWARE_ID) == 0) {
+      if (_wcsicmp(id, EXTENDESK_IDD_HARDWARE_ID) == 0) {
         ++found;
         fn(set, &dev);
         break;
@@ -107,7 +111,7 @@ int ForEachDeskLinkDevice(Fn fn) {
 // dispositivos (p. ej. 52: firma no aceptada) ayuda a saber por qué.
 int Status() {
   int ok = 0;
-  const int found = ForEachDeskLinkDevice([&](HDEVINFO, SP_DEVINFO_DATA* dev) {
+  const int found = ForEachDriverDevice([&](HDEVINFO, SP_DEVINFO_DATA* dev) {
     ULONG status = 0, problem = 0;
     if (CM_Get_DevNode_Status(&status, &problem, dev->DevInst, 0) != CR_SUCCESS) {
       std::printf("Dispositivo presente pero desconectado.\n");
@@ -140,12 +144,12 @@ int Install() {
   }
 
   std::printf("1/3 Confiando en el certificado del driver...\n");
-  RemoveDeskLinkCerts(L"Root");
-  RemoveDeskLinkCerts(L"TrustedPublisher");
+  RemoveDriverCerts(L"Root");
+  RemoveDriverCerts(L"TrustedPublisher");
   if (!AddCert(der, L"Root") || !AddCert(der, L"TrustedPublisher")) return 1;
 
   std::printf("2/3 Creando el dispositivo del monitor virtual...\n");
-  if (ForEachDeskLinkDevice([](HDEVINFO, SP_DEVINFO_DATA*) {}) == 0) {
+  if (ForEachDriverDevice([](HDEVINFO, SP_DEVINFO_DATA*) {}) == 0) {
     GUID class_guid;
     wchar_t class_name[MAX_CLASS_NAME_LEN];
     if (!SetupDiGetINFClassW(inf.c_str(), &class_guid, class_name, MAX_CLASS_NAME_LEN, nullptr)) {
@@ -154,7 +158,7 @@ int Install() {
     }
     HDEVINFO set = SetupDiCreateDeviceInfoList(&class_guid, nullptr);
     SP_DEVINFO_DATA dev{sizeof(dev)};
-    const wchar_t hwid[] = DESKLINK_IDD_HARDWARE_ID L"\0";
+    const wchar_t hwid[] = EXTENDESK_IDD_HARDWARE_ID L"\0";
     bool ok = set != INVALID_HANDLE_VALUE &&
               SetupDiCreateDeviceInfoW(set, class_name, &class_guid, nullptr, nullptr, DICD_GENERATE_ID, &dev) &&
               SetupDiSetDeviceRegistryPropertyW(set, &dev, SPDRP_HARDWAREID, reinterpret_cast<const BYTE*>(hwid),
@@ -170,7 +174,7 @@ int Install() {
 
   std::printf("3/3 Instalando el driver...\n");
   BOOL reboot = FALSE;
-  if (!UpdateDriverForPlugAndPlayDevicesW(nullptr, DESKLINK_IDD_HARDWARE_ID, inf.c_str(), INSTALLFLAG_FORCE, &reboot)) {
+  if (!UpdateDriverForPlugAndPlayDevicesW(nullptr, EXTENDESK_IDD_HARDWARE_ID, inf.c_str(), INSTALLFLAG_FORCE, &reboot)) {
     const DWORD error = GetLastError();
     PrintError("no se pudo instalar el driver", error);
     if (error == static_cast<DWORD>(TRUST_E_NOSIGNATURE) || error == static_cast<DWORD>(ERROR_INVALID_DATA) ||
@@ -179,7 +183,7 @@ int Install() {
     }
     return 1;
   }
-  std::printf("\nListo. El monitor virtual aparece cuando arrancas desklink-host con --virtual.\n");
+  std::printf("\nListo. El monitor virtual aparece cuando arrancas extendesk-host con --virtual.\n");
   if (reboot) std::printf("Windows pide reiniciar para terminar la instalación.\n");
   Status();
   return 0;
@@ -188,7 +192,7 @@ int Install() {
 int Uninstall() {
   std::printf("1/3 Quitando el dispositivo...\n");
   bool reboot_needed = false;
-  const int removed = ForEachDeskLinkDevice([&](HDEVINFO set, SP_DEVINFO_DATA* dev) {
+  const int removed = ForEachDriverDevice([&](HDEVINFO set, SP_DEVINFO_DATA* dev) {
     BOOL reboot = FALSE;
     if (!DiUninstallDevice(nullptr, set, dev, 0, &reboot)) {
       PrintError("no se pudo quitar el dispositivo", GetLastError());
@@ -209,10 +213,10 @@ int Uninstall() {
   if (reboot) reboot_needed = true;
 
   std::printf("3/3 Quitando el certificado...\n");
-  RemoveDeskLinkCerts(L"Root");
-  RemoveDeskLinkCerts(L"TrustedPublisher");
+  RemoveDriverCerts(L"Root");
+  RemoveDriverCerts(L"TrustedPublisher");
 
-  std::printf("\nListo, DeskLink ya no tiene nada instalado en Windows.\n");
+  std::printf("\nListo, Extendesk ya no tiene nada instalado en Windows.\n");
   if (reboot_needed) std::printf("Windows pide reiniciar para terminar.\n");
   return 0;
 }
@@ -221,8 +225,8 @@ int Run(int argc, wchar_t** argv) {
   const std::wstring cmd = argc > 1 ? argv[1] : L"";
   if (cmd == L"estado") return Status();
   if (cmd != L"instalar" && cmd != L"desinstalar") {
-    std::printf("Uso: desklink-driver instalar | desinstalar   (como administrador)\n"
-                "     desklink-driver estado\n");
+    std::printf("Uso: extendesk-driver instalar | desinstalar   (como administrador)\n"
+                "     extendesk-driver estado\n");
     return 2;
   }
   if (!IsUserAnAdmin()) {

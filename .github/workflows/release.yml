@@ -37,13 +37,14 @@ jobs:
         working-directory: .
       - name: Clave de firma
         # Si existe el secreto DESKLINK_KEYSTORE_B64 (el .jks en base64) se firma con él; si no, con
-        # android/keystore/desklink-dev.jks (ver android/keystore/README.md).
+        # android/keystore/desklink-dev.jks (ver android/keystore/README.md). Los secretos DESKLINK_* conservan el
+        # nombre antiguo: están guardados en los ajustes del repositorio.
         env:
           KEYSTORE_B64: ${{ secrets.DESKLINK_KEYSTORE_B64 }}
         run: |
           if [ -n "$KEYSTORE_B64" ]; then
-            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/desklink.jks"
-            echo "DESKLINK_KEYSTORE=$RUNNER_TEMP/desklink.jks" >> "$GITHUB_ENV"
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/extendesk.jks"
+            echo "EXTENDESK_KEYSTORE=$RUNNER_TEMP/extendesk.jks" >> "$GITHUB_ENV"
             echo "Firma: secreto DESKLINK_KEYSTORE_B64"
           elif [ -f keystore/desklink-dev.jks ]; then
             echo "Firma: android/keystore/desklink-dev.jks"
@@ -53,10 +54,10 @@ jobs:
       - name: APK firmada
         env:
           # Siempre sube: cada APK se instala encima de la anterior.
-          DESKLINK_VERSION_CODE: ${{ github.run_number }}
-          DESKLINK_VERSION_NAME: ${{ env.VERSION }}
-          DESKLINK_KEYSTORE_PASSWORD: ${{ secrets.DESKLINK_KEYSTORE_PASSWORD || 'desklink-dev' }}
-          DESKLINK_KEY_PASSWORD: ${{ secrets.DESKLINK_KEY_PASSWORD || secrets.DESKLINK_KEYSTORE_PASSWORD || 'desklink-dev' }}
+          EXTENDESK_VERSION_CODE: ${{ github.run_number }}
+          EXTENDESK_VERSION_NAME: ${{ env.VERSION }}
+          EXTENDESK_KEYSTORE_PASSWORD: ${{ secrets.DESKLINK_KEYSTORE_PASSWORD || 'desklink-dev' }}
+          EXTENDESK_KEY_PASSWORD: ${{ secrets.DESKLINK_KEY_PASSWORD || secrets.DESKLINK_KEYSTORE_PASSWORD || 'desklink-dev' }}
         run: |
           # Las pruebas corren en la variante debug: las de pantalla (Robolectric) necesitan la actividad de pruebas de
           # Compose, que solo va en debug para no meterla en la APK publicada. La release no tiene código propio.
@@ -109,7 +110,7 @@ jobs:
           New-Item -ItemType Directory -Force "$stage/host", "$stage/adb", "$stage/tools" | Out-Null
           # Todo lo que deje el host junto a su .exe (si un día trae DLL propias, van también).
           Get-ChildItem build/host/Release -File | Where-Object Extension -in '.exe', '.dll' | Copy-Item -Destination "$stage/host"
-          # La app de bandeja (desklink.exe), si existe: va en la misma carpeta que el host.
+          # La app de bandeja (extendesk.exe), si existe: va en la misma carpeta que el host.
           if (Test-Path build/app/Release) {
             Get-ChildItem build/app/Release -File | Where-Object Extension -in '.exe', '.dll' | Copy-Item -Destination "$stage/host"
           }
@@ -132,7 +133,7 @@ jobs:
           }
           $stage = (Resolve-Path build/installer).Path
           $driverId = Get-Content -Raw "$stage/driver/driver-id.txt"
-          & $iscc "/DAppVersion=$env:VERSION" "/DStage=$stage" "/DDriverId=$driverId" "/O$PWD" windows/installer/desklink.iss
+          & $iscc "/DAppVersion=$env:VERSION" "/DStage=$stage" "/DDriverId=$driverId" "/O$PWD" windows/installer/extendesk.iss
           if ($LASTEXITCODE) { throw 'ISCC' }
           Get-Item Extendesk-Setup.exe
 

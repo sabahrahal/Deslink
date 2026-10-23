@@ -7,28 +7,28 @@
 #include <cstdio>
 #include <vector>
 
-#include "../../driver/include/desklink_idd.h"
+#include "../../driver/include/extendesk_idd.h"
 
 namespace {
 
 std::wstring FindDevicePath() {
   ULONG size = 0;
-  if (CM_Get_Device_Interface_List_SizeW(&size, const_cast<GUID*>(&GUID_DEVINTERFACE_DESKLINK_IDD), nullptr,
+  if (CM_Get_Device_Interface_List_SizeW(&size, const_cast<GUID*>(&GUID_DEVINTERFACE_EXTENDESK_IDD), nullptr,
                                          CM_GET_DEVICE_INTERFACE_LIST_PRESENT) != CR_SUCCESS ||
       size <= 1) {
     return {};
   }
   std::vector<wchar_t> list(size);
-  if (CM_Get_Device_Interface_ListW(const_cast<GUID*>(&GUID_DEVINTERFACE_DESKLINK_IDD), nullptr, list.data(), size,
+  if (CM_Get_Device_Interface_ListW(const_cast<GUID*>(&GUID_DEVINTERFACE_EXTENDESK_IDD), nullptr, list.data(), size,
                                     CM_GET_DEVICE_INTERFACE_LIST_PRESENT) != CR_SUCCESS) {
     return {};
   }
   return list.data();  // la primera de la lista
 }
 
-// Busca el monitor llamado «DeskLink». Si está activo, devuelve el nombre GDI de su salida;
-// si existe pero Windows no lo usa (p. ej. modo «duplicar»), lo indica en *inactive.
-std::wstring FindDeskLinkSource(bool* inactive) {
+// Busca el monitor llamado «Extendesk» (o «DeskLink», el de un driver de antes del nombre nuevo). Si está activo,
+// devuelve el nombre GDI de su salida; si existe pero Windows no lo usa (p. ej. modo «duplicar»), lo indica en *inactive.
+std::wstring FindExtendeskSource(bool* inactive) {
   *inactive = false;
   UINT32 path_count = 0, mode_count = 0;
   if (GetDisplayConfigBufferSizes(QDC_ALL_PATHS, &path_count, &mode_count) != ERROR_SUCCESS) return {};
@@ -47,7 +47,10 @@ std::wstring FindDeskLinkSource(bool* inactive) {
     target.header.adapterId = p.targetInfo.adapterId;
     target.header.id = p.targetInfo.id;
     if (DisplayConfigGetDeviceInfo(&target.header) != ERROR_SUCCESS) continue;
-    if (wcscmp(target.monitorFriendlyDeviceName, DESKLINK_MONITOR_NAME) != 0) continue;
+    if (wcscmp(target.monitorFriendlyDeviceName, EXTENDESK_MONITOR_NAME) != 0 &&
+        wcscmp(target.monitorFriendlyDeviceName, EXTENDESK_LEGACY_MONITOR_NAME) != 0) {
+      continue;
+    }
     if (!(p.flags & DISPLAYCONFIG_PATH_ACTIVE)) {
       *inactive = true;
       continue;
@@ -74,7 +77,7 @@ bool VirtualDisplay::Plug(UINT width, UINT height, UINT refresh_hz, UINT mode_w,
   if (path.empty()) {
     std::fprintf(stderr,
                  "Error: el driver del monitor virtual no está instalado.\n"
-                 "Ejecuta instalar-driver.bat (del paquete desklink-driver-windows) o arranca sin --virtual.\n");
+                 "Ejecuta instalar-driver.bat (del paquete extendesk-driver-windows) o arranca sin --virtual.\n");
     return false;
   }
   device_ = CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
@@ -89,11 +92,11 @@ bool VirtualDisplay::Plug(UINT width, UINT height, UINT refresh_hz, UINT mode_w,
     return false;
   }
 
-  const DeskLinkPlugArgs args{width, height, refresh_hz};
+  const ExtendeskPlugArgs args{width, height, refresh_hz};
   bool plugged = false;
   // Justo después de arrancar Windows el adaptador puede tardar un poco en estar listo.
   for (int i = 0; i < 20 && !plugged; ++i) {
-    plugged = Ioctl(IOCTL_DESKLINK_PLUG, &args, sizeof(args));
+    plugged = Ioctl(IOCTL_EXTENDESK_PLUG, &args, sizeof(args));
     if (!plugged) Sleep(250);
   }
   if (!plugged) {
@@ -104,7 +107,7 @@ bool VirtualDisplay::Plug(UINT width, UINT height, UINT refresh_hz, UINT mode_w,
   pinging_ = true;
   ping_thread_ = std::thread([this] {
     while (pinging_) {
-      Ioctl(IOCTL_DESKLINK_PING, nullptr, 0);
+      Ioctl(IOCTL_EXTENDESK_PING, nullptr, 0);
       for (int i = 0; i < 10 && pinging_; ++i) Sleep(100);
     }
   });
@@ -115,7 +118,7 @@ bool VirtualDisplay::Plug(UINT width, UINT height, UINT refresh_hz, UINT mode_w,
   const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
   while (std::chrono::steady_clock::now() < deadline) {
     bool inactive = false;
-    gdi_name_ = FindDeskLinkSource(&inactive);
+    gdi_name_ = FindExtendeskSource(&inactive);
     if (!gdi_name_.empty()) {
       EnsureMode(mode_w, mode_h, refresh_hz);
       std::printf("Monitor virtual activo: %ls, %ux%u a %u Hz.\n", gdi_name_.c_str(), mode_w, mode_h, refresh_hz);
@@ -130,7 +133,7 @@ bool VirtualDisplay::Plug(UINT width, UINT height, UINT refresh_hz, UINT mode_w,
     Sleep(200);
   }
   std::fprintf(stderr,
-               "Error: Windows no activó el monitor virtual. Mira en Configuración > Pantalla que «DeskLink»\n"
+               "Error: Windows no activó el monitor virtual. Mira en Configuración > Pantalla que «Extendesk»\n"
                "esté en «Extender estas pantallas».\n");
   return false;
 }
@@ -177,7 +180,7 @@ void VirtualDisplay::Unplug() {
   pinging_ = false;
   if (ping_thread_.joinable()) ping_thread_.join();
   if (device_ != INVALID_HANDLE_VALUE) {
-    Ioctl(IOCTL_DESKLINK_UNPLUG, nullptr, 0);
+    Ioctl(IOCTL_EXTENDESK_UNPLUG, nullptr, 0);
     CloseHandle(device_);
     device_ = INVALID_HANDLE_VALUE;
   }

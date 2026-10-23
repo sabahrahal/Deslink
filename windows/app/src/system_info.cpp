@@ -12,7 +12,7 @@
 #include <cwchar>
 #include <map>
 
-#include "../../driver/include/desklink_idd.h"
+#include "../../driver/include/extendesk_idd.h"
 
 std::wstring AppDirectory() {
   wchar_t path[MAX_PATH];
@@ -23,7 +23,7 @@ std::wstring AppDirectory() {
 
 bool VirtualDriverInstalled() {
   ULONG size = 0;
-  return CM_Get_Device_Interface_List_SizeW(&size, const_cast<GUID*>(&GUID_DEVINTERFACE_DESKLINK_IDD), nullptr,
+  return CM_Get_Device_Interface_List_SizeW(&size, const_cast<GUID*>(&GUID_DEVINTERFACE_EXTENDESK_IDD), nullptr,
                                             CM_GET_DEVICE_INTERFACE_LIST_PRESENT) == CR_SUCCESS &&
          size > 1;
 }
@@ -119,15 +119,23 @@ std::vector<std::wstring> LocalAddresses() {
 
 namespace {
 constexpr wchar_t kRunKey[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-constexpr wchar_t kRunValue[] = L"DeskLink";
+constexpr wchar_t kRunValue[] = L"Extendesk";
+constexpr wchar_t kLegacyRunValue[] = L"DeskLink";  // el de antes del nombre Extendesk (abría desklink.exe)
+
+bool HasRunValue(const wchar_t* name) {
+  return RegGetValueW(HKEY_CURRENT_USER, kRunKey, name, RRF_RT_REG_SZ, nullptr, nullptr, nullptr) == ERROR_SUCCESS;
+}
 }  // namespace
 
 bool StartsWithWindows() {
-  return RegGetValueW(HKEY_CURRENT_USER, kRunKey, kRunValue, RRF_RT_REG_SZ, nullptr, nullptr, nullptr) ==
-         ERROR_SUCCESS;
+  if (HasRunValue(kRunValue)) return true;
+  if (!HasRunValue(kLegacyRunValue)) return false;
+  SetStartWithWindows(true);  // pasa la entrada antigua a la nueva, con la ruta de este .exe
+  return true;
 }
 
 void SetStartWithWindows(bool on) {
+  RegDeleteKeyValueW(HKEY_CURRENT_USER, kRunKey, kLegacyRunValue);
   if (!on) {
     RegDeleteKeyValueW(HKEY_CURRENT_USER, kRunKey, kRunValue);
     return;

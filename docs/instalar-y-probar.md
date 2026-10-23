@@ -33,7 +33,7 @@ Configuración → Aplicaciones → Extendesk → Desinstalar (o «Desinstalar E
 
 ## Cómo está hecho
 
-- Instalador: Inno Setup, en [`windows/installer/desklink.iss`](../windows/installer/desklink.iss).
+- Instalador: Inno Setup, en [`windows/installer/extendesk.iss`](../windows/installer/extendesk.iss).
 - Publicación: [`.github/workflows/release.yml`](../.github/workflows/release.yml). En los PR también se compila y el
   instalador y la APK quedan como artefactos de la ejecución, sin publicar nada.
 - Firma de la APK: [`android/keystore/`](../android/keystore/README.md).

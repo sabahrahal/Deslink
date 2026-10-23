@@ -4,7 +4,7 @@
 La tablet dice al conectar lo que puede hacer (su pantalla, su frecuencia y si decodifica HEVC) y enseña lo que el
 PC decide. Así no hay dos sitios con la misma opción ni ajustes que se pisan.
 
-## En el PC (desklink.exe)
+## En el PC (extendesk.exe)
 
 A la vista, lo que casi todo el mundo toca:
 
@@ -25,7 +25,7 @@ de pantalla y el host sigue lo que se elija ahí. La recuerda para esa tablet (p
 la de la tablet; con otra tablet se vuelve a usar su resolución nativa.
 
 **Abrir al enchufar**: con la depuración USB aceptada, el host lanza la app en la tablet
-(`adb shell am start -a com.desklink.action.USB_ATTACHED`) y esta conecta sola por el cable. No usa el modo accesorio
+(`adb shell am start -a app.extendesk.action.USB_ATTACHED`) y esta conecta sola por el cable. No usa el modo accesorio
 USB, así que no deja nada registrado en la tablet ni muestra «ninguna aplicación funciona con este accesorio».
 
 Con la transmisión en marcha la ventana enseña también dónde se quedan los fps: «Captura · Codificación · Tablet».

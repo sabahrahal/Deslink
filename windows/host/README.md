@@ -11,7 +11,7 @@ Requiere Visual Studio 2022 (carga de trabajo C++) y CMake 3.16 o superior.
 ```
 cmake -S windows/host -B build/host -G "Visual Studio 17 2022" -A x64
 cmake --build build/host --config Release
-build\host\Release\desklink-host.exe --fps 60 --bitrate 50 --codec hevc
+build\host\Release\extendesk-host.exe --fps 60 --bitrate 50 --codec hevc
 ```
 
 ## Opciones
@@ -38,7 +38,7 @@ build\host\Release\desklink-host.exe --fps 60 --bitrate 50 --codec hevc
 | `--audio-bitrate` | 128 | kbps de Opus para el sonido (32–256) |
 | `--profile` | maxima | Perfil de batería si la tablet no manda el suyo (`ahorro`, `equilibrado`, `maxima`). La app manda siempre el elegido y ese manda; `--fps` y `--bitrate` siguen siendo el techo. Ver `docs/battery.md` |
 
-Lo normal es abrirlo con `desklink.exe` (la app de bandeja, `windows/app/`); desde una consola sigue funcionando igual.
+Lo normal es abrirlo con `extendesk.exe` (la app de bandeja, `windows/app/`); desde una consola sigue funcionando igual.
 
 La app de la tablet puede pedir otra resolución, fps, tasa o códec desde sus Ajustes (ver «Configuración de la tablet» en `docs/protocol-dlp.md`); lo que pide manda sobre `--fps`, `--bitrate` y `--codec`.
 
@@ -49,7 +49,7 @@ Cada segundo imprime fps capturados, fps codificados, Mbps y la latencia de codi
 - **Táctil directo** (por defecto): los dedos de la tablet son toques reales de Windows, con multitáctil y presión, y el cursor no se mueve. Tocar, arrastrar, pellizcar para hacer zoom, desplazar con dos dedos y mantener pulsado para el clic derecho los interpreta Windows como en cualquier pantalla táctil. Usa los punteros sintéticos de Windows 10 1809 o posterior (`InjectTouchInput` en anteriores). Si Windows rechaza los toques, el host lo explica en la consola, pasa a modo ratón y se lo dice a la tablet.
 - **Ratón**: para apps que no entienden el táctil. Un toque es un clic (dos seguidos, doble clic), un dedo que se mueve arrastra, un dedo quieto medio segundo es clic derecho, dos dedos desplazan (rueda), pellizcar es Ctrl + rueda y tocar con dos dedos es clic derecho.
 
-El modo se guarda en `%APPDATA%\DeskLink\input-mode.txt` (`touch` o `mouse`). Lo cambia la tablet en marcha (paquete `INPUT_MODE`, ver `docs/protocol-dlp.md`) o cualquier app escribiendo ese fichero antes de arrancar el host. Las ventanas de administrador (p. ej. el Administrador de tareas) no aceptan toques de un host sin elevar.
+El modo se guarda en `%APPDATA%\Extendesk\input-mode.txt` (`touch` o `mouse`). Lo cambia la tablet en marcha (paquete `INPUT_MODE`, ver `docs/protocol-dlp.md`) o cualquier app escribiendo ese fichero antes de arrancar el host. Las ventanas de administrador (p. ej. el Administrador de tareas) no aceptan toques de un host sin elevar.
 
 El cortafuegos de Windows pedirá permiso la primera vez: hay que permitir redes privadas. El cable USB no pasa por el cortafuegos.
 

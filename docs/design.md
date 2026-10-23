@@ -18,20 +18,20 @@ latinos).
 | Lavanda | `#A68CFF` | Acento en modo oscuro: los morados no se leen sobre fondo oscuro |
 
 El icono se dibuja una sola vez, en [`tools/design/gen_logo.py`](../tools/design/gen_logo.py) (calca
-`design/logo/desklink-icon.png`), y de ahí salen con `python3 tools/design/gen_logo.py`:
+`design/logo/extendesk-icon.png`), y de ahí salen con `python3 tools/design/gen_logo.py`:
 
-- `design/logo/desklink-icon.svg`.
+- `design/logo/extendesk-icon.svg`.
 - Android: `res/drawable/ic_launcher_foreground.xml` (icono adaptativo sobre blanco) y `res/drawable/ic_logo.xml`
   (cabecera, `BrandMark` en `ui/Components.kt`).
 - Windows: `windows/app/src/logo.h` (la ventana y la bandeja lo pintan con GDI+) y, con `--ico` (necesita
-  `pip install resvg-py`), `windows/app/res/desklink.ico`.
+  `pip install resvg-py`), `windows/app/res/extendesk.ico`.
 
 ## Una sola fuente
 
 Los colores, el texto y las formas están en [`design/tokens.json`](../design/tokens.json). De ahí salen, con
 `python3 tools/design/gen_tokens.py`:
 
-- Android: `android/app/src/main/kotlin/com/desklink/ui/Tokens.kt` (`LightColors`, `DarkColors`, `DlType`, `DlShape`).
+- Android: `android/app/src/main/kotlin/app/extendesk/ui/Tokens.kt` (`LightColors`, `DarkColors`, `DlType`, `DlShape`).
 - Windows: `windows/app/src/tokens.h` (`tokens::kLight`, `tokens::kDark`…).
 
 `gen_tokens.py --check` (en la CI, flujo `design`, junto con `gen_logo.py --check`) falla si esos archivos no están al día o si algún par de colores
@@ -66,14 +66,14 @@ de `contrast_pairs` no llega al contraste AA (4,5:1). Para cambiar un color: se 
 
 Tarjetas con esquinas de 12, controles (botones, segmentados) de 8. Títulos en Montserrat (la del logo); el texto
 corrido, en la del sistema (Roboto en Android, Segoe UI en Windows), que se lee mejor en tamaños pequeños. En Windows,
-las Montserrat van dentro de `desklink.exe` (`res/desklink.rc`); si no cargan, se usa Segoe UI.
+las Montserrat van dentro de `extendesk.exe` (`res/extendesk.rc`); si no cargan, se usa Segoe UI.
 
 ## Reglas
 
 - Cada pantalla tiene pocas cosas a la vista; lo demás va en **Configuración avanzada**, plegado o en otra pantalla.
 - Opciones excluyentes (modo, calidad, sonido, táctil, cable USB o Wi-Fi) con un control segmentado.
 - Un solo botón principal por pantalla, con el acento. El resto, secundarios en gris.
-- Todo texto lleva color del tema: en Android, `DeskLinkTheme` fija `LocalContentColor` para que un `Text` sin color
+- Todo texto lleva color del tema: en Android, `ExtendeskTheme` fija `LocalContentColor` para que un `Text` sin color
   no salga negro sobre fondo oscuro.
 
 ## Pruebas

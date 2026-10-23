@@ -8,14 +8,14 @@ Una sola vez:
 1. En la tablet, activa las **Opciones de desarrollador** (Ajustes → Acerca de la tablet → toca 7 veces «Número de
    compilación») y dentro activa **Depuración USB**. Se queda activada; no hay que repetirlo como el anclaje.
    Si la tablet está enchufada sin depuración USB, la pantalla de inicio de Extendesk lo avisa y abre el ajuste.
-2. En el PC no hay que instalar nada más: el instalador de Extendesk y el paquete `desklink-host-windows` de la CI ya
-   traen `adb.exe`, `AdbWinApi.dll` y `AdbWinUsbApi.dll` junto a `desklink-host.exe` (del paquete, descomprímelo entero
+2. En el PC no hay que instalar nada más: el instalador de Extendesk y el paquete `extendesk-host-windows` de la CI ya
+   traen `adb.exe`, `AdbWinApi.dll` y `AdbWinUsbApi.dll` junto a `extendesk-host.exe` (del paquete, descomprímelo entero
    en una carpeta). Si compilas el host tú, copia esos tres archivos de las
    [platform-tools de Android](https://developer.android.com/tools/releases/platform-tools) junto al .exe (o deja adb
    en el PATH; también se busca en `%LOCALAPPDATA%\Android\Sdk\platform-tools` y con `--adb ruta`).
 3. Enchufa la tablet con un cable **de datos** y acepta «¿Permitir depuración USB?» marcando «Permitir siempre».
 
-Cada vez: abre `desklink-host.exe` (dice «Tablet … conectada por USB (ADB)») y pulsa **Conectar** en la app con la IP
+Cada vez: abre `extendesk-host.exe` (dice «Tablet … conectada por USB (ADB)») y pulsa **Conectar** en la app con la IP
 vacía. La app prueba primero el cable y, si no está, busca por WiFi. Si se desenchufa o se reinicia el host, la app
 reconecta sola.
 
@@ -46,7 +46,7 @@ Con el campo de IP vacío, la app busca el PC sola (broadcast por todas las rede
 ## Qué mide el diagnóstico
 - Prueba de conexión: 100 PING/PONG de DLP (uno cada 20 ms) → mediana, p95, variación y pérdida.
 - Prueba de ráfaga: el host envía 400 paquetes seguidos (como un frame clave), de golpe y repartidos a 100 Mbps. Si de golpe
-  se pierden y repartidos no, el enlace no tolera ráfagas: usa `desklink-host.exe --pace 100`. Si se pierden igualmente,
+  se pierden y repartidos no, el enlace no tolera ráfagas: usa `extendesk-host.exe --pace 100`. Si se pierden igualmente,
   baja la calidad con `--bitrate` (el diagnóstico sugiere valores).
 - WiFi: banda (2,4/5/6 GHz), señal y velocidad de enlace.
 - Batería: consumo neto desde `CHARGE_COUNTER` (el signo de `CURRENT_NOW` varía según fabricante), carga por USB/red,
@@ -63,7 +63,7 @@ Los umbrales están en `Advisor.kt` y se ajustarán con mediciones reales. La ve
    administrador: `netsh advfirewall firewall add rule name="Extendesk" dir=in action=allow protocol=UDP localport=47800 profile=any`.
 
 ## Opciones del host para enlaces difíciles
-`desklink-host.exe --pace <Mbps>` reparte el envío de cada frame a esa tasa (por defecto 100; `--pace 0` envía de golpe) y `--bitrate <Mbps>` baja
+`extendesk-host.exe --pace <Mbps>` reparte el envío de cada frame a esa tasa (por defecto 100; `--pace 0` envía de golpe) y `--bitrate <Mbps>` baja
 la calidad. La consola muestra «errores de envío» si Windows rechaza paquetes.
 
 ## Desconexión

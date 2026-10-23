@@ -3,9 +3,9 @@
 
     python3 tools/design/gen_logo.py          # escribe los archivos generados
     python3 tools/design/gen_logo.py --check  # falla si alguno está desfasado
-    python3 tools/design/gen_logo.py --ico    # además rehace windows/app/res/desklink.ico (pip install resvg-py)
+    python3 tools/design/gen_logo.py --ico    # además rehace windows/app/res/extendesk.ico (pip install resvg-py)
 
-El dibujo (abajo, en las coordenadas de design/logo/desklink-icon.png, 1254x1254) calca ese PNG; los colores salen
+El dibujo (abajo, en las coordenadas de design/logo/extendesk-icon.png, 1254x1254) calca ese PNG; los colores salen
 de la sección «logo» de design/tokens.json. Los archivos generados no se editan a mano.
 """
 import io
@@ -18,11 +18,11 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 TOKENS = ROOT / "design" / "tokens.json"
-SVG = ROOT / "design/logo/desklink-icon.svg"
+SVG = ROOT / "design/logo/extendesk-icon.svg"
 ANDROID_LOGO = ROOT / "android/app/src/main/res/drawable/ic_logo.xml"
 ANDROID_LAUNCHER = ROOT / "android/app/src/main/res/drawable/ic_launcher_foreground.xml"
 CPP = ROOT / "windows/app/src/logo.h"
-ICO = ROOT / "windows/app/res/desklink.ico"
+ICO = ROOT / "windows/app/res/extendesk.ico"
 
 HEADER = "Generado por tools/design/gen_logo.py. No editar a mano."
 

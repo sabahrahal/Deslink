@@ -8,7 +8,8 @@ actualiza la app y conserva sus ajustes.
 De dónde sale la clave, por orden:
 
 1. CI: el secreto `DESKLINK_KEYSTORE_B64` (el `.jks` en base64), con `DESKLINK_KEYSTORE_PASSWORD` y
-   `DESKLINK_KEY_PASSWORD` si no son `desklink-dev`. En local: la variable `DESKLINK_KEYSTORE` (ruta al `.jks`).
+   `DESKLINK_KEY_PASSWORD` si no son `desklink-dev`. En local: la variable `EXTENDESK_KEYSTORE` (ruta al `.jks`), con
+   `EXTENDESK_KEYSTORE_PASSWORD`, `EXTENDESK_KEY_PASSWORD` y `EXTENDESK_KEY_ALIAS` si hace falta.
 2. `android/keystore/desklink-dev.jks`, si está en el repo (clave de desarrollo de este proyecto personal; contraseña
    `desklink-dev`, alias `desklink`).
 3. Si no hay ninguna, la clave de depuración de cada máquina (la CI avisa: esas APK no se instalan encima).
@@ -23,6 +24,9 @@ La CI firma con la clave guardada en tres secretos del repositorio (Settings →
 `desklink`. El `.jks` **no** está en el repositorio: la única copia segura es la del gestor de contraseñas de quien
 mantiene el proyecto. Es también la clave de subida de Google Play (el `.aab` de cada versión sale firmado con ella);
 si se pierde, Play obliga a pedir un cambio de clave de subida, que tarda días.
+
+Los secretos, el archivo `desklink-dev.jks`, su contraseña y el alias `desklink` conservan el nombre de antes de
+Extendesk: el alias y la contraseña van dentro de la clave, y cambiarlos (o los secretos) sin más rompería la firma.
 
 Para comprobar con qué clave se firmó una APK descargada: `keytool -printcert -jarfile Extendesk.apk` (la huella SHA-256
 debe ser siempre la misma).

@@ -13,7 +13,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "design" / "tokens.json"
-KOTLIN = ROOT / "android/app/src/main/kotlin/com/desklink/ui/Tokens.kt"
+KOTLIN = ROOT / "android/app/src/main/kotlin/app/extendesk/ui/Tokens.kt"
 CPP = ROOT / "windows/app/src/tokens.h"
 
 HEADER = "Generado por tools/design/gen_tokens.py desde design/tokens.json. No editar a mano."
@@ -56,7 +56,7 @@ def kotlin(t) -> str:
     colors = t["colors"]
     lines = [
         f"// {HEADER}",
-        "package com.desklink.ui",
+        "package app.extendesk.ui",
         "",
         "import androidx.compose.ui.graphics.Color",
         "import androidx.compose.ui.text.font.FontWeight",

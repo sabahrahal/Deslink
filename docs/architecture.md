@@ -26,7 +26,7 @@ Monitor virtual -> Captura -> NV12 + NVENC -> DLP  ==>  Recepción -> AMediaCode
 | Cable USB por ADB reverse (TCP) | Depuración USB (una vez) y adb.exe junto al host | 5 |
 | USB por Android Open Accessory | Driver WinUSB en Windows | descartado por ahora (ver `docs/usb.md`) |
 | Anclaje USB (tethering) | Activar anclaje USB cada vez | 2 |
-| WiFi 6E / 5 GHz | Misma red, mDNS `_desklink._udp` | 1 |
+| WiFi 6E / 5 GHz | Misma red, mDNS `_extendesk._udp` | 1 |
 
 ## Ajustes de baja latencia
 

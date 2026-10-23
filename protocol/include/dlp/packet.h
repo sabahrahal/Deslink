@@ -1,4 +1,4 @@
-// DeskLink Protocol (DLP) v1: formato de paquetes. Ver docs/protocol-dlp.md.
+// Protocolo de Extendesk (DLP, por su nombre original «DeskLink Protocol») v1: formato de paquetes. Ver docs/protocol-dlp.md.
 #pragma once
 
 #include <cstddef>

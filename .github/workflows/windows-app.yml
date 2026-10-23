@@ -25,10 +25,10 @@ jobs:
         shell: pwsh
         run: |
           $pkg = New-Item -ItemType Directory -Force pkg
-          Copy-Item build/app/Release/desklink.exe $pkg
-          Copy-Item build/host/Release/desklink-host.exe $pkg
+          Copy-Item build/app/Release/extendesk.exe $pkg
+          Copy-Item build/host/Release/extendesk-host.exe $pkg
           Get-ChildItem $pkg
       - uses: actions/upload-artifact@v4
         with:
-          name: desklink-windows
+          name: extendesk-windows
           path: pkg/

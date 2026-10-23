@@ -6,7 +6,7 @@
 #
 # El repo es privado: hace falta un token de GitHub con permiso de lectura del repo. Si tienes la CLI `gh` con
 # sesión iniciada se usa esa; si no, la primera vez pide un token y lo guarda cifrado para tu usuario de Windows en
-# %APPDATA%\DeskLink\github-token.txt (bórralo para cambiarlo).
+# %APPDATA%\Extendesk\github-token.txt (bórralo para cambiarlo).
 param([switch]$Tablet, [switch]$PC, [string]$Repo = 'sabahrahal/Deslink', [string]$Tag = 'latest')
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'  # Invoke-WebRequest va mucho más rápido sin barra de progreso
@@ -17,7 +17,13 @@ New-Item -ItemType Directory -Force $dir | Out-Null
 
 function Get-Token {
   if ($env:GITHUB_TOKEN) { return $env:GITHUB_TOKEN }
-  $file = Join-Path $env:APPDATA 'DeskLink\github-token.txt'
+  $file = Join-Path $env:APPDATA 'Extendesk\github-token.txt'
+  # Antes del nombre Extendesk se guardaba en %APPDATA%\DeskLink.
+  $legacy = Join-Path $env:APPDATA 'DeskLink\github-token.txt'
+  if (-not (Test-Path $file) -and (Test-Path $legacy)) {
+    New-Item -ItemType Directory -Force (Split-Path $file) | Out-Null
+    Move-Item $legacy $file
+  }
   if (Test-Path $file) {
     $secure = Get-Content $file | ConvertTo-SecureString
   } else {

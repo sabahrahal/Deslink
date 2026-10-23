@@ -199,7 +199,7 @@ View BuildView(const ViewInput& in) {
       const int ready = StatInt(in, L"adb", 0);
       const int pending = StatInt(in, L"adb_pendientes", 0);
       if (ready < 0) {
-        v.connection.push_back({L"Cable USB: falta adb.exe junto a desklink.exe.", Tone::kWarning});
+        v.connection.push_back({L"Cable USB: falta adb.exe junto a extendesk.exe.", Tone::kWarning});
       } else if (pending > 0) {
         v.connection.push_back({L"Cable USB: acepta «¿Permitir depuración USB?» en el dispositivo.", Tone::kWarning});
       } else if (ready > 0) {
@@ -289,7 +289,7 @@ View BuildView(const ViewInput& in) {
     Row port;
     port.id = "puerto";
     port.label = L"Puerto";
-    port.value = L"UDP " + std::to_wstring(s.port) + L" · se cambia en desklink.ini";
+    port.value = L"UDP " + std::to_wstring(s.port) + L" · se cambia en extendesk.ini";
     v.advanced.push_back(port);
     Row log;
     log.id = "registro";
