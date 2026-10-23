@@ -268,6 +268,19 @@ View BuildView(const ViewInput& in) {
     v.advanced.push_back(Choice("mbps", L"Calidad de vídeo", BitrateLabel(s.bitrate)));
     v.advanced.push_back(Choice("codec", L"Códec", CodecLabel(s.codec)));
     v.advanced.push_back(Toggle("bateria", L"Bajar la calidad si la batería del dispositivo no aguanta", s.battery_adapt));
+    Row direct = Toggle("wifi_directo", L"Red Wi-Fi propia del PC", in.direct_wifi_on);
+    if (in.direct_wifi_busy) {
+      direct.hint = L"Cambiando…";
+    } else if (!in.direct_wifi_error.empty()) {
+      direct.hint = in.direct_wifi_error;
+      direct.hint_tone = Tone::kWarning;
+    } else if (in.direct_wifi_on) {
+      direct.hint = L"Conecta el dispositivo a la red «" + in.direct_wifi_ssid + L"», contraseña «" + in.direct_wifi_pass +
+                    L"». El vídeo va directo, sin pasar por el router.";
+    } else {
+      direct.hint = L"Sin router de por medio: menos retardo y menos tirones por Wi-Fi. Hace falta Wi-Fi en el PC.";
+    }
+    v.advanced.push_back(direct);
     v.advanced.push_back(Toggle("usb", L"Conexión por cable USB", s.usb));
     if (s.usb) v.advanced.push_back(Toggle("abrir_tablet", L"Abrir DeskLink en el dispositivo al enchufarlo", s.open_tablet));
     v.advanced.push_back(Toggle("autostart", L"Abrir DeskLink al iniciar Windows", in.autostart));

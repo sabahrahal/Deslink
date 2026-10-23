@@ -154,6 +154,18 @@ static void TestAdvancedRows() {
   CHECK(Contains(Get(v.advanced, "resolucion").label, L"Windows"));
   // El consejo de la escala va junto al enlace: más grande sin perder nitidez.
   CHECK(Contains(Get(v.advanced, "resolucion").hint, L"Escala"));
+  CHECK(Has(v.advanced, "wifi_directo") && !Get(v.advanced, "wifi_directo").on);
+  {
+    ViewInput w = in;
+    w.direct_wifi_on = true;
+    w.direct_wifi_ssid = L"PC-Sabah";
+    w.direct_wifi_pass = L"clave1234";
+    const Row r = Get(BuildView(w).advanced, "wifi_directo");
+    CHECK(r.on && Contains(r.hint, L"PC-Sabah") && Contains(r.hint, L"clave1234"));
+    w.direct_wifi_on = false;
+    w.direct_wifi_error = L"Este PC no puede crear su propia red Wi-Fi";
+    CHECK(Get(BuildView(w).advanced, "wifi_directo").hint_tone == Tone::kWarning);
+  }
   CHECK(Get(v.advanced, "abrir_tablet").on);  // de serie, la app de la tablet se abre al enchufarla
   in.settings.usb = false;
   CHECK(!Has(BuildView(in).advanced, "abrir_tablet"));  // sin cable no tiene sentido
