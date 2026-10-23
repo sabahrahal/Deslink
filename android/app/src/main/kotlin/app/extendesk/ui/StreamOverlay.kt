@@ -19,8 +19,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import app.extendesk.R
 import app.extendesk.StreamSession.Phase
 
 /**
@@ -33,7 +35,7 @@ fun StreamOverlay(phase: Phase, detail: String, hostName: String, onRetry: () ->
         DlCard(Modifier.widthIn(max = 440.dp).padding(24.dp), padding = 24.dp) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                 if (phase == Phase.FAILED) {
-                    StatusDot(palette.error, "Error")
+                    StatusDot(palette.error, stringResource(R.string.error))
                 } else {
                     CircularProgressIndicator(
                         Modifier.size(28.dp),
@@ -44,11 +46,11 @@ fun StreamOverlay(phase: Phase, detail: String, hostName: String, onRetry: () ->
                 VSpace(16.dp)
                 Text(
                     when (phase) {
-                        Phase.CONNECTING -> "Conectando con $hostName"
-                        Phase.NO_ANSWER -> "El PC no responde"
-                        Phase.RECONNECTING -> "Reconectando…"
-                        Phase.HOST_STOPPED -> "Extendesk se detuvo en $hostName"
-                        Phase.FAILED -> "No se pudo conectar"
+                        Phase.CONNECTING -> stringResource(R.string.phase_connecting, hostName)
+                        Phase.NO_ANSWER -> stringResource(R.string.phase_no_answer)
+                        Phase.RECONNECTING -> stringResource(R.string.phase_reconnecting)
+                        Phase.HOST_STOPPED -> stringResource(R.string.phase_host_stopped, hostName)
+                        Phase.FAILED -> stringResource(R.string.phase_failed)
                         Phase.STREAMING -> ""
                     },
                     style = DlText.Title,
@@ -56,15 +58,15 @@ fun StreamOverlay(phase: Phase, detail: String, hostName: String, onRetry: () ->
                 )
                 VSpace(8.dp)
                 Text(
-                    detail.ifBlank { if (phase == Phase.CONNECTING) "Preparando la pantalla a la medida de este dispositivo…" else "" },
+                    detail.ifBlank { if (phase == Phase.CONNECTING) stringResource(R.string.phase_connecting_detail) else "" },
                     style = DlText.Body,
                     color = palette.textSecondary,
                     textAlign = TextAlign.Center,
                 )
                 VSpace(20.dp)
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    SecondaryButton(if (phase == Phase.FAILED || phase == Phase.HOST_STOPPED) "Volver" else "Cancelar", onBack)
-                    if (phase == Phase.FAILED || phase == Phase.NO_ANSWER) PrimaryButton("Reintentar", onRetry)
+                    SecondaryButton(stringResource(if (phase == Phase.FAILED || phase == Phase.HOST_STOPPED) R.string.action_back else R.string.action_cancel), onBack)
+                    if (phase == Phase.FAILED || phase == Phase.NO_ANSWER) PrimaryButton(stringResource(R.string.action_retry), onRetry)
                 }
             }
         }
@@ -106,19 +108,19 @@ fun QuickMenu(
             Column {
                 Text("Extendesk", style = DlText.Title)
                 if (summary.quality.isNotBlank()) {
-                    Text("Calidad ${summary.quality} · ${summary.details}", style = DlText.Note, color = palette.textSecondary)
+                    Text(stringResource(R.string.menu_quality, summary.quality, summary.details), style = DlText.Note, color = palette.textSecondary)
                 }
                 if (summary.reduced.isNotBlank()) Text(summary.reduced, style = DlText.Note, color = palette.warning)
                 VSpace(16.dp)
                 if (summary.input == 2) {
-                    Text("Solo ver: los toques no llegan al PC. Se cambia en el PC.", style = DlText.Note, color = palette.textSecondary)
+                    Text(stringResource(R.string.menu_view_only), style = DlText.Note, color = palette.textSecondary)
                     VSpace(12.dp)
                 }
-                SwitchRow("Estadísticas", null, statsVisible) { onStats() }
+                SwitchRow(stringResource(R.string.menu_stats), null, statsVisible) { onStats() }
                 VSpace(8.dp)
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    SecondaryButton("Desconectar", onDisconnect, Modifier.weight(1f), destructive = true)
-                    PrimaryButton("Seguir", onClose, Modifier.weight(1f))
+                    SecondaryButton(stringResource(R.string.action_disconnect), onDisconnect, Modifier.weight(1f), destructive = true)
+                    PrimaryButton(stringResource(R.string.action_continue), onClose, Modifier.weight(1f))
                 }
             }
         }

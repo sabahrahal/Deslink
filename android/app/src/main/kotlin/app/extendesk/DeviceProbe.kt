@@ -88,9 +88,9 @@ class DeviceProbe(private val context: Context) {
             else -> null
         }
         val plugLabel = when (pluggedType) {
-            BatteryManager.BATTERY_PLUGGED_USB -> "USB"
-            BatteryManager.BATTERY_PLUGGED_AC -> "cargador"
-            BatteryManager.BATTERY_PLUGGED_WIRELESS -> "inalámbrica"
+            BatteryManager.BATTERY_PLUGGED_USB -> Strings.get(R.string.plug_usb)
+            BatteryManager.BATTERY_PLUGGED_AC -> Strings.get(R.string.plug_charger)
+            BatteryManager.BATTERY_PLUGGED_WIRELESS -> Strings.get(R.string.plug_wireless)
             else -> null
         }
         return BatteryInfo(percent, plugged, learnedEmaMw ?: netMw ?: currentEmaMw, tempC, source, plugLabel, charging)

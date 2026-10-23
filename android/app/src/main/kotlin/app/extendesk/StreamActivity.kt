@@ -182,7 +182,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
                     finish()
                 } else {
                     lastBackMs = now
-                    Toast.makeText(this@StreamActivity, "Pulsa atrás otra vez para desconectar", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@StreamActivity, getString(R.string.back_again_to_disconnect), Toast.LENGTH_SHORT).show()
                 }
             }
         })
@@ -274,7 +274,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
             setColor(MENU_COLOR)
             setStroke(dp(1).coerceAtLeast(2), Color.WHITE)
         }
-        contentDescription = "Menú de Extendesk"
+        contentDescription = getString(R.string.menu_description)
         visibility = View.GONE
         val slop = ViewConfiguration.get(this@StreamActivity).scaledTouchSlop
         var downX = 0f
@@ -375,15 +375,15 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
                 applyProfile(base)
             }
             val quality = when (config.profile) {
-                0 -> "alta"
-                1 -> "equilibrada"
-                else -> "ahorro"
+                0 -> getString(R.string.quality_high)
+                1 -> getString(R.string.quality_balanced)
+                else -> getString(R.string.quality_saver)
             }
             val reduced = when (config.reduced) {
-                Dlp.REDUCED_WIFI -> "Calidad reducida un momento: el Wi-Fi va justo"
-                Dlp.REDUCED_BATTERY -> "Fluidez reducida para no gastar la batería"
-                Dlp.REDUCED_LOAD -> "Fluidez reducida: la gráfica del PC va cargada"
-                Dlp.REDUCED_TABLET -> "Fluidez ajustada a lo que esta tablet decodifica a tiempo"
+                Dlp.REDUCED_WIFI -> getString(R.string.reduced_wifi)
+                Dlp.REDUCED_BATTERY -> getString(R.string.reduced_battery)
+                Dlp.REDUCED_LOAD -> getString(R.string.reduced_load)
+                Dlp.REDUCED_TABLET -> getString(R.string.reduced_device)
                 else -> ""
             }
             summary = SessionSummary(
@@ -393,7 +393,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
                 reduced = reduced,
             )
             if (previous == null) {
-                badgeView.text = "Calidad $quality · ${config.fps} fps · el botón ☰ abre el menú"
+                badgeView.text = getString(R.string.badge_quality, quality, config.fps)
                 showBadge(BADGE_MS)
             }
             updateBadge()
@@ -621,18 +621,17 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
                 warnedDrain = true
                 Toast.makeText(
                     this,
-                    "El dispositivo se descarga aunque esté enchufado: el puerto USB da menos de lo que gasta. Usa un " +
-                        "puerto USB-C o USB 3 del PC, un cargador de pared con WiFi, o baja el brillo.",
+                    getString(R.string.drain_warning),
                     Toast.LENGTH_LONG,
                 ).show()
             }
             updateBadge()
             if (statsVisible) {
                 val level = if (b.percent >= 0) " ${b.percent} %" else ""
-                val watts = b.netMilliwatts?.let { " ${"%+.1f".format(it / 1000)} W" } ?: " (midiendo…)"
-                val plug = b.plugLabel?.let { ", por $it" } ?: ""
+                val watts = b.netMilliwatts?.let { " ${"%+.1f".format(it / 1000)} W" } ?: getString(R.string.stats_measuring)
+                val plug = b.plugLabel?.let { getString(R.string.stats_plug, it) } ?: ""
                 val source = b.source?.let { " (${it.label})" } ?: ""
-                statsView.text = "$text · batería$level$watts$plug$source · perfil ${profile.summary()}"
+                statsView.text = getString(R.string.stats_battery, text, level, watts, plug, source, profile.summary())
             }
         }
     }
@@ -641,7 +640,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         runOnUiThread { if (summary.input != Dlp.INPUT_VIEW_ONLY) summary = summary.copy(input = state.active) }
         if (state.requested == Dlp.INPUT_TOUCH && state.active == Dlp.INPUT_MOUSE && !touchFallbackShown) {
             touchFallbackShown = true
-            onError("El PC no aceptó el táctil directo: los toques mueven el ratón")
+            onError(getString(R.string.touch_fallback))
         }
     }
 
@@ -649,7 +648,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
     override fun onEnded(hostStopped: Boolean) {
         runOnUiThread {
             if (isFinishing) return@runOnUiThread
-            val text = if (hostStopped) "Extendesk se detuvo en $hostName." else "Se perdió la conexión con $hostName."
+            val text = getString(if (hostStopped) R.string.ended_host_stopped else R.string.ended_lost, hostName)
             Toast.makeText(this, text, Toast.LENGTH_LONG).show()
             finish()
         }

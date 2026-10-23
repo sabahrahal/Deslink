@@ -1,11 +1,18 @@
 package app.extendesk
 
+import androidx.annotation.StringRes
 import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.NetworkInterface
 
-enum class Transport(val label: String) {
-    WIFI("WiFi"), USB("USB (anclaje)"), CABLE("USB (cable)"), ETHERNET("Ethernet"), OTHER("Otra red");
+enum class Transport(@StringRes private val labelRes: Int) {
+    WIFI(R.string.transport_wifi),
+    USB(R.string.transport_usb_tether),
+    CABLE(R.string.transport_usb_cable),
+    ETHERNET(R.string.transport_ethernet),
+    OTHER(R.string.transport_other);
+
+    val label: String get() = Strings.get(labelRes)
 
     companion object {
         /** Clasifica una interfaz de Android por su nombre (wlan0, rndis0, usb0, ncm0, eth0…). */

@@ -26,12 +26,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.extendesk.Found
 import app.extendesk.HostGroups
 import app.extendesk.Link
 import app.extendesk.PcEntry
+import app.extendesk.R
 import app.extendesk.UsbDebugHint
 
 /** Lo que muestra la pantalla de inicio; lo calcula MainActivity con cada búsqueda. */
@@ -86,7 +88,7 @@ fun HomeScreen(
         ) {
             BrandMark()
             VSpace(6.dp)
-            Text("Tu dispositivo como segunda pantalla", style = DlText.Body, color = palette.textSecondary)
+            Text(stringResource(R.string.home_tagline), style = DlText.Body, color = palette.textSecondary)
             VSpace(24.dp)
 
             val pcs = state.pcs
@@ -96,10 +98,10 @@ fun HomeScreen(
                         CircularProgressIndicator(Modifier.size(20.dp), color = palette.accent, strokeWidth = 2.dp)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
-                            Text("Conectando con ${f.title}…", style = DlText.Headline)
-                            Text("Es el último PC que usaste", style = DlText.Note, color = palette.textSecondary)
+                            Text(stringResource(R.string.home_connecting_to, f.title), style = DlText.Headline)
+                            Text(stringResource(R.string.home_last_pc_used), style = DlText.Note, color = palette.textSecondary)
                         }
-                        SecondaryButton("Cancelar", onCancelAuto)
+                        SecondaryButton(stringResource(R.string.action_cancel), onCancelAuto)
                     }
                 }
                 VSpace(12.dp)
@@ -111,8 +113,8 @@ fun HomeScreen(
                         CircularProgressIndicator(Modifier.size(20.dp), color = palette.accent, strokeWidth = 2.dp)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
-                            Text("Preparando el cable USB…", style = DlText.Headline)
-                            Text("Tarda unos segundos. Espera y se conecta solo, o conecta ya por Wi-Fi.", style = DlText.Note, color = palette.textSecondary)
+                            Text(stringResource(R.string.home_preparing_cable), style = DlText.Headline)
+                            Text(stringResource(R.string.home_preparing_cable_note), style = DlText.Note, color = palette.textSecondary)
                         }
                     }
                 }
@@ -127,7 +129,7 @@ fun HomeScreen(
             if (pcs.isEmpty()) {
                 Searching(state)
             } else {
-                SectionHeader(if (pcs.size == 1) "Tu PC" else "Tus PC")
+                SectionHeader(stringResource(if (pcs.size == 1) R.string.home_your_pc else R.string.home_your_pcs))
                 for (pc in pcs) {
                     PcCard(pc = pc, isLast = pc.matches(state.lastHost), onConnect = { onConnect(pc.route()) })
                     VSpace(12.dp)
@@ -141,7 +143,7 @@ fun HomeScreen(
             }
 
             VSpace(20.dp)
-            LinkText("Configuración avanzada", onOpenAdvanced, Modifier.align(Alignment.CenterHorizontally))
+            LinkText(stringResource(R.string.advanced_settings), onOpenAdvanced, Modifier.align(Alignment.CenterHorizontally))
         }
     }
 }
@@ -155,30 +157,30 @@ private fun CableStepCard(hint: UsbDebugHint, onOpenTether: () -> Unit, onOpenUs
     var more by rememberSaveable { mutableStateOf(false) }
     DlCard(Modifier.testTag("cable-step")) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Activa la conexión por cable", style = DlText.Headline)
+            Text(stringResource(R.string.cable_title), style = DlText.Headline)
             Text(
-                "En los ajustes del dispositivo, activa «Anclaje USB». Es la conexión más estable.",
+                stringResource(R.string.cable_body),
                 style = DlText.Body,
                 color = palette.textSecondary,
             )
             VSpace(4.dp)
-            PrimaryButton("Abrir «Anclaje USB»", onOpenTether)
+            PrimaryButton(stringResource(R.string.open_tethering), onOpenTether)
             VSpace(4.dp)
-            LinkText(if (more) "Ocultar" else "Que conecte solo al enchufar (opcional)", { more = !more })
+            LinkText(stringResource(if (more) R.string.action_hide else R.string.cable_auto_optional), { more = !more })
             AnimatedVisibility(more) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Con la depuración USB no hay que activar el anclaje en cada enchufe. Se hace una sola vez:", style = DlText.Body)
+                    Text(stringResource(R.string.cable_debug_intro), style = DlText.Body)
                     if (hint == UsbDebugHint.ENABLE_DEVELOPER) {
-                        Text("1. En Información del dispositivo, toca 7 veces «Número de compilación».", style = DlText.Body)
-                        Text("2. Vuelve atrás, entra en «Opciones de desarrollador» y activa «Depuración USB».", style = DlText.Body)
+                        Text(stringResource(R.string.cable_debug_step_build), style = DlText.Body)
+                        Text(stringResource(R.string.cable_debug_step_dev), style = DlText.Body)
                     } else {
-                        Text("1. En «Opciones de desarrollador», activa «Depuración USB».", style = DlText.Body)
+                        Text(stringResource(R.string.cable_debug_step_dev_only), style = DlText.Body)
                     }
                     Text(
-                        "${if (hint == UsbDebugHint.ENABLE_DEVELOPER) 3 else 2}. Al enchufar al PC, marca «Permitir siempre desde este ordenador» y acepta.",
+                        stringResource(R.string.cable_debug_step_allow, if (hint == UsbDebugHint.ENABLE_DEVELOPER) 3 else 2),
                         style = DlText.Body,
                     )
-                    SecondaryButton("Abrir ajustes de depuración USB", onOpenUsbDebug)
+                    SecondaryButton(stringResource(R.string.open_usb_debug_settings), onOpenUsbDebug)
                 }
             }
         }
@@ -194,19 +196,19 @@ private fun Searching(state: HomeState) {
                 CircularProgressIndicator(Modifier.size(20.dp), color = palette.accent, strokeWidth = 2.dp)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("Buscando tu PC…", style = DlText.Headline)
-                    Text("Por cable USB y en tu red Wi-Fi", style = DlText.Note, color = palette.textSecondary)
+                    Text(stringResource(R.string.searching_pc), style = DlText.Headline)
+                    Text(stringResource(R.string.searching_pc_note), style = DlText.Note, color = palette.textSecondary)
                 }
             }
             if (state.scans >= 2) {
                 VSpace(8.dp)
-                LinkText(if (help) "Ocultar ayuda" else "¿No aparece?", { help = !help })
+                LinkText(stringResource(if (help) R.string.hide_help else R.string.not_showing_up), { help = !help })
                 AnimatedVisibility(help) {
                     Column(Modifier.padding(start = 8.dp, top = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("1. Abre Extendesk en el PC y pulsa Iniciar.", style = DlText.Body)
-                        Text("2. Por Wi-Fi: PC y dispositivo en la misma red, y Extendesk permitido en el cortafuegos de Windows.", style = DlText.Body)
-                        Text("3. Por cable: enchufa el dispositivo al PC y sigue el aviso que sale aquí.", style = DlText.Body)
-                        Text("Redes de este dispositivo: ${state.networks}", style = DlText.Note, color = palette.textSecondary)
+                        Text(stringResource(R.string.search_help_1), style = DlText.Body)
+                        Text(stringResource(R.string.search_help_2), style = DlText.Body)
+                        Text(stringResource(R.string.search_help_3), style = DlText.Body)
+                        Text(stringResource(R.string.device_networks, state.networks), style = DlText.Note, color = palette.textSecondary)
                     }
                 }
             }
@@ -222,16 +224,16 @@ private fun PcCard(pc: PcEntry, isLast: Boolean, onConnect: () -> Unit) {
             Column(Modifier.weight(1f)) {
                 Text(pc.name, style = DlText.Headline, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    HostGroups.describe(route) + if (isLast) " · el último que usaste" else "",
+                    HostGroups.describe(route) + if (isLast) stringResource(R.string.pc_last_used_suffix) else "",
                     style = DlText.Note,
                     color = palette.textSecondary,
                 )
                 if (!route.acceptsConfig) {
-                    Text("El Extendesk del PC es antiguo: actualízalo.", style = DlText.Note, color = palette.warning)
+                    Text(stringResource(R.string.pc_outdated), style = DlText.Note, color = palette.warning)
                 }
             }
             Spacer(Modifier.width(12.dp))
-            PrimaryButton("Conectar", onConnect)
+            PrimaryButton(stringResource(R.string.action_connect), onConnect)
         }
     }
 }
@@ -242,12 +244,12 @@ private fun LastHostCard(address: String, name: String?, onConnect: () -> Unit) 
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    name?.takeIf { it.isNotBlank() } ?: if (address == Link.CABLE_HOST) "PC por cable USB" else address,
+                    name?.takeIf { it.isNotBlank() } ?: if (address == Link.CABLE_HOST) stringResource(R.string.pc_by_usb_cable) else address,
                     style = DlText.Headline,
                 )
-                Text("Último PC usado · ahora no responde", style = DlText.Note, color = palette.textSecondary)
+                Text(stringResource(R.string.last_pc_not_responding), style = DlText.Note, color = palette.textSecondary)
             }
-            SecondaryButton("Probar", onConnect)
+            SecondaryButton(stringResource(R.string.action_try), onConnect)
         }
     }
 }

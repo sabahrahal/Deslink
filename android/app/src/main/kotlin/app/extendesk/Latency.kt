@@ -77,13 +77,19 @@ class LatencyStats(private val clock: ClockSync) {
         fun text(): String {
             if (frames == 0) return ""
             val parts = buildList {
-                if (arriveUs >= 0) add("PC y red ${ms(arriveUs)}")
-                if (holdUs > 0) add("esperar reenvíos ${ms(holdUs)}")
-                if (inputWaitUs > 0) add("esperar entrada ${ms(inputWaitUs)}")
-                add("decodificar ${ms(decodeUs)}")
-                if (screenUs >= 0) add((if (screenEstimated) "pantalla ~" else "pantalla ") + ms(screenUs))
+                if (arriveUs >= 0) add(Strings.get(R.string.latency_pc_network, ms(arriveUs)))
+                if (holdUs > 0) add(Strings.get(R.string.latency_wait_resend, ms(holdUs)))
+                if (inputWaitUs > 0) add(Strings.get(R.string.latency_wait_input, ms(inputWaitUs)))
+                add(Strings.get(R.string.latency_decode, ms(decodeUs)))
+                if (screenUs >= 0) {
+                    add(Strings.get(if (screenEstimated) R.string.latency_screen_estimated else R.string.latency_screen, ms(screenUs)))
+                }
             }
-            val total = if (hasTotal) "retardo ${ms(totalUs)} ms (peor ${ms(maxTotalUs)}): " else "retardo: "
+            val total = if (hasTotal) {
+                Strings.get(R.string.latency_total, ms(totalUs), ms(maxTotalUs))
+            } else {
+                Strings.get(R.string.latency_total_unknown)
+            }
             return total + parts.joinToString(" + ") { "$it ms" }
         }
 

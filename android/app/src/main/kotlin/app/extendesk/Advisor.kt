@@ -1,5 +1,6 @@
 package app.extendesk
 
+import androidx.annotation.StringRes
 import kotlin.math.max
 
 /** Resultado de la prueba de conexión: latencia de ida y vuelta (ms) y pérdida de paquetes. */
@@ -16,10 +17,13 @@ data class BurstResult(val sent: Int, val received: Int, val mbps: Double, val p
 data class NetworkInfo(val isWifi: Boolean, val wifiLinkMbps: Int, val wifiRssiDbm: Int, val wifiFrequencyMhz: Int, val isEthernetLike: Boolean)
 
 /** De dónde sale la cifra de potencia (ver [DeviceProbe]): medida o estimada. */
-enum class PowerSource(val label: String) {
-    CURRENT_LEARNED("medido: corriente de la batería"),
-    COUNTER("medido: contador de carga"),
-    CURRENT_GUESS("estimado: signo según el estado de carga"),
+enum class PowerSource(@StringRes private val labelRes: Int) {
+    CURRENT_LEARNED(R.string.power_source_current),
+    COUNTER(R.string.power_source_counter),
+    CURRENT_GUESS(R.string.power_source_guess),
+    ;
+
+    val label: String get() = Strings.get(labelRes)
 }
 
 /** Estado de la batería. `netMilliwatts`: positivo = se carga, negativo = se descarga; null si aún no se sabe. */
@@ -59,13 +63,12 @@ object Advisor {
         if (battery != null) out += adviseBattery(battery)
         if (thermalStatus != null && thermalStatus >= THERMAL_MODERATE) {
             out += Finding(
-                Severity.WARNING, "El dispositivo se está calentando",
-                "El sistema puede bajar el rendimiento para enfriarse y eso causa tirones. Quita la funda, evita el sol " +
-                    "o activa el modo ahorro (60 Hz y menos calidad).",
+                Severity.WARNING, Strings.get(R.string.adv_hot_title),
+                Strings.get(R.string.adv_hot_detail),
             )
         }
         if (out.none { it.severity == Severity.WARNING }) {
-            out += Finding(Severity.OK, "Todo en orden", "No hemos encontrado nada que limite la experiencia ahora mismo.")
+            out += Finding(Severity.OK, Strings.get(R.string.adv_ok_title), Strings.get(R.string.adv_ok_detail))
         }
         return out
     }
@@ -74,39 +77,42 @@ object Advisor {
         if (link.received == 0) {
             return listOf(
                 Finding(
-                    Severity.WARNING, "No hay respuesta del PC",
-                    "Comprueba que extendesk-host está abierto, que el cortafuegos permite UDP 47800 y que ambos " +
-                        "equipos están en la misma red.",
+                    Severity.WARNING, Strings.get(R.string.adv_no_answer_title),
+                    Strings.get(R.string.adv_no_answer_detail),
                 ),
             )
         }
         val out = ArrayList<Finding>()
         val transport = link.route?.transport
         val isWifi = transport?.let { it == Transport.WIFI } ?: (net?.isWifi == true)
-        val kind = transport?.label ?: if (isWifi) "WiFi" else "cable/red"
+        val kind = transport?.label ?: Strings.get(if (isWifi) R.string.adv_kind_wifi else R.string.adv_kind_cable)
         when {
             link.lossPercent >= 2.0 -> out += Finding(
-                Severity.WARNING, "Se pierden paquetes ($kind)",
-                "Se perdió el ${"%.1f".format(link.lossPercent)} % de las pruebas; verás tirones o imagen rota. " +
-                    if (isWifi) "Acércate al router o usa la banda de 5 GHz/6 GHz; si puedes, el cable USB va más estable."
-                    else "Prueba con otro cable o puerto.",
+                Severity.WARNING, Strings.get(R.string.adv_loss_title, kind),
+                Strings.get(
+                    R.string.adv_loss_detail,
+                    "%.1f".format(link.lossPercent),
+                    Strings.get(if (isWifi) R.string.adv_loss_wifi_tip else R.string.adv_loss_cable_tip),
+                ),
             )
-            link.lossPercent > 0.0 -> out += Finding(Severity.INFO, "Pérdida baja", "Se perdió el ${"%.1f".format(link.lossPercent)} %. Es normal y no se nota.")
+            link.lossPercent > 0.0 -> out += Finding(
+                Severity.INFO, Strings.get(R.string.adv_low_loss_title),
+                Strings.get(R.string.adv_low_loss_detail, "%.1f".format(link.lossPercent)),
+            )
         }
         val tail = link.rttP95Ms
         when {
             tail > 25 || link.jitterMs > 8 -> out += Finding(
-                Severity.WARNING, "La conexión es irregular",
-                "La latencia típica es ${"%.1f".format(link.rttP50Ms)} ms pero a veces sube a ${"%.1f".format(tail)} ms " +
-                    "(variación ${"%.1f".format(link.jitterMs)} ms). Eso se nota como saltos al mover el ratón.",
+                Severity.WARNING, Strings.get(R.string.adv_jitter_title),
+                Strings.get(R.string.adv_jitter_detail, "%.1f".format(link.rttP50Ms), "%.1f".format(tail), "%.1f".format(link.jitterMs)),
             )
             link.rttP50Ms <= 4 && tail <= 12 -> out += Finding(
-                Severity.OK, "Conexión excelente",
-                "Latencia de ${"%.1f".format(link.rttP50Ms)} ms (máx. habitual ${"%.1f".format(tail)} ms).",
+                Severity.OK, Strings.get(R.string.adv_excellent_title),
+                Strings.get(R.string.adv_latency_detail, "%.1f".format(link.rttP50Ms), "%.1f".format(tail)),
             )
             else -> out += Finding(
-                Severity.INFO, "Conexión correcta",
-                "Latencia de ${"%.1f".format(link.rttP50Ms)} ms (máx. habitual ${"%.1f".format(tail)} ms).",
+                Severity.INFO, Strings.get(R.string.adv_correct_title),
+                Strings.get(R.string.adv_latency_detail, "%.1f".format(link.rttP50Ms), "%.1f".format(tail)),
             )
         }
         return out
@@ -119,14 +125,12 @@ object Advisor {
         return when {
             raw.received == 0 -> emptyList()
             rawLoss < 3.0 -> listOf(
-                Finding(Severity.OK, "Aguanta bien las ráfagas", "Un frame grande llega completo (${"%.0f".format(raw.mbps)} Mbps de pico)."),
+                Finding(Severity.OK, Strings.get(R.string.adv_burst_ok_title), Strings.get(R.string.adv_burst_ok_detail, "%.0f".format(raw.mbps))),
             )
             paced != null && pacedLoss != null && pacedLoss < 3.0 -> listOf(
                 Finding(
-                    Severity.INFO, "El enlace pierde datos en ráfagas",
-                    "Enviado de golpe se pierde el ${"%.0f".format(rawLoss)} % de un frame grande, y repartido a ${paced.paceMbps} Mbps " +
-                        "llega completo. El programa del PC ya reparte el envío a ${paced.paceMbps} Mbps de serie; si usas una " +
-                        "versión antigua, actualízala o arráncala con `extendesk-host.exe --pace ${paced.paceMbps}`.",
+                    Severity.INFO, Strings.get(R.string.adv_burst_paced_title),
+                    Strings.get(R.string.adv_burst_paced_detail, "%.0f".format(rawLoss), paced.paceMbps),
                 ),
             )
             else -> {
@@ -134,10 +138,8 @@ object Advisor {
                 val suggested = max(5, (base * 0.4).toInt())
                 listOf(
                     Finding(
-                        Severity.WARNING, "El enlace no da para tanta calidad",
-                        "Se pierde el ${"%.0f".format(rawLoss)} % de un frame grande aunque se reparta. Baja la calidad: " +
-                            "`extendesk-host.exe --bitrate $suggested --pace ${max(10, (base * 0.8).toInt())}`. " +
-                            "Si es USB, prueba otro cable o puerto, o el WiFi.",
+                        Severity.WARNING, Strings.get(R.string.adv_burst_bad_title),
+                        Strings.get(R.string.adv_burst_bad_detail, "%.0f".format(rawLoss), suggested, max(10, (base * 0.8).toInt())),
                     ),
                 )
             }
@@ -148,15 +150,15 @@ object Advisor {
         val out = ArrayList<Finding>()
         if (net.wifiFrequencyMhz in 2400..2500) {
             out += Finding(
-                Severity.WARNING, "Estás en WiFi de 2,4 GHz",
-                "Esa banda va saturada y tiene poca velocidad. Conecta el dispositivo y el PC a la red de 5 GHz (o 6 GHz).",
+                Severity.WARNING, Strings.get(R.string.adv_24ghz_title),
+                Strings.get(R.string.adv_24ghz_detail),
             )
         }
         if (net.wifiRssiDbm != 0 && net.wifiRssiDbm < -70) {
-            out += Finding(Severity.WARNING, "Señal WiFi débil", "Señal de ${net.wifiRssiDbm} dBm. Acércate al router.")
+            out += Finding(Severity.WARNING, Strings.get(R.string.adv_weak_title), Strings.get(R.string.adv_weak_detail, net.wifiRssiDbm))
         }
         if (net.wifiLinkMbps in 1..299) {
-            out += Finding(Severity.INFO, "Velocidad de enlace baja", "El WiFi negocia ${net.wifiLinkMbps} Mbps; el vídeo a 50 Mbps puede quedarse justo.")
+            out += Finding(Severity.INFO, Strings.get(R.string.adv_link_speed_title), Strings.get(R.string.adv_link_speed_detail, net.wifiLinkMbps))
         }
         return out
     }
@@ -166,20 +168,22 @@ object Advisor {
         val net = b.netMilliwatts
         if (b.pluggedUsbOrAc && net != null && net < -500) {
             out += Finding(
-                Severity.WARNING, "Está conectado pero se descarga",
-                "El cable da menos energía de la que gasta la pantalla (${"%.1f".format(-net / 1000)} W de saldo negativo). " +
-                    "Los puertos USB del PC suelen dar 2,5–4,5 W. Prueba con un puerto USB trasero o un cargador de pared, " +
-                    "o activa el modo ahorro.",
+                Severity.WARNING, Strings.get(R.string.adv_drain_title),
+                Strings.get(R.string.adv_drain_detail, "%.1f".format(-net / 1000)),
             )
         } else if (!b.pluggedUsbOrAc && net != null && net < -1000) {
             val hours = if (b.percent > 0) estimateHours(b.percent, -net) else null
             out += Finding(
-                Severity.INFO, "Funcionando con batería",
-                "Consumo medio ${"%.1f".format(-net / 1000)} W" + if (hours != null) "; te quedan unas ${"%.1f".format(hours)} h." else ".",
+                Severity.INFO, Strings.get(R.string.adv_battery_title),
+                if (hours != null) {
+                    Strings.get(R.string.adv_battery_detail_hours, "%.1f".format(-net / 1000), "%.1f".format(hours))
+                } else {
+                    Strings.get(R.string.adv_battery_detail, "%.1f".format(-net / 1000))
+                },
             )
         }
         if (b.temperatureC >= 42) {
-            out += Finding(Severity.WARNING, "Batería caliente", "${"%.0f".format(b.temperatureC)} °C. Cargar y transmitir a la vez la calienta; el sistema limitará la carga.")
+            out += Finding(Severity.WARNING, Strings.get(R.string.adv_hot_battery_title), Strings.get(R.string.adv_hot_battery_detail, "%.0f".format(b.temperatureC)))
         }
         return out
     }

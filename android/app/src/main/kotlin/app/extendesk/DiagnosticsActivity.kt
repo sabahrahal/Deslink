@@ -29,16 +29,15 @@ class DiagnosticsActivity : Activity() {
         status = TextView(this).apply { textSize = 14f; gravity = Gravity.CENTER }
         results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         runButton = Button(this).apply {
-            text = "Probar ahora (unos 5 segundos)"
+            text = getString(R.string.diag_run)
             setOnClickListener { startTest() }
         }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(48, 48, 48, 48)
-            addView(TextView(this@DiagnosticsActivity).apply { text = "Diagnóstico"; textSize = 26f })
+            addView(TextView(this@DiagnosticsActivity).apply { text = getString(R.string.diagnostics); textSize = 26f })
             addView(TextView(this@DiagnosticsActivity).apply {
-                text = "Mide la conexión con $host, el WiFi y la batería y te dice qué mejorar. " +
-                    "Para medir el consumo, déjala unos 20 segundos abierta."
+                text = getString(R.string.diag_intro, host)
             })
             addView(runButton)
             addView(status)
@@ -50,14 +49,14 @@ class DiagnosticsActivity : Activity() {
 
     private fun startTest() {
         runButton.isEnabled = false
-        status.text = "Midiendo…"
+        status.text = getString(R.string.diag_measuring)
         thread(name = "extendesk-linktest") {
             val result = try {
-                LinkTester.run(host) { done -> runOnUiThread { status.text = "Midiendo… $done/100" } }
+                LinkTester.run(host) { done -> runOnUiThread { status.text = getString(R.string.diag_measuring_progress, done) } }
             } catch (e: Exception) {
                 null
             }
-            runOnUiThread { status.text = "Probando ráfagas (como un frame grande)…" }
+            runOnUiThread { status.text = getString(R.string.diag_bursts) }
             val rawBurst = try { LinkTester.burst(host, paceMbps = 0) } catch (e: Exception) { null }
             Thread.sleep(300)
             val pacedBurst = try { LinkTester.burst(host, paceMbps = 100) } catch (e: Exception) { null }
@@ -66,7 +65,7 @@ class DiagnosticsActivity : Activity() {
                 raw = rawBurst
                 paced = pacedBurst
                 runButton.isEnabled = true
-                status.text = if (result == null) "No se pudo realizar la prueba." else "Prueba terminada."
+                status.text = getString(if (result == null) R.string.diag_failed else R.string.diag_done)
                 refresh()
             }
         }
@@ -90,17 +89,23 @@ class DiagnosticsActivity : Activity() {
                 TextView(this).apply {
                     setPadding(0, 32, 0, 0)
                     textSize = 16f
-                    text = "Conexión usada: " + (it.route?.description ?: "no identificada (IP fuera de las redes del dispositivo)")
+                    text = getString(R.string.diag_route, it.route?.description ?: getString(R.string.diag_route_unknown))
                 },
             )
             results.addView(
                 TextView(this).apply {
                     setPadding(0, 32, 0, 0)
                     textSize = 12f
-                    text = "Detalle: ${it.received}/${it.sent} respuestas · mediana ${"%.1f".format(it.rttP50Ms)} ms · " +
-                        "p95 ${"%.1f".format(it.rttP95Ms)} ms · variación ${"%.1f".format(it.jitterMs)} ms" +
-                        (raw?.let { r -> "\nRáfaga de golpe: ${r.received}/${r.sent} paquetes (${"%.0f".format(r.mbps)} Mbps)" } ?: "") +
-                        (paced?.let { r -> "\nRáfaga a ${r.paceMbps} Mbps: ${r.received}/${r.sent} paquetes" } ?: "")
+                    text = getString(
+                        R.string.diag_detail,
+                        it.received,
+                        it.sent,
+                        "%.1f".format(it.rttP50Ms),
+                        "%.1f".format(it.rttP95Ms),
+                        "%.1f".format(it.jitterMs),
+                    ) +
+                        (raw?.let { r -> getString(R.string.diag_burst_raw, r.received, r.sent, "%.0f".format(r.mbps)) } ?: "") +
+                        (paced?.let { r -> getString(R.string.diag_burst_paced, r.paceMbps, r.received, r.sent) } ?: "")
                 },
             )
         }

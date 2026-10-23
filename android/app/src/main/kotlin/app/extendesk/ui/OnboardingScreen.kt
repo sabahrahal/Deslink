@@ -1,5 +1,6 @@
 package app.extendesk.ui
 
+import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -29,11 +30,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import app.extendesk.R
 import app.extendesk.UsbDebugHint
 
 /** Un paso de la guía de inicio: título, explicación y consejos en frases cortas. */
-data class OnboardingPage(val id: String, val title: String, val body: String, val tips: List<String> = emptyList())
+/** Una página de la guía; los textos están en res/values/strings.xml. */
+data class OnboardingPage(
+    val id: String,
+    @StringRes val title: Int,
+    @StringRes val body: Int,
+    val tips: List<Int> = emptyList(),
+)
 
 /**
  * Guía de inicio: sale la primera vez que se abre la app y luego desde Configuración avanzada > Ayuda. Recoge lo
@@ -42,48 +51,30 @@ data class OnboardingPage(val id: String, val title: String, val body: String, v
  */
 object Onboarding {
     val pages = listOf(
-        OnboardingPage(
-            "bienvenida",
-            "Tu dispositivo como segunda pantalla",
-            "Extendesk convierte el dispositivo en una pantalla más del PC, por Wi-Fi o por cable USB. Son tres cosas y listo.",
-        ),
+        OnboardingPage("bienvenida", R.string.onb_welcome_title, R.string.onb_welcome_body),
         OnboardingPage(
             "pc",
-            "Instala Extendesk en el PC",
-            "Ejecuta Extendesk-Setup.exe en el PC. Instala también la pantalla extra, que es lo que permite usar el dispositivo como un monitor más.",
-            listOf(
-                "Abre Extendesk en el PC y pulsa Iniciar.",
-                "La calidad y el sonido se eligen en la ventana del PC. Lo demás es automático.",
-            ),
+            R.string.onb_pc_title,
+            R.string.onb_pc_body,
+            listOf(R.string.onb_pc_tip_1, R.string.onb_pc_tip_2),
         ),
         OnboardingPage(
             "cable",
-            "Conecta el dispositivo",
-            "Lo más fácil es el Wi-Fi: con el PC y el dispositivo en la misma red no hay que configurar nada. Abre Extendesk en los dos y pulsa Conectar.",
-            listOf(
-                "Wi-Fi: la misma red en el PC y en el dispositivo.",
-                "Cable, la conexión más estable: enchufa el dispositivo y activa «Anclaje USB» en sus ajustes.",
-                "Opcional: con la depuración USB el cable conecta solo al enchufarlo, sin repetir ese paso (Información del dispositivo, toca 7 veces «Número de compilación», y en «Opciones de desarrollador» activa «Depuración USB»).",
-            ),
+            R.string.onb_cable_title,
+            R.string.onb_cable_body,
+            listOf(R.string.onb_cable_tip_1, R.string.onb_cable_tip_2, R.string.onb_cable_tip_3),
         ),
         OnboardingPage(
             "tamano",
-            "Que se vea a tu gusto",
-            "El dispositivo arranca a su resolución, que es la más nítida. El tamaño de todo se elige en Windows: Configuración > Pantalla, eligiendo la pantalla Extendesk.",
-            listOf(
-                "Para ver todo más grande, sube la «Escala» (por ejemplo a 200 %) en vez de bajar la resolución.",
-                "Si prefieres otra resolución, cámbiala con el dispositivo conectado: Extendesk la recuerda.",
-            ),
+            R.string.onb_size_title,
+            R.string.onb_size_body,
+            listOf(R.string.onb_size_tip_1, R.string.onb_size_tip_2),
         ),
         OnboardingPage(
             "sesion",
-            "Durante la sesión",
-            "El botón azul ☰ de la esquina abre el menú: estadísticas y desconectar.",
-            listOf(
-                "Si te tapa algo, arrástralo a otro sitio y se queda ahí.",
-                "Al desconectar, la pantalla extra desaparece sola del PC.",
-                "¿Dudas? Cada opción está explicada en Configuración avanzada > Ayuda.",
-            ),
+            R.string.onb_session_title,
+            R.string.onb_session_body,
+            listOf(R.string.onb_session_tip_1, R.string.onb_session_tip_2, R.string.onb_session_tip_3),
         ),
     )
 }
@@ -103,7 +94,7 @@ fun OnboardingScreen(usbDebug: UsbDebugHint, onOpenUsbDebug: () -> Unit, onDone:
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 BrandMark(Modifier.weight(1f), iconHeight = 20.dp, textSize = DlType.HeadlineSize)
-                if (!last) LinkText("Saltar", onDone)
+                if (!last) LinkText(stringResource(R.string.action_skip), onDone)
             }
             VSpace(16.dp)
             AnimatedContent(index, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "page", modifier = Modifier.weight(1f)) { i ->
@@ -112,21 +103,21 @@ fun OnboardingScreen(usbDebug: UsbDebugHint, onOpenUsbDebug: () -> Unit, onDone:
                     Modifier.verticalScroll(rememberScrollState()).testTag("onboarding:${page.id}"),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Text(page.title, style = DlText.LargeTitle)
-                    Text(page.body, style = DlText.Body, color = palette.textSecondary)
+                    Text(stringResource(page.title), style = DlText.LargeTitle)
+                    Text(stringResource(page.body), style = DlText.Body, color = palette.textSecondary)
                     if (page.tips.isNotEmpty()) {
                         DlCard {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                for (tip in page.tips) Tip(tip)
+                                for (tip in page.tips) Tip(stringResource(tip))
                             }
                         }
                     }
                     if (page.id == "cable") {
-                        SecondaryButton("Abrir «Anclaje USB»", onOpenTether)
+                        SecondaryButton(stringResource(R.string.open_tethering), onOpenTether)
                         if (usbDebug == UsbDebugHint.NONE) {
-                            Text("La depuración USB ya está activa en este dispositivo.", style = DlText.Note, color = palette.success)
+                            Text(stringResource(R.string.usb_debug_already_on), style = DlText.Note, color = palette.success)
                         } else {
-                            SecondaryButton("Abrir ajustes de depuración USB", onOpenUsbDebug)
+                            SecondaryButton(stringResource(R.string.open_usb_debug_settings), onOpenUsbDebug)
                         }
                     }
                 }
@@ -144,10 +135,10 @@ fun OnboardingScreen(usbDebug: UsbDebugHint, onOpenUsbDebug: () -> Unit, onDone:
                     }
                 }
                 if (index > 0) {
-                    LinkText("Atrás", { index-- })
+                    LinkText(stringResource(R.string.action_back), { index-- })
                     Spacer(Modifier.size(8.dp))
                 }
-                PrimaryButton(if (last) "Empezar" else "Siguiente", { if (last) onDone() else index++ })
+                PrimaryButton(stringResource(if (last) R.string.action_start else R.string.action_next), { if (last) onDone() else index++ })
             }
         }
     }

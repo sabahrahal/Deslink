@@ -1,5 +1,7 @@
 package app.extendesk
 
+import androidx.annotation.StringRes
+
 /**
  * Perfiles de batería. Cada uno fija los límites que se piden al host (fps, Mbps y escala de la resolución
  * codificada) y lo que la tablet hace por su lado (brillo máximo, modo del WiFi, rendimiento sostenido).
@@ -9,7 +11,7 @@ package app.extendesk
  */
 enum class PowerProfile(
     val id: String,
-    val label: String,
+    @StringRes private val labelRes: Int,
     /** Número del perfil en QUALITY_REQUEST. */
     val wire: Int,
     /** 0 = sin límite (lo que diga el host, 60 fps de serie). */
@@ -31,10 +33,12 @@ enum class PowerProfile(
     /** Decodificador a su velocidad máxima (menos retardo, más consumo); si no, a la justa para los fps. */
     val fastDecode: Boolean,
 ) {
-    MAXIMA("maxima", "Máxima calidad", 0, 0, 0, 100, null, true, true, false, true),
-    EQUILIBRADO("equilibrado", "Equilibrado", 1, 60, 30, 100, null, true, false, false, true),
-    AHORRO("ahorro", "Ahorro", 2, 30, 12, 75, 0.5f, false, false, true, false),
-    MINIMO("minimo", "Mínimo", 3, 30, 8, 60, 0.35f, false, false, true, false);
+    MAXIMA("maxima", R.string.profile_max, 0, 0, 0, 100, null, true, true, false, true),
+    EQUILIBRADO("equilibrado", R.string.profile_balanced, 1, 60, 30, 100, null, true, false, false, true),
+    AHORRO("ahorro", R.string.profile_saver, 2, 30, 12, 75, 0.5f, false, false, true, false),
+    MINIMO("minimo", R.string.profile_minimum, 3, 30, 8, 60, 0.35f, false, false, true, false);
+
+    val label: String get() = Strings.get(labelRes)
 
     val selectable: Boolean get() = this != MINIMO
 
@@ -46,9 +50,9 @@ enum class PowerProfile(
 
     /** Resumen corto para las estadísticas, p. ej. «Ahorro · 30 fps · 12 Mbps · 75 %». */
     fun summary(): String {
-        val fps = if (maxFps > 0) "$maxFps fps" else "fps del PC"
-        val mbps = if (maxBitrateMbps > 0) "$maxBitrateMbps Mbps" else "Mbps del PC"
-        return "$label · $fps · $mbps · $scalePercent %"
+        val fps = if (maxFps > 0) Strings.get(R.string.profile_fps, maxFps) else Strings.get(R.string.profile_fps_pc)
+        val mbps = if (maxBitrateMbps > 0) Strings.get(R.string.profile_mbps, maxBitrateMbps) else Strings.get(R.string.profile_mbps_pc)
+        return Strings.get(R.string.profile_summary, label, fps, mbps, scalePercent)
     }
 
     companion object {

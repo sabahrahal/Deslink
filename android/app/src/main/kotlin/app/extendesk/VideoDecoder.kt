@@ -141,7 +141,7 @@ class VideoDecoder(
             override fun onOutputFormatChanged(c: MediaCodec, format: MediaFormat) = Unit
 
             override fun onError(c: MediaCodec, e: MediaCodec.CodecException) {
-                onError("Error del decodificador: ${e.diagnosticInfo}")
+                onError(Strings.get(R.string.decoder_error, e.diagnosticInfo))
             }
         }, Handler(callbackThread.looper))
         // Cuándo se encendió de verdad cada frame en la pantalla (el refresco en que se mostró). Los frames que Android

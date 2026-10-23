@@ -1,10 +1,16 @@
 package app.extendesk
 
+import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.annotation.Config
 
+// Los textos salen de strings.xml (Robolectric); se comprueban en español.
+@RunWith(AndroidJUnit4::class)
+@Config(sdk = [34], qualifiers = "es")
 class ChargeGovernorTest {
     private val s = 1_000L
 

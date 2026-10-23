@@ -49,8 +49,8 @@ class AudioPlayer(cable: Boolean) {
     }
 
     /** Para las estadísticas: colchón actual y cortes desde el principio. */
-    fun statsText(): String = "sonido ${buffer.target * AudioJitterBuffer.FRAME_MS} ms" +
-        (if (buffer.underruns > 0) ", ${buffer.underruns} cortes" else "")
+    fun statsText(): String = Strings.get(R.string.stats_sound, buffer.target * AudioJitterBuffer.FRAME_MS) +
+        (if (buffer.underruns > 0) Strings.get(R.string.stats_sound_underruns, buffer.underruns) else "")
 
     /** Una línea para el log del PC: qué llega, qué suena y qué falló desde el principio. */
     fun report(volume: String): String =
