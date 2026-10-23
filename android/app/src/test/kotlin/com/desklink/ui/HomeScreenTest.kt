@@ -107,7 +107,7 @@ class HomeScreenTest {
     fun advancedSettingsIsALinkOnHome() {
         var opened = false
         show(HomeState(), onAdvanced = { opened = true })
-        compose.onNodeWithText("Desklink").assertIsDisplayed()
+        compose.onNodeWithText("Extendesk").assertIsDisplayed()
         compose.onNodeWithText("Configuración avanzada").performClick()
         assertEquals(true, opened)
         // Calidad, sonido y táctil no están en la tablet: se eligen en el PC.

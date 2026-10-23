@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Genera los tokens de diseño de DeskLink para Android y Windows a partir de design/tokens.json.
+"""Genera los tokens de diseño de Extendesk para Android y Windows a partir de design/tokens.json.
 
     python3 tools/design/gen_tokens.py          # escribe los archivos generados
     python3 tools/design/gen_tokens.py --check  # falla si están desfasados o si algún par no se lee bien

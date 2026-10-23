@@ -1,4 +1,4 @@
-﻿; Instalador de DeskLink para Windows (Inno Setup 6.3+).
+﻿; Instalador de Extendesk para Windows (Inno Setup 6.3+).
 ;
 ; Instala el host, adb y el monitor virtual (driver) en una sola pasada, crea la entrada del menú Inicio y lo quita
 ; todo al desinstalar. Al actualizar encima de una versión anterior sólo reinstala el driver si su código cambió
@@ -31,24 +31,24 @@
 [Setup]
 ; No cambiar AppId: es lo que hace que una versión nueva se instale encima de la anterior.
 AppId={{6B1E3C0A-5D2F-4C7B-9E21-D35C1A7F0B42}
-AppName=DeskLink
+AppName=Extendesk
 AppVersion={#AppVersion}
-AppVerName=DeskLink {#AppVersion}
-AppPublisher=DeskLink
-DefaultDirName={autopf}\DeskLink
-DefaultGroupName=DeskLink
+AppVerName=Extendesk {#AppVersion}
+AppPublisher=Extendesk
+DefaultDirName={autopf}\Extendesk
+DefaultGroupName=Extendesk
 DisableProgramGroupPage=yes
 DisableDirPage=auto
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
-OutputBaseFilename=DeskLink-Setup
+OutputBaseFilename=Extendesk-Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayIcon={app}\{#MainExe}
-UninstallDisplayName=DeskLink
+UninstallDisplayName=Extendesk
 CloseApplications=yes
 RestartApplications=no
 SetupLogging=yes
@@ -71,14 +71,14 @@ Source: "{#Stage}\driver\*"; DestDir: "{app}\driver"; Flags: ignoreversion; Chec
 Source: "{#Stage}\driver\desklink-driver.exe"; DestDir: "{app}\driver"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\DeskLink"; Filename: "{app}\{#MainExe}"; Parameters: "{#MainArgs}"; WorkingDir: "{app}"
+Name: "{group}\Extendesk"; Filename: "{app}\{#MainExe}"; Parameters: "{#MainArgs}"; WorkingDir: "{app}"
 Name: "{group}\Actualizar el dispositivo"; Filename: "{app}\tools\actualizar-tablet.bat"; WorkingDir: "{app}\tools"
-Name: "{group}\Actualizar DeskLink en el PC"; Filename: "{app}\tools\actualizar-pc.bat"; WorkingDir: "{app}\tools"
-Name: "{group}\Desinstalar DeskLink"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\DeskLink"; Filename: "{app}\{#MainExe}"; Parameters: "{#MainArgs}"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{group}\Actualizar Extendesk en el PC"; Filename: "{app}\tools\actualizar-pc.bat"; WorkingDir: "{app}\tools"
+Name: "{group}\Desinstalar Extendesk"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\Extendesk"; Filename: "{app}\{#MainExe}"; Parameters: "{#MainArgs}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MainExe}"; Parameters: "{#MainArgs}"; WorkingDir: "{app}"; Description: "Abrir DeskLink"; Flags: postinstall nowait skipifsilent unchecked
+Filename: "{app}\{#MainExe}"; Parameters: "{#MainArgs}"; WorkingDir: "{app}"; Description: "Abrir Extendesk"; Flags: postinstall nowait skipifsilent unchecked
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\driver"
@@ -164,7 +164,7 @@ begin
       RegWriteStringValue(HKLM, RegKey, 'DriverId', NewDriverId)
     else
       SuppressibleMsgBox('No se pudo instalar el monitor virtual (código ' + IntToStr(Code) + ').' + #13#10 +
-                         'DeskLink funciona igual duplicando la pantalla. El detalle está en:' + #13#10 + Log,
+                         'Extendesk funciona igual duplicando la pantalla. El detalle está en:' + #13#10 + Log,
                          mbError, MB_OK, IDOK);
   end;
 end;

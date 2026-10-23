@@ -1,6 +1,6 @@
 # windows/app
 
-`desklink.exe`: la app de DeskLink para Windows. Vive en la bandeja (junto al reloj) y maneja `desklink-host.exe`
+`desklink.exe`: la app de Extendesk para Windows. Vive en la bandeja (junto al reloj) y maneja `desklink-host.exe`
 sin consola: lo arranca con los ajustes guardados, enseña el estado y explica los errores. Win32 nativo en C++
 (sin .NET ni WinUI): un solo .exe pequeño, sin instalar nada más.
 

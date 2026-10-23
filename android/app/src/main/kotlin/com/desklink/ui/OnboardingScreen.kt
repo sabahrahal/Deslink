@@ -45,21 +45,21 @@ object Onboarding {
         OnboardingPage(
             "bienvenida",
             "Tu dispositivo como segunda pantalla",
-            "DeskLink convierte el dispositivo en una pantalla más del PC, por Wi-Fi o por cable USB. Son tres cosas y listo.",
+            "Extendesk convierte el dispositivo en una pantalla más del PC, por Wi-Fi o por cable USB. Son tres cosas y listo.",
         ),
         OnboardingPage(
             "pc",
-            "Instala DeskLink en el PC",
-            "Ejecuta DeskLink-Setup.exe en el PC. Instala también la pantalla extra, que es lo que permite usar el dispositivo como un monitor más.",
+            "Instala Extendesk en el PC",
+            "Ejecuta Extendesk-Setup.exe en el PC. Instala también la pantalla extra, que es lo que permite usar el dispositivo como un monitor más.",
             listOf(
-                "Abre DeskLink en el PC y pulsa Iniciar.",
+                "Abre Extendesk en el PC y pulsa Iniciar.",
                 "La calidad, el sonido y el táctil se eligen en la ventana del PC.",
             ),
         ),
         OnboardingPage(
             "cable",
             "Conecta el dispositivo",
-            "Lo más fácil es el Wi-Fi: con el PC y el dispositivo en la misma red no hay que configurar nada. Abre DeskLink en los dos y pulsa Conectar.",
+            "Lo más fácil es el Wi-Fi: con el PC y el dispositivo en la misma red no hay que configurar nada. Abre Extendesk en los dos y pulsa Conectar.",
             listOf(
                 "Wi-Fi: la misma red en el PC y en el dispositivo.",
                 "Cable, sin complicaciones: enchufa el dispositivo y activa «Anclaje USB» en sus ajustes.",
@@ -72,7 +72,7 @@ object Onboarding {
             "El dispositivo arranca a su resolución, que es la más nítida. El tamaño de todo se elige en Windows: Configuración > Pantalla, eligiendo la pantalla DeskLink.",
             listOf(
                 "Para ver todo más grande, sube la «Escala» (por ejemplo a 200 %) en vez de bajar la resolución.",
-                "Si prefieres otra resolución, cámbiala con el dispositivo conectado: DeskLink la recuerda.",
+                "Si prefieres otra resolución, cámbiala con el dispositivo conectado: Extendesk la recuerda.",
             ),
         ),
         OnboardingPage(

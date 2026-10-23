@@ -19,7 +19,7 @@ enum class UsbDebugHint {
 }
 
 /**
- * El cable de DeskLink va por adb, que funciona con cualquier modo USB de Android (también «Solo cargar») siempre
+ * El cable de Extendesk va por adb, que funciona con cualquier modo USB de Android (también «Solo cargar») siempre
  * que la depuración USB esté activa. Sin ella la única salida es elegir «Anclaje USB» en cada enchufe; esto lo
  * detecta para decir cómo dejarlo resuelto una vez.
  */

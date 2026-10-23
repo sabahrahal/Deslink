@@ -10,7 +10,7 @@ data class PcEntry(
     /** Clave estable de la tarjeta (el nombre en minúsculas, o la dirección si el PC no da nombre). */
     val key: String,
     val name: String,
-    /** Camino por cable: el del cable USB de DeskLink o, si no está, el anclaje de red por USB. */
+    /** Camino por cable: el del cable USB de Extendesk o, si no está, el anclaje de red por USB. */
     val usb: Found?,
     /** Caminos por red (Wi-Fi, Ethernet), el primero el preferido. */
     val network: List<Found>,
@@ -47,7 +47,7 @@ object HostGroups {
 
     /**
      * PC al que conectarse solo al abrir la app: el último usado (por su dirección o por su nombre), y siempre
-     * por el cable si llega por él. El cable de DeskLink vale en cuanto aparece; cualquier otro camino espera a
+     * por el cable si llega por él. El cable de Extendesk vale en cuanto aparece; cualquier otro camino espera a
      * la segunda búsqueda ([scans] >= 2), por si la prueba del cable solo tardaba. Si la tablet está enchufada con la
      * depuración USB activa ([cableExpected]) el cable va a aparecer en unos segundos, así que la red espera hasta
      * [CABLE_WAIT_SCANS] búsquedas. Null si aún no toca.

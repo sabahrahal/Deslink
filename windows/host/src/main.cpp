@@ -1,4 +1,4 @@
-// DeskLink host (fase 1): captura una salida de Windows, la codifica por hardware
+// Extendesk host (fase 1): captura una salida de Windows, la codifica por hardware
 // y la envía por UDP al cliente Android que haya enviado HELLO.
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -50,17 +50,17 @@ class SingleInstance {
     if (!mutex_) return;
     DWORD r = WaitForSingleObject(mutex_, 0);
     if (r == WAIT_TIMEOUT) {
-      std::printf("Ya había otro DeskLink abierto en este PC: lo cierro y sigo con este.\n");
+      std::printf("Ya había otro Extendesk abierto en este PC: lo cierro y sigo con este.\n");
       if (quit_) SetEvent(quit_);
       r = WaitForSingleObject(mutex_, 15000);  // el otro quita el monitor virtual y el túnel de adb
-      if (r == WAIT_TIMEOUT) std::printf("El otro DeskLink no se cerró; lo intento igualmente.\n");
+      if (r == WAIT_TIMEOUT) std::printf("El otro Extendesk no se cerró; lo intento igualmente.\n");
     }
     owned_ = r == WAIT_OBJECT_0 || r == WAIT_ABANDONED;
     if (quit_) ResetEvent(quit_);
     if (quit_) watcher_ = std::thread([this] {
       while (g_running) {
         if (WaitForSingleObject(quit_, 200) == WAIT_OBJECT_0) {
-          std::printf("Se abrió otro DeskLink: le dejo el sitio.\n");
+          std::printf("Se abrió otro Extendesk: le dejo el sitio.\n");
           g_replaced = true;
           g_running = false;
         }
@@ -140,7 +140,7 @@ std::wstring ConfigPath(const wchar_t* name) {
 
 // Resolución que el usuario dejó en Configuración de pantalla de Windows para el monitor virtual, y la tablet para la
 // que la eligió (su resolución nativa). Manda sobre la de la tablet mientras sea la misma tablet: así no hay dos
-// sitios que se pisen (DeskLink ya no tiene ajuste de resolución propio).
+// sitios que se pisen (Extendesk ya no tiene ajuste de resolución propio).
 struct SavedSize {
   bool ok = false;
   UINT w = 0, h = 0;
@@ -258,7 +258,7 @@ struct Options {
   UINT native_width = 0;         // tamaño nativo de la tablet (0: no se sabe): con él se crea el monitor virtual
   UINT native_height = 0;
   bool usb = true;               // --no-usb: sin cable USB (TCP por adb reverse)
-  bool open_tablet = true;       // --no-open-tablet: no abrir DeskLink en la tablet al enchufarla
+  bool open_tablet = true;       // --no-open-tablet: no abrir Extendesk en la tablet al enchufarla
   std::wstring adb_path;         // --adb: ruta de adb.exe (si no, se busca)
   UINT refine = 4;               // --refine: repeticiones extra al quedarse quieta la imagen para afinar la calidad
   bool status = false;           // --status: líneas «@...» para la app de bandeja (desklink.exe) en vez de las estadísticas
@@ -1085,7 +1085,7 @@ int Run(int argc, char** argv) {
       }
     }
     if (!udp.Bind(opt.port, on_packet, opt.usb, [&opt] { return StopAdbServer(opt.adb_path); })) break;
-    std::printf("Escuchando en UDP %u. Abre DeskLink en la tablet y pulsa Conectar (por cable USB no hace falta IP ni anclaje).\n",
+    std::printf("Escuchando en UDP %u. Abre Extendesk en la tablet y pulsa Conectar (por cable USB no hace falta IP ni anclaje).\n",
                 opt.port);
     if (opt.usb) {
     adb.set_open_app(opt.open_tablet);

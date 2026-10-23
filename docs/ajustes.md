@@ -1,6 +1,6 @@
 # Ajustes: dónde se elige cada cosa
 
-**El PC manda.** La ventana de DeskLink en el PC es el único sitio donde se eligen la imagen, el sonido y el táctil.
+**El PC manda.** La ventana de Extendesk en el PC es el único sitio donde se eligen la imagen, el sonido y el táctil.
 La tablet dice al conectar lo que puede hacer (su pantalla, su frecuencia y si decodifica HEVC) y enseña lo que el
 PC decide. Así no hay dos sitios con la misma opción ni ajustes que se pisan.
 
@@ -17,7 +17,7 @@ A la vista, lo que casi todo el mundo toca:
 
 En **Configuración avanzada**: fluidez (fps), calidad de vídeo (Mbps), códec (todo «Automático» de serie), el
 monitor que se duplica, «bajar la calidad si la batería de la tablet no aguanta» (de serie, no),
-cable USB, abrir DeskLink en la tablet al enchufarla (de serie, sí), abrir con Windows, transmitir nada más abrir, el
+cable USB, abrir Extendesk en la tablet al enchufarla (de serie, sí), abrir con Windows, transmitir nada más abrir, el
 puerto y el registro. El puntero del ratón siempre se dibuja en la imagen.
 
 La **resolución de la pantalla extra** no tiene ajuste propio: «Cambiar la resolución en Windows» abre Configuración
@@ -66,7 +66,7 @@ Ver [el protocolo](protocol-dlp.md) y [la fluidez automática](battery.md#fluide
 
 ## Guía de inicio (dispositivo)
 
-La primera vez que se abre la app de la tablet sale una guía corta: instalar DeskLink en el PC, conectar por Wi-Fi (sin
+La primera vez que se abre la app de la tablet sale una guía corta: instalar Extendesk en el PC, conectar por Wi-Fi (sin
 configurar nada) o por cable (botones a «Anclaje USB», sin modo desarrollador, y a la depuración USB, opcional para más
 fluidez; si ya está activa lo dice), subir la «Escala» de Windows en vez de bajar la
 resolución para ver todo más grande, y el botón ☰ durante la sesión. Quien ya había conectado con una versión

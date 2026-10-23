@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Genera el icono de DeskLink (los dos eslabones) para Android, Windows y design/logo/ desde un solo dibujo.
+"""Genera el icono de Extendesk (los dos eslabones) para Android, Windows y design/logo/ desde un solo dibujo.
 
     python3 tools/design/gen_logo.py          # escribe los archivos generados
     python3 tools/design/gen_logo.py --check  # falla si alguno está desfasado
@@ -200,7 +200,7 @@ def cpp(c):
 
     lines = [
         f"// {HEADER}",
-        "// El icono de DeskLink (los dos eslabones) para dibujarlo con GDI+ a cualquier tamaño.",
+        "// El icono de Extendesk (los dos eslabones) para dibujarlo con GDI+ a cualquier tamaño.",
         "#pragma once",
         "",
         "namespace logo {",

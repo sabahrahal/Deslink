@@ -327,8 +327,8 @@ void AdbReverse::Loop() {
             const bool opened = open_app_ && !busy_ &&
                                 Run(L"-s \"" + Widen(serial) + L"\" shell am start -n com.desklink/.MainActivity "
                                     L"-a com.desklink.action.USB_ATTACHED", nullptr, 5000);
-            std::printf(opened ? "Tablet %s conectada por USB (ADB): abro DeskLink en ella.\n"
-                               : "Tablet %s conectada por USB (ADB). Abre DeskLink en ella y pulsa Conectar.\n",
+            std::printf(opened ? "Tablet %s conectada por USB (ADB): abro Extendesk en ella.\n"
+                               : "Tablet %s conectada por USB (ADB). Abre Extendesk en ella y pulsa Conectar.\n",
                         serial.c_str());
           }
         } else if (state == "unauthorized") {
