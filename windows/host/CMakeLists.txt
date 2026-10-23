@@ -35,6 +35,7 @@ add_executable(desklink-host
   src/converter.cpp
   src/encoder.cpp
   src/nvenc_encoder.cpp
+  src/amf_encoder.cpp
   src/touch.cpp
   src/touch_gestures.cpp
   src/udp.cpp

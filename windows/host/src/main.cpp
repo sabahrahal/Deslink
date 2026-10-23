@@ -28,6 +28,7 @@
 #include "gpu.h"
 #include "frame_sender.h"
 #include "nvenc_encoder.h"
+#include "amf_encoder.h"
 #include "history.h"
 #include "touch.h"
 #include "udp.h"
@@ -253,7 +254,7 @@ struct Options {
   bool touch = true;     // --no-touch desactiva el control táctil
   UINT pace_mbps = 100;  // reparte cada frame a esta tasa; 0 = de golpe (el anclaje USB pierde ráfagas)
   UINT fec_group = 10;   // --fec: por WiFi, una paridad cada tantos paquetes (10 % más de datos); 0 = sin FEC
-  int encoder = 0;       // --encoder: 0 auto (NVENC directo si la GPU es NVIDIA), 1 nvenc, 2 mf (Media Foundation)
+  int encoder = 0;       // --encoder: 0 auto (NVENC o AMF directo según la GPU), 1 nvenc, 2 mf (Media Foundation), 3 amf
   bool virtual_display = false;  // --virtual: crea un monitor virtual (driver desklink-idd) y captura ese
   UINT virtual_width = 2944;     // --size: resolución del monitor virtual (por defecto, la Lenovo Idea Tab Pro)
   UINT virtual_height = 1840;
@@ -427,8 +428,9 @@ bool ParseArgs(int argc, char** argv, Options* o) {
       if (e == "auto") o->encoder = 0;
       else if (e == "nvenc") o->encoder = 1;
       else if (e == "mf") o->encoder = 2;
+      else if (e == "amf") o->encoder = 3;
       else {
-        std::fprintf(stderr, "--encoder: auto, nvenc o mf\n");
+        std::fprintf(stderr, "--encoder: auto, nvenc, amf o mf\n");
         return false;
       }
     } else if (a == "--fec") {
@@ -493,7 +495,7 @@ bool ParseArgs(int argc, char** argv, Options* o) {
       std::fprintf(stderr,
                    "Uso: desklink-host [--port 47800] [--output 0] [--fps auto|60] [--bitrate auto|50] "
                    "[--codec auto|hevc|h264] [--profile alta|equilibrada|ahorro] [--audio-tablet] [--battery-adapt] "
-                   "[--encoder auto|nvenc|mf] [--pace Mbps] [--fec 10] [--refine 4] [--no-touch] [--touch|--mouse|--view-only] [--no-cursor] [--no-audio] "
+                   "[--encoder auto|nvenc|amf|mf] [--pace Mbps] [--fec 10] [--refine 4] [--no-touch] [--touch|--mouse|--view-only] [--no-cursor] [--no-audio] "
                    "[--audio-bitrate 128] [--virtual [--size 2944x1840]] [--no-usb] [--no-open-tablet] [--adb ruta\\adb.exe] [--status] "
                    "[--stop-event nombre]\n");
       return false;
@@ -778,15 +780,24 @@ int Run(int argc, char** argv) {
     // El codificador se crea a los fps del host: con menos fps simplemente recibe menos frames (como con el
     // escritorio quieto), así un cambio de perfil no obliga a rehacerlo. Con NVIDIA, NVENC directo (menos
     // espera que su MFT); si no arranca, Media Foundation, que vale para cualquier GPU.
-    if (opt.encoder != 2 && NvencEncoder::IsNvidia(p->gpu)) {
+    if ((opt.encoder == 0 || opt.encoder == 1) && NvencEncoder::IsNvidia(p->gpu)) {
       auto nv = std::make_unique<NvencEncoder>();
       if (nv->Init(p->gpu, opt.codec, ew, eh, opt.fps, eff.bitrate_mbps_x10 * 100'000u, on_encoded)) {
         p->encoder = std::move(nv);
       } else {
         std::printf("NVENC directo no arrancó (arriba está el motivo): se usa el de Media Foundation.\n");
       }
-    } else if (opt.encoder == 1) {
-      std::printf("--encoder nvenc: la GPU que captura no es de NVIDIA, se usa el de Media Foundation.\n");
+    } else if ((opt.encoder == 0 || opt.encoder == 3) && AmfEncoder::IsAmd(p->gpu)) {
+      // Igual con AMD: AMF directo, sin la cola del MFT.
+      auto amd = std::make_unique<AmfEncoder>();
+      if (amd->Init(p->gpu, opt.codec, ew, eh, opt.fps, eff.bitrate_mbps_x10 * 100'000u, on_encoded)) {
+        p->encoder = std::move(amd);
+      } else {
+        std::printf("AMF directo no arrancó (arriba está el motivo): se usa el de Media Foundation.\n");
+      }
+    } else if (opt.encoder == 1 || opt.encoder == 3) {
+      std::printf("--encoder %s: la GPU que captura no es de %s, se usa el de Media Foundation.\n",
+                  opt.encoder == 1 ? "nvenc" : "amf", opt.encoder == 1 ? "NVIDIA" : "AMD");
     }
     if (!p->encoder) {
       p->encoder = std::make_unique<MfEncoder>();
