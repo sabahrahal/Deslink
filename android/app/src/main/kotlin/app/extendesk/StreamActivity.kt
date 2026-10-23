@@ -668,8 +668,9 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         private const val MENU_BUTTON_DP = 36
         /** Distancia mínima al borde: ahí los gestos de Android (volver, barra de estado) se tragan el toque. */
         private const val MENU_EDGE_DP = 16
-        private const val MENU_COLOR = 0xD90066CC.toInt()  // azul de Extendesk, un poco transparente
-        private const val MENU_COLOR_PRESSED = 0xFF0066CC.toInt()
+        // Lila de la marca (el eslabón de delante del logo, design/tokens.json), un poco transparente; pulsado, el de atrás.
+        private const val MENU_COLOR = 0xD97033FD.toInt()
+        private const val MENU_COLOR_PRESSED = 0xFF4D13C7.toInt()
         private const val PREF_MENU_X = "menu_button_x"
         private const val PREF_MENU_Y = "menu_button_y"
     }
