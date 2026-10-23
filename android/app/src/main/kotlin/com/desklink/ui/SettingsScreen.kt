@@ -62,7 +62,7 @@ fun SettingsScreen(
                 Column {
                     Text("La calidad, el sonido y el táctil se eligen en el PC", style = DlText.Headline)
                     Text(
-                        "En la ventana de DeskLink del PC. El dispositivo usa lo que el PC decida y lo enseña al conectar.",
+                        "En la ventana de Extendesk del PC. El dispositivo usa lo que el PC decida y lo enseña al conectar.",
                         style = DlText.Note,
                         color = palette.textSecondary,
                     )
@@ -80,7 +80,7 @@ fun SettingsScreen(
                     Row(Modifier.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("Conectar escribiendo la IP", style = DlText.Body)
-                            Text("La ves en la ventana de DeskLink del PC.", style = DlText.Note, color = palette.textSecondary)
+                            Text("La ves en la ventana de Extendesk del PC.", style = DlText.Note, color = palette.textSecondary)
                         }
                         SecondaryButton("Escribir IP", { manual = true })
                     }
@@ -120,7 +120,7 @@ fun SettingsScreen(
                     }
                     RowDivider()
                     Text(
-                        "DeskLink $versionName · pantalla ${display.width}×${display.height} a ${display.refreshHz} Hz",
+                        "Extendesk $versionName · pantalla ${display.width}×${display.height} a ${display.refreshHz} Hz",
                         style = DlText.Note,
                         color = palette.textSecondary,
                         modifier = Modifier.padding(vertical = 10.dp),

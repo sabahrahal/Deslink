@@ -1,4 +1,4 @@
-# Diseño visual de DeskLink
+# Diseño visual de Extendesk
 
 Estilo limpio, parecido al de macOS: fondo gris claro (u oscuro, si el sistema está en modo oscuro), tarjetas
 blancas con un borde fino, un solo color de acento (el morado de la marca) y nada de brillos, halos ni degradados. La app de Android y
@@ -6,7 +6,7 @@ la del PC usan los mismos colores y tamaños de texto para que se sientan una so
 
 ## Marca
 
-El logo está en [`design/logo/`](../design/logo/): el icono (dos eslabones), el nombre «Desklink» y los dos juntos.
+El logo está en [`design/logo/`](../design/logo/): el icono (dos eslabones), el nombre «Extendesk» y los dos juntos.
 El nombre va en **Montserrat Black** ([`design/fonts/`](../design/fonts/), licencia OFL, recortada a los caracteres
 latinos).
 
@@ -57,7 +57,7 @@ de `contrast_pairs` no llega al contraste AA (4,5:1). Para cambiar un color: se 
 
 | Estilo | Tamaño | Peso | Fuente | Uso |
 | --- | --- | --- | --- | --- |
-| Large title | 28 | 900 | Montserrat | Nombre de la pantalla («Desklink», «Configuración avanzada») |
+| Large title | 28 | 900 | Montserrat | Nombre de la pantalla («Extendesk», «Configuración avanzada») |
 | Title | 20 | 700 | Montserrat | Estado («Conectado por cable USB») |
 | Headline | 17 | 600 | Sistema | Nombre de un PC |
 | Section | 13 | 700 | Montserrat | Encabezado de sección, en gris |

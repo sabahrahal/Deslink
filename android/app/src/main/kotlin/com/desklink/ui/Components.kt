@@ -202,7 +202,7 @@ fun StatusDot(color: Color, label: String) {
 @Composable
 fun VSpace(h: Dp) = Spacer(Modifier.height(h))
 
-/** El logo (design/logo/): los dos eslabones y «Desklink» en Montserrat Black, del color del acento. */
+/** El logo (design/logo/): los dos eslabones y «Extendesk» en Montserrat Black, del color del acento. */
 @Composable
 fun BrandMark(modifier: Modifier = Modifier, iconHeight: Dp = 30.dp, textSize: TextUnit = DlType.LargeTitleSize) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
@@ -213,7 +213,7 @@ fun BrandMark(modifier: Modifier = Modifier, iconHeight: Dp = 30.dp, textSize: T
         )
         Spacer(Modifier.width(iconHeight * 0.4f))
         Text(
-            "Desklink",
+            "Extendesk",
             style = TextStyle(fontFamily = Montserrat, fontWeight = FontWeight.Black, fontSize = textSize, letterSpacing = (-0.3).sp),
             color = palette.accent,
         )

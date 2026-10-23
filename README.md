@@ -1,4 +1,4 @@
-# DeskLink
+# Extendesk
 
 Usa un móvil o una tablet Android como segundo monitor de un PC con Windows, por WiFi o por USB, con la menor latencia posible.
 

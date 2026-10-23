@@ -128,7 +128,7 @@ View BuildView(const ViewInput& in) {
       break;
     case State::kWaiting:
       v.title = L"Esperando al dispositivo";
-      v.detail = L"Abre DeskLink en el dispositivo y pulsa Conectar.";
+      v.detail = L"Abre Extendesk en el dispositivo y pulsa Conectar.";
       v.dot = Tone::kWarning;
       break;
     case State::kConnected:
@@ -251,13 +251,13 @@ View BuildView(const ViewInput& in) {
   v.advanced_open = in.advanced_open;
   if (in.advanced_open) {
     if (s.virtual_display) {
-      // Un solo sitio para la resolución: la de Windows. DeskLink la recuerda para esta tablet.
+      // Un solo sitio para la resolución: la de Windows. Extendesk la recuerda para esta tablet.
       Row resolution;
       resolution.id = "resolucion";
       resolution.control = Control::kLink;
       resolution.label = L"Cambiar la resolución en Windows";
       resolution.hint = L"Para ver todo más grande, sube la «Escala» en vez de bajar la resolución: se ve más nítido. "
-                        L"Cámbialo con el dispositivo conectado y DeskLink lo recuerda.";
+                        L"Cámbialo con el dispositivo conectado y Extendesk lo recuerda.";
       v.advanced.push_back(resolution);
     } else {
       const std::wstring monitor = s.output < static_cast<int>(in.monitors.size())
@@ -283,8 +283,8 @@ View BuildView(const ViewInput& in) {
     }
     v.advanced.push_back(direct);
     v.advanced.push_back(Toggle("usb", L"Conexión por cable USB", s.usb));
-    if (s.usb) v.advanced.push_back(Toggle("abrir_tablet", L"Abrir DeskLink en el dispositivo al enchufarlo", s.open_tablet));
-    v.advanced.push_back(Toggle("autostart", L"Abrir DeskLink al iniciar Windows", in.autostart));
+    if (s.usb) v.advanced.push_back(Toggle("abrir_tablet", L"Abrir Extendesk en el dispositivo al enchufarlo", s.open_tablet));
+    v.advanced.push_back(Toggle("autostart", L"Abrir Extendesk al iniciar Windows", in.autostart));
     v.advanced.push_back(Toggle("abrir", L"Transmitir nada más abrir", s.stream_on_open));
     Row port;
     port.id = "puerto";

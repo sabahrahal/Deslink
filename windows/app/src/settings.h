@@ -2,7 +2,7 @@
 
 #include <string>
 
-// Ajustes de DeskLink. El PC es el único sitio donde se eligen (docs/ajustes.md): la tablet solo dice lo que puede
+// Ajustes de Extendesk. El PC es el único sitio donde se eligen (docs/ajustes.md): la tablet solo dice lo que puede
 // hacer y enseña lo que el PC decide. Se guardan en %APPDATA%\DeskLink\desklink.ini.
 //
 // A la vista en la ventana: modo, calidad, dónde suena el sonido y el táctil. En «Configuración avanzada»: fps, Mbps,
@@ -21,7 +21,7 @@ struct Settings {
   std::wstring codec;           // «hevc» o «h264»; vacío = automático
   bool battery_adapt = false;   // la tablet puede pedir bajar fps y tasa si su batería no aguanta
   bool usb = true;              // cable USB por adb reverse
-  bool open_tablet = true;      // abrir DeskLink en la tablet al enchufarla por USB
+  bool open_tablet = true;      // abrir Extendesk en la tablet al enchufarla por USB
   bool stream_on_open = true;   // empezar a transmitir al abrir la app (y al arrancar con Windows)
   int port = 47800;
   std::wstring adb;             // ruta de adb.exe; vacía = la busca el host

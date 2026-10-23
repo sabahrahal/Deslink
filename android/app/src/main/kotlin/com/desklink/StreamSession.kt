@@ -126,7 +126,7 @@ class StreamSession(
                 if (!reported) {
                     setPhase(
                         if (streamInfo == null) Phase.NO_ANSWER else Phase.RECONNECTING,
-                        "Esperando al PC por el cable USB. Comprueba que DeskLink está abierto en el PC.",
+                        "Esperando al PC por el cable USB. Comprueba que Extendesk está abierto en el PC.",
                     )
                 }
                 reported = true
@@ -184,7 +184,7 @@ class StreamSession(
             l.close()
             if (!cable || !running) return
             // El cable se cortó (host cerrado, cable desenchufado): se reintenta solo.
-            setPhase(Phase.RECONNECTING, "Se cortó el cable USB o se cerró DeskLink en el PC. Reconectando…")
+            setPhase(Phase.RECONNECTING, "Se cortó el cable USB o se cerró Extendesk en el PC. Reconectando…")
             if (!sleepWhileRunning(1000)) return
         }
     }
@@ -373,10 +373,10 @@ class StreamSession(
                     setPhase(
                         Phase.NO_ANSWER,
                         if (isCable) {
-                            "El PC no responde por el cable USB. Comprueba que DeskLink está abierto en el PC " +
+                            "El PC no responde por el cable USB. Comprueba que Extendesk está abierto en el PC " +
                                 "y que la depuración USB está aceptada."
                         } else {
-                            "El PC ($host) no responde. Comprueba que DeskLink está abierto en el PC, que el " +
+                            "El PC ($host) no responde. Comprueba que Extendesk está abierto en el PC, que el " +
                                 "cortafuegos de Windows lo permite y que los dos estáis en la misma red."
                         },
                     )

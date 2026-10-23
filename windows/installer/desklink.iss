@@ -1,4 +1,4 @@
-﻿; Instalador de DeskLink para Windows (Inno Setup 6.3+).
+﻿; Instalador de Extendesk para Windows (Inno Setup 6.3+).
 ;
 ; Instala el host, adb y el monitor virtual (driver) en una sola pasada, crea la entrada del menú Inicio y lo quita
 ; todo al desinstalar. Al actualizar encima de una versión anterior sólo reinstala el driver si su código cambió
@@ -31,24 +31,24 @@
 [Setup]
 ; No cambiar AppId: es lo que hace que una versión nueva se instale encima de la anterior.
 AppId={{6B1E3C0A-5D2F-4C7B-9E21-D35C1A7F0B42}
-AppName=DeskLink
+AppName=Extendesk
 AppVersion={#AppVersion}
-AppVerName=DeskLink {#AppVersion}
-AppPublisher=DeskLink
-DefaultDirName={autopf}\DeskLink
-DefaultGroupName=DeskLink
+AppVerName=Extendesk {#AppVersion}
+AppPublisher=Extendesk
+DefaultDirName={autopf}\Extendesk
+DefaultGroupName=Extendesk
 DisableProgramGroupPage=yes
 DisableDirPage=auto
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
-OutputBaseFilename=DeskLink-Setup
+OutputBaseFilename=Extendesk-Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayIcon={app}\{#MainExe}
-UninstallDisplayName=DeskLink
+UninstallDisplayName=Extendesk
 CloseApplications=yes
 RestartApplications=no
 SetupLogging=yes
@@ -71,22 +71,25 @@ Source: "{#Stage}\driver\*"; DestDir: "{app}\driver"; Flags: ignoreversion; Chec
 Source: "{#Stage}\driver\desklink-driver.exe"; DestDir: "{app}\driver"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\DeskLink"; Filename: "{app}\{#MainExe}"; Parameters: "{#MainArgs}"; WorkingDir: "{app}"
+Name: "{group}\Extendesk"; Filename: "{app}\{#MainExe}"; Parameters: "{#MainArgs}"; WorkingDir: "{app}"
 Name: "{group}\Actualizar el dispositivo"; Filename: "{app}\tools\actualizar-tablet.bat"; WorkingDir: "{app}\tools"
-Name: "{group}\Actualizar DeskLink en el PC"; Filename: "{app}\tools\actualizar-pc.bat"; WorkingDir: "{app}\tools"
-Name: "{group}\Desinstalar DeskLink"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\DeskLink"; Filename: "{app}\{#MainExe}"; Parameters: "{#MainArgs}"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{group}\Actualizar Extendesk en el PC"; Filename: "{app}\tools\actualizar-pc.bat"; WorkingDir: "{app}\tools"
+Name: "{group}\Desinstalar Extendesk"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\Extendesk"; Filename: "{app}\{#MainExe}"; Parameters: "{#MainArgs}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
 ; Windows guarda en caché los iconos de los programas: sin esto la barra de tareas seguía con el logo de antes.
 Filename: "{sys}\ie4uinit.exe"; Parameters: "-show"; Flags: runhidden waituntilterminated skipifdoesntexist
 ; El cortafuegos deja entrar a la tablet en cualquier red, también en la red Wi-Fi propia del PC (que Windows trata
-; como pública y para la que el aviso de la primera vez no daba permiso). Se borra antes por si ya estaba.
+; como pública y para la que el aviso de la primera vez no daba permiso). Se borra antes por si ya estaba, también la
+; regla con el nombre antiguo (DeskLink).
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""DeskLink"""; Flags: runhidden waituntilterminated
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""DeskLink"" dir=in action=allow program=""{app}\{#HostExe}"" protocol=udp profile=any enable=yes"; Flags: runhidden waituntilterminated
-Filename: "{app}\{#MainExe}"; Parameters: "{#MainArgs}"; WorkingDir: "{app}"; Description: "Abrir DeskLink"; Flags: postinstall nowait skipifsilent unchecked
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Extendesk"""; Flags: runhidden waituntilterminated
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""Extendesk"" dir=in action=allow program=""{app}\{#HostExe}"" protocol=udp profile=any enable=yes"; Flags: runhidden waituntilterminated
+Filename: "{app}\{#MainExe}"; Parameters: "{#MainArgs}"; WorkingDir: "{app}"; Description: "Abrir Extendesk"; Flags: postinstall nowait skipifsilent unchecked
 
 [UninstallRun]
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Extendesk"""; Flags: runhidden waituntilterminated; RunOnceId: "ExtendeskFirewall"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""DeskLink"""; Flags: runhidden waituntilterminated; RunOnceId: "DeskLinkFirewall"
 
 [UninstallDelete]
@@ -173,7 +176,7 @@ begin
       RegWriteStringValue(HKLM, RegKey, 'DriverId', NewDriverId)
     else
       SuppressibleMsgBox('No se pudo instalar el monitor virtual (código ' + IntToStr(Code) + ').' + #13#10 +
-                         'DeskLink funciona igual duplicando la pantalla. El detalle está en:' + #13#10 + Log,
+                         'Extendesk funciona igual duplicando la pantalla. El detalle está en:' + #13#10 + Log,
                          mbError, MB_OK, IDOK);
   end;
 end;

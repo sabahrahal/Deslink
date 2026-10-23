@@ -251,8 +251,8 @@ private fun Searching(state: HomeState) {
                 LinkText(if (help) "Ocultar ayuda" else "¿No aparece?", { help = !help })
                 AnimatedVisibility(help) {
                     Column(Modifier.padding(start = 8.dp, top = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("1. Abre DeskLink en el PC y pulsa Iniciar.", style = DlText.Body)
-                        Text("2. Por Wi-Fi: PC y dispositivo en la misma red, y DeskLink permitido en el cortafuegos de Windows.", style = DlText.Body)
+                        Text("1. Abre Extendesk en el PC y pulsa Iniciar.", style = DlText.Body)
+                        Text("2. Por Wi-Fi: PC y dispositivo en la misma red, y Extendesk permitido en el cortafuegos de Windows.", style = DlText.Body)
                         Text("3. Por cable: conecta el USB y activa «Anclaje USB» en el dispositivo, o activa la depuración USB y acepta «Permitir depuración USB».", style = DlText.Body)
                         Text("Redes de este dispositivo: ${state.networks}", style = DlText.Note, color = palette.textSecondary)
                     }
@@ -276,7 +276,7 @@ private fun PcCard(pc: PcEntry, isLast: Boolean, useUsb: Boolean, onChooseUsb: (
                         color = palette.textSecondary,
                     )
                     if (!route.acceptsConfig) {
-                        Text("El DeskLink del PC es antiguo: actualízalo.", style = DlText.Note, color = palette.warning)
+                        Text("El Extendesk del PC es antiguo: actualízalo.", style = DlText.Note, color = palette.warning)
                     }
                 }
                 Spacer(Modifier.width(12.dp))

@@ -1,4 +1,4 @@
-// DeskLink: app de bandeja para Windows. Arranca desklink-host.exe sin consola con los ajustes guardados, muestra
+// Extendesk: app de bandeja para Windows. Arranca desklink-host.exe sin consola con los ajustes guardados, muestra
 // el estado de la conexión (cable USB o Wi-Fi, fps, Mbps, RTT) y explica los errores con palabras normales.
 // La captura y la codificación siguen en desklink-host.exe, que también se puede usar solo desde una consola.
 //
@@ -45,7 +45,7 @@ namespace {
 
 constexpr wchar_t kMainClass[] = L"DeskLinkMain";
 constexpr wchar_t kLogClass[] = L"DeskLinkLog";
-constexpr wchar_t kAppName[] = L"DeskLink";
+constexpr wchar_t kAppName[] = L"Extendesk";
 constexpr UINT WM_TRAY = WM_APP + 1;
 constexpr UINT WM_APP_SHOW = WM_APP + 4;  // otra copia de la app pide mostrar esta ventana
 constexpr UINT WM_DRIVER_DONE = WM_APP + 5;  // terminó la instalación del driver; lParam = código de salida
@@ -166,7 +166,7 @@ std::wstring FriendlyError(const std::wstring& line) {
            L"elige «Duplicar».";
   }
   if (has(L"no se pudo abrir el driver")) {
-    return L"Windows no deja abrir el driver de la pantalla extra. Reinstala DeskLink con el instalador de la "
+    return L"Windows no deja abrir el driver de la pantalla extra. Reinstala Extendesk con el instalador de la "
            L"última versión.";
   }
   if (has(L"no activó el monitor virtual")) {
@@ -177,7 +177,7 @@ std::wstring FriendlyError(const std::wstring& line) {
            L"reinstala el driver.";
   }
   if (has(L"bind al puerto") || has(L"USB: no se pudo escuchar")) {
-    return Format(L"El puerto %d ya está en uso. ¿Hay otro DeskLink abierto (por ejemplo desklink-host.exe en una "
+    return Format(L"El puerto %d ya está en uso. ¿Hay otro Extendesk abierto (por ejemplo desklink-host.exe en una "
                   L"consola)? Ciérralo y pulsa Iniciar.",
                   g.settings.port);
   }
@@ -382,7 +382,7 @@ void ShowLog() {
     SetForegroundWindow(g.log_wnd);
     return;
   }
-  g.log_wnd = CreateWindowExW(0, kLogClass, L"DeskLink: registro", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+  g.log_wnd = CreateWindowExW(0, kLogClass, L"Extendesk: registro", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
                               static_cast<int>(F(760)), static_cast<int>(F(440)), nullptr, nullptr, g.inst, nullptr);
   ShowWindow(g.log_wnd, SW_SHOW);
 }
@@ -480,7 +480,7 @@ void RepairDriver() {
   const std::wstring dir = AppDirectory() + L"\\driver";
   const std::wstring exe = dir + L"\\desklink-driver.exe";
   if (GetFileAttributesW(exe.c_str()) == INVALID_FILE_ATTRIBUTES) {
-    g.error = L"No encuentro el driver junto a DeskLink. Vuelve a instalar DeskLink con DeskLink-Setup.exe.";
+    g.error = L"No encuentro el driver junto a Extendesk. Vuelve a instalar Extendesk con Extendesk-Setup.exe.";
     g.error_mapped = true;
     SetState(State::kError);
     return;
@@ -599,7 +599,7 @@ void OnHostLine(bool from_stderr, const std::wstring& line) {
     const std::wstring link = g.stats[L"enlace"];
     if (link != g.link && g.state != State::kStopping) {
       if (link == L"ninguno") {
-        Notify(L"Dispositivo desconectado", L"DeskLink sigue esperando a que vuelva a conectarse.");
+        Notify(L"Dispositivo desconectado", L"Extendesk sigue esperando a que vuelva a conectarse.");
       } else {
         Notify(L"Dispositivo conectado", link == L"usb" ? L"Por cable USB." : L"Por Wi-Fi (" + g.stats[L"ip"] + L").");
       }
@@ -652,12 +652,12 @@ void OnHostExit(DWORD code) {
   }
   if (ran >= kStableRunMs) {
     // Funcionaba: un fallo pasajero (la GPU se reinició, cambió el modo de pantalla…). Se vuelve a intentar.
-    Notify(L"DeskLink se reinicia", g.error, true);
+    Notify(L"Extendesk se reinicia", g.error, true);
     SetTimer(g.wnd, kTimerRestart, 3000, nullptr);
     SetState(State::kRestarting);
     return;
   }
-  Notify(L"DeskLink no pudo transmitir", g.error, true);
+  Notify(L"Extendesk no pudo transmitir", g.error, true);
   SetState(State::kError);
 }
 
@@ -1198,11 +1198,11 @@ void Paint(gp::Graphics& gr, float width) {
   auto large = MakeFont(tokens::kLargeTitlePx, true, tokens::kLargeTitleBrand, tokens::kLargeTitleWeight);
   auto note = MakeFont(tokens::kNotePx, false);
   auto section = MakeFont(tokens::kSectionPx, true, tokens::kSectionBrand, tokens::kSectionWeight);
-  // El logo: los dos eslabones y «Desklink» en Montserrat Black, del color del acento.
+  // El logo: los dos eslabones y «Extendesk» en Montserrat Black, del color del acento.
   const float logo_h = F(26);
   DrawLogo(gr, x, y + (F(36) - logo_h) / 2, logo_h);
   const float logo_w = logo_h * logo::kWidth / logo::kHeight + F(10);
-  Text(gr, L"Desklink", gp::RectF(x + logo_w, y, w - logo_w, F(36)), *large, P().accent);
+  Text(gr, L"Extendesk", gp::RectF(x + logo_w, y, w - logo_w, F(36)), *large, P().accent);
   y += F(36);
   Text(gr, L"Tu dispositivo como segunda pantalla", gp::RectF(x, y, w, F(18)), *note, P().text_secondary);
   y += F(30);
@@ -1388,7 +1388,7 @@ void ExitApp() {
 
 void ShowTrayMenu() {
   HMENU m = CreatePopupMenu();
-  AppendMenuW(m, MF_STRING, kMenuOpen, L"Abrir DeskLink");
+  AppendMenuW(m, MF_STRING, kMenuOpen, L"Abrir Extendesk");
   SetMenuDefaultItem(m, kMenuOpen, FALSE);
   AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
   AppendMenuW(m, MF_STRING | (g.state == State::kStopping ? MF_GRAYED : 0), kMenuToggle,
@@ -1550,7 +1550,7 @@ LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
       ShowWindow(hwnd, SW_HIDE);
       if (!g.tray_hint_shown) {
         g.tray_hint_shown = true;
-        Notify(L"DeskLink sigue abierto", L"Está junto al reloj. Para cerrarlo: clic derecho en el icono > Salir.");
+        Notify(L"Extendesk sigue abierto", L"Está junto al reloj. Para cerrarlo: clic derecho en el icono > Salir.");
       }
       return 0;
     case WM_QUERYENDSESSION:

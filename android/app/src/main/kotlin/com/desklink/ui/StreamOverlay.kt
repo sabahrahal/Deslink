@@ -100,7 +100,7 @@ fun QuickMenu(
             padding = 20.dp,
         ) {
             Column {
-                Text("DeskLink", style = DlText.Title)
+                Text("Extendesk", style = DlText.Title)
                 if (summary.quality.isNotBlank()) {
                     Text("Calidad ${summary.quality} · ${summary.details}", style = DlText.Note, color = palette.textSecondary)
                 }

@@ -8,7 +8,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.desklink"
+        applicationId = "app.extendesk"
         minSdk = 26
         targetSdk = 36
         // La CI pasa un número que siempre sube (el de la ejecución) para que cada APK nueva se instale encima

@@ -156,7 +156,7 @@ bool UdpEndpoint::BindWithRetry(const sockaddr_in& addr, uint16_t port,
     const DWORD pid = UdpPortOwner(port);
     const std::string owner = DescribeProcess(pid);
     if (!killed && pid && pid != GetCurrentProcessId() && _strnicmp(owner.c_str(), "desklink-host.exe", 17) == 0) {
-      std::printf("Cierro una versión anterior de DeskLink que seguía abierta: %s.\n", owner.c_str());
+      std::printf("Cierro una versión anterior de Extendesk que seguía abierta: %s.\n", owner.c_str());
       if (HANDLE h = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, pid)) {
         TerminateProcess(h, 0);
         WaitForSingleObject(h, 5000);
@@ -168,23 +168,23 @@ bool UdpEndpoint::BindWithRetry(const sockaddr_in& addr, uint16_t port,
     const bool orphaned = pid && ProcessGone(pid);
     if (orphaned && !freed && free_orphaned_port) {
       freed = true;
-      std::printf("El puerto UDP %u sigue retenido por un DeskLink que ya se cerró (PID %lu): cierro el servidor de "
+      std::printf("El puerto UDP %u sigue retenido por un Extendesk que ya se cerró (PID %lu): cierro el servidor de "
                   "adb, que lo heredó.\n",
                   port, pid);
       if (free_orphaned_port()) continue;
     }
     if (attempt >= 10 && orphaned) {
       std::fprintf(stderr,
-                   "Error: el puerto UDP %u, el de DeskLink, lo retiene un programa que lo heredó de un DeskLink ya "
+                   "Error: el puerto UDP %u, el de Extendesk, lo retiene un programa que lo heredó de un Extendesk ya "
                    "cerrado (PID %lu), casi siempre adb. Cierra adb.exe en el Administrador de tareas (o ejecuta "
-                   "«adb kill-server») y vuelve a abrir DeskLink.\n",
+                   "«adb kill-server») y vuelve a abrir Extendesk.\n",
                    port, pid);
       return false;
     }
     if (attempt >= 10) {
       std::fprintf(stderr,
-                   "Error: el puerto UDP %u, el de DeskLink, lo está usando %s. Cierra ese programa y vuelve a "
-                   "abrir DeskLink.\n",
+                   "Error: el puerto UDP %u, el de Extendesk, lo está usando %s. Cierra ese programa y vuelve a "
+                   "abrir Extendesk.\n",
                    port, owner.c_str());
       return false;
     }

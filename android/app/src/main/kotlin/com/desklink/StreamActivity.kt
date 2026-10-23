@@ -256,7 +256,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     /**
-     * Botón que abre el menú rápido: redondo, del azul de DeskLink y con borde blanco para que se vea sobre cualquier
+     * Botón que abre el menú rápido: redondo, del azul de Extendesk y con borde blanco para que se vea sobre cualquier
      * fondo. Se puede arrastrar a otro sitio si tapa algo del PC, pero nunca fuera de la pantalla ni pegado al borde
      * (donde los gestos de Android lo taparían); se recuerda dónde se dejó (en proporción, para que valga al girarla).
      *
@@ -274,7 +274,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
             setColor(MENU_COLOR)
             setStroke(dp(1).coerceAtLeast(2), Color.WHITE)
         }
-        contentDescription = "Menú de DeskLink"
+        contentDescription = "Menú de Extendesk"
         visibility = View.GONE
         val slop = ViewConfiguration.get(this@StreamActivity).scaledTouchSlop
         var downX = 0f
@@ -652,7 +652,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         private const val MENU_BUTTON_DP = 36
         /** Distancia mínima al borde: ahí los gestos de Android (volver, barra de estado) se tragan el toque. */
         private const val MENU_EDGE_DP = 16
-        private const val MENU_COLOR = 0xD90066CC.toInt()  // azul de DeskLink, un poco transparente
+        private const val MENU_COLOR = 0xD90066CC.toInt()  // azul de Extendesk, un poco transparente
         private const val MENU_COLOR_PRESSED = 0xFF0066CC.toInt()
         private const val PREF_MENU_X = "menu_button_x"
         private const val PREF_MENU_Y = "menu_button_y"

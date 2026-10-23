@@ -51,7 +51,7 @@ std::wstring DefaultRenderId(IMMDeviceEnumerator* enumerator) {
 }
 
 // Mientras el sonido va a la tablet se silencian los altavoces del PC, para que no suene en los dos sitios. Qué
-// salida silenció DeskLink queda apuntado en el registro: si el host se cierra de golpe, la siguiente vez la
+// salida silenció Extendesk queda apuntado en el registro: si el host se cierra de golpe, la siguiente vez la
 // vuelve a activar.
 constexpr wchar_t kMuteKey[] = L"Software\\DeskLink";
 constexpr wchar_t kMuteValue[] = L"SonidoSilenciado";
@@ -73,7 +73,7 @@ bool SetEndpointMute(IMMDevice* device, BOOL mute, BOOL* was = nullptr) {
   return SUCCEEDED(volume->SetMute(mute, nullptr));
 }
 
-// La salida que DeskLink dejó silenciada en una sesión que no terminó bien.
+// La salida que Extendesk dejó silenciada en una sesión que no terminó bien.
 void RestoreLeftoverMute(IMMDeviceEnumerator* enumerator) {
   wchar_t id[512];
   DWORD size = sizeof(id);

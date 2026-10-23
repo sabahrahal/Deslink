@@ -11,7 +11,7 @@ data class PcEntry(
     val key: String,
     val name: String,
     /**
-     * Camino por cable: el anclaje de red por USB si está activo y, si no, el cable USB de DeskLink (adb). Por el
+     * Camino por cable: el anclaje de red por USB si está activo y, si no, el cable USB de Extendesk (adb). Por el
      * anclaje los paquetes van directos; por adb pasan por su túnel y en una Lenovo con MediaTek el peor frame subía
      * de ~55 a 75-95 ms.
      */
