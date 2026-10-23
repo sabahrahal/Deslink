@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Textos de la app en inglés (idioma base). Cada idioma tiene su copia traducida en values-<código>/strings.xml
+     (values-es para español). Android elige la del idioma del sistema, o la que el usuario ponga para Extendesk en
+     Ajustes > Sistema > Idiomas > Idiomas de las apps (Android 13 o posterior). Si falta un texto en un idioma, se
+     usa el de aquí. Para añadir un idioma: crea values-<código>/strings.xml y añádelo a xml/locales_config.xml. -->
+<resources>
+    <string name="app_name" translatable="false">Extendesk</string>
+</resources>
