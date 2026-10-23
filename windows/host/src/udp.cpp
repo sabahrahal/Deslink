@@ -2,6 +2,7 @@
 
 #include <iphlpapi.h>
 #include <windows.h>
+#include <qos2.h>
 
 #include <cstdio>
 #include <cstring>
@@ -191,8 +192,37 @@ bool UdpEndpoint::BindWithRetry(const sockaddr_in& addr, uint16_t port,
   }
 }
 
+void UdpEndpoint::PrioritizeFlowTo(const sockaddr_in& peer) {
+  if (IsUsb(peer) || socket_ == INVALID_SOCKET) return;
+  if (qos_flow_ && qos_peer_.sin_addr.s_addr == peer.sin_addr.s_addr && qos_peer_.sin_port == peer.sin_port) return;
+  if (!qos_) {
+    QOS_VERSION version{1, 0};
+    if (!QOSCreateHandle(&version, &qos_)) {
+      std::printf("Wi-Fi: no se pudo pedir prioridad de vídeo (qWAVE, error %lu); se envía sin marcar.\n",
+                  GetLastError());
+      qos_ = INVALID_HANDLE_VALUE;
+    }
+  }
+  if (qos_ == INVALID_HANDLE_VALUE) return;
+  if (qos_flow_) {
+    QOSRemoveSocketFromFlow(qos_, socket_, qos_flow_, 0);
+    qos_flow_ = 0;
+  }
+  QOS_FLOWID flow = 0;
+  sockaddr_in dest = peer;
+  if (QOSAddSocketToFlow(qos_, socket_, reinterpret_cast<sockaddr*>(&dest), QOSTrafficTypeAudioVideo,
+                         QOS_NON_ADAPTIVE_FLOW, &flow)) {
+    qos_flow_ = flow;
+    qos_peer_ = peer;
+    std::printf("Wi-Fi: vídeo marcado como prioritario (cola WMM de vídeo).\n");
+  } else {
+    std::printf("Wi-Fi: no se pudo marcar el vídeo como prioritario (qWAVE, error %lu).\n", GetLastError());
+  }
+}
+
 void UdpEndpoint::SetPeer(const sockaddr_in& peer) {
   std::lock_guard<std::mutex> lock(mutex_);
+  PrioritizeFlowTo(peer);
   peer_ = peer;
   has_peer_ = true;
   peer_lost_ = false;
@@ -276,6 +306,11 @@ void UdpEndpoint::Stop() {
   stop_ = true;
   usb_.Stop();
   if (thread_.joinable()) thread_.join();
+  if (qos_ && qos_ != INVALID_HANDLE_VALUE) {
+    QOSCloseHandle(qos_);  // también saca el socket de su flujo
+    qos_ = nullptr;
+    qos_flow_ = 0;
+  }
   if (socket_ != INVALID_SOCKET) {
     closesocket(socket_);
     socket_ = INVALID_SOCKET;

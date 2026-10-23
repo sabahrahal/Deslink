@@ -45,6 +45,11 @@ class UdpLink(host: String) : Link {
     init {
         try {
             socket.receiveBufferSize = 1 shl 21
+            // Toques y teclas a la cola WMM de voz (DSCP 46): son pocos bytes y cada milisegundo se nota.
+            try {
+                socket.trafficClass = 0xB8
+            } catch (_: Exception) {
+            }
             socket.connect(InetAddress.getByName(host), Dlp.DEFAULT_PORT)
         } catch (e: IOException) {
             socket.close()
