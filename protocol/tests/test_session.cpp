@@ -62,6 +62,8 @@ static void TestAutoValues() {
   CHECK(ResolveCodec(0, 1) == Codec::kH264);  // la tablet no decodifica HEVC
   CHECK(ResolveCodec(2, 1) == Codec::kH264);  // aunque el PC pida HEVC
   CHECK(ResolveCodec(1, 2) == Codec::kH264);
+  CHECK(ResolveCodec(0, 3) == Codec::kH264);  // MediaTek: H.264 decodifica antes
+  CHECK(ResolveCodec(2, 3) == Codec::kHevc);  // salvo que el PC pida HEVC
 }
 
 static void TestCombineLimits() {

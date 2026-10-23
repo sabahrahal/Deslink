@@ -59,7 +59,8 @@ uint32_t AutoFps(uint16_t tablet_refresh_hz, uint32_t user_fps);
 uint32_t AutoBitrateMbps(uint32_t width, uint32_t height, uint32_t fps, Codec codec);
 
 // Códec: el fijado en el PC si la tablet lo decodifica; si no, HEVC salvo que la tablet diga que solo hace H.264.
-// tablet_codec: lo que manda en HelloConfig::codec (0 = no lo dice, 1 = solo H.264, 2 = también HEVC).
+// tablet_codec: lo que manda en HelloConfig::codec (0 = no lo dice, 1 = solo H.264, 2 = también HEVC, 3 = también
+// HEVC pero H.264 le decodifica más deprisa: en automático se elige H.264).
 Codec ResolveCodec(uint8_t user_codec, uint8_t tablet_codec);
 
 // Topes de la sesión: los de la calidad elegida en el PC, y si «bajar si la batería no aguanta» está activado, lo

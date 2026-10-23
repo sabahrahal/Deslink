@@ -73,9 +73,11 @@ uint32_t AutoBitrateMbps(uint32_t width, uint32_t height, uint32_t fps, Codec co
 }
 
 Codec ResolveCodec(uint8_t user_codec, uint8_t tablet_codec) {
-  const bool tablet_hevc = tablet_codec != 1;  // 0 (no lo dice) o 2 (HEVC por hardware)
+  const bool tablet_hevc = tablet_codec != 1;  // 0 (no lo dice), 2 o 3 (HEVC por hardware)
   if (user_codec == static_cast<uint8_t>(Codec::kH264)) return Codec::kH264;
-  return tablet_hevc ? Codec::kHevc : Codec::kH264;
+  if (user_codec == static_cast<uint8_t>(Codec::kHevc)) return tablet_hevc ? Codec::kHevc : Codec::kH264;
+  // Automático: HEVC salvo que la tablet diga que su H.264 decodifica más deprisa (3).
+  return tablet_hevc && tablet_codec != 3 ? Codec::kHevc : Codec::kH264;
 }
 
 Limits CombineLimits(Profile host_profile, uint32_t target_fps, uint32_t target_bitrate_bps, bool battery_adapt,

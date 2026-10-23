@@ -53,7 +53,7 @@ Tamaño máximo de paquete: 1200 bytes (1176 de payload), para no fragmentar en 
 | 2–3 | height | alto |
 | 4–5 | fps | sin uso (0) |
 | 6–7 | bitrate_mbps | sin uso (0) |
-| 8 | codec | qué decodifica: 0 no lo dice, 1 solo H.264, 2 también HEVC |
+| 8 | codec | qué decodifica: 0 no lo dice, 1 solo H.264, 2 también HEVC, 3 también HEVC pero su H.264 es más rápido (en automático el PC elige H.264) |
 | 9 | reservado | 0 |
 | 10–11 | density_dpi | informativo: densidad de la pantalla |
 | 12–13 | refresh_hz | frecuencia máxima de la pantalla: con fluidez automática el PC usa 120 fps si llega a 119 Hz, 90 si llega a 89, si no 60 |

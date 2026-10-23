@@ -52,6 +52,8 @@ object Dlp {
     /** [HelloConfig.codec] en el HELLO: qué puede decodificar la tablet. */
     const val CAN_DECODE_H264_ONLY = 1
     const val CAN_DECODE_HEVC = 2
+    /** Decodifica HEVC, pero H.264 más deprisa: el PC en automático elige H.264. */
+    const val CAN_DECODE_HEVC_PREFERS_H264 = 3
 
     /** Por qué la imagen va por debajo de lo elegido en el PC ([SessionConfig.reduced]). */
     const val REDUCED_NONE = 0

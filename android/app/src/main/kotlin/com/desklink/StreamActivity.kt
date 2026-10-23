@@ -107,7 +107,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         settings = SettingsStore(this).load()
         statsVisible = settings.showStats
         statsShown = statsVisible
-        helloConfig = AppSettings.hello(Device.display(this), Device.hevcSupported)
+        helloConfig = AppSettings.hello(Device.display(this), Device.hevcSupported, Device.prefersH264)
 
         // La pantalla no se apaga mientras se usa como monitor (ya no es una opción: nadie la quiere apagada).
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
