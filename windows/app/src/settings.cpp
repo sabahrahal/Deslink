@@ -73,6 +73,7 @@ bool LoadSettings(Settings* s) {
   s->adb = ReadString(path, L"adb");
   s->extra = ReadString(path, L"extra");
   s->language = ReadString(path, L"language");
+  s->battery_adapt = ReadInt(path, L"battery_adapt", 0) != 0;
   s->window_w = ReadInt(path, L"window_w", 0);
   s->window_h = ReadInt(path, L"window_h", 0);
   Sanitize(s);
@@ -109,6 +110,7 @@ void SaveSettings(const Settings& s) {
   WriteString(path, L"adb", s.adb);
   WriteString(path, L"extra", s.extra);
   WriteString(path, L"language", s.language);
+  WriteInt(path, L"battery_adapt", s.battery_adapt);
   WriteInt(path, L"window_w", s.window_w);
   WriteInt(path, L"window_h", s.window_h);
 }

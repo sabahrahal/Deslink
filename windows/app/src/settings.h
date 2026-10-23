@@ -8,8 +8,10 @@
 //
 // A la vista en la ventana: modo, resolución (o el monitor que se duplica), calidad y dónde suena el sonido. En
 // «Configuración avanzada»: el táctil, la red Wi-Fi propia del PC, abrir con Windows y el idioma. Lo demás es automático y ya no
-// se elige (docs/ajustes.md): el cable USB siempre está listo, la app de la tablet se abre al enchufarla, se
-// transmite nada más abrir y la fluidez baja sola si la batería de la tablet no aguanta. fps, Mbps, códec y puerto
+// se elige (docs/ajustes.md): el cable USB siempre está listo, la app de la tablet se abre al enchufarla y se
+// transmite nada más abrir. Bajar la calidad (y el brillo) por la batería de la tablet es opcional y viene apagado:
+// encendido de serie, una tablet en un puerto USB del PC (que da menos de lo que gasta) bajaba sola a Ahorro y a
+// Mínimo aunque se hubiera elegido Equilibrada. fps, Mbps, códec y puerto
 // solo se cambian a mano en el .ini (vacío o 0 = automático: lo decide el host con lo que dice la tablet).
 // La resolución de la pantalla extra se cambia en Configuración de pantalla de Windows; el host la recuerda.
 struct Settings {
@@ -25,6 +27,7 @@ struct Settings {
   int port = 47800;             // solo en el .ini
   std::wstring adb;             // ruta de adb.exe; vacía = la busca el host
   std::wstring extra;           // opciones extra para extendesk-host.exe
+  bool battery_adapt = false;   // la tablet puede pedir bajar fps, Mbps y brillo si su batería no aguanta
   std::wstring language;        // idioma de la ventana («en», «es»); vacío = el de Windows (i18n.h)
   int window_w = 0;             // tamaño del área de la ventana que dejó el usuario, a 96 ppp; 0 = el del contenido
   int window_h = 0;

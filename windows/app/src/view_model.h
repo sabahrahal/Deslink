@@ -57,7 +57,6 @@ struct View {
   std::wstring title;  // «Conectado por cable USB»
   Tone dot = Tone::kSecondary;
   std::wstring detail;
-  std::wstring stats;  // «120 fps · 48,0 Mbps · 4 ms», solo conectado
   Line notice;         // por qué la imagen va por debajo de lo elegido (Wi-Fi, batería, gráfica), si es así
   std::wstring error;
   std::vector<Line> connection;  // por dónde puede conectar el dispositivo (cable USB y Wi-Fi)

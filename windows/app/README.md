@@ -10,15 +10,17 @@ de `src/view_model.cpp`, sin Windows, y lo prueba `tests/test_view_model.cpp`.
 
 ## Qué hace
 
-- **Estado**: conectado por cable USB (por anclaje o por depuración, es el mismo «cable») o por Wi-Fi (con la IP de
-  la tablet), fps, Mbps y retardo, y por qué la imagen va reducida si es por algo que el usuario entiende (Wi-Fi,
-  batería, gráfica). Esperando, enseña las dos formas de conectar: el cable USB (enchufada y lista, o qué falta) y el
-  Wi-Fi (la IP de este PC). Tras un corte, «Reconectando…» con los segundos que la pantalla extra espera.
-- **Al registro, no a la ventana**: los fps de cada etapa («Fluidez: Captura · Codificación · Dispositivo fps» con
-  Mbps, RTT, resolución y códec, cada 10 s conectado), los avisos técnicos del dispositivo («Aviso: …» al aparecer y
-  «Aviso resuelto: …» al irse) y cada conexión y desconexión. Se ven en **Ver registro**.
-- **La ventana se puede agrandar** (y maximizar; la columna se queda centrada). Mientras no se toque, toma el alto del
-  contenido; si se cambia el tamaño, se recuerda en el `.ini` (`window_w`, `window_h`, a 96 ppp).
+- **Estado**, corto: conectado por cable USB (por anclaje o por depuración, es el mismo «cable») o por Wi-Fi, y por
+  qué la imagen va reducida si es por algo que el usuario entiende y puede arreglar (Wi-Fi, batería, gráfica; con la
+  imagen quieta no se avisa). Esperando, solo lo que hace falta: el cable ya detectado, aceptar la depuración USB,
+  falta adb o el PC sin red. Tras un corte, «Reconectando…» con los segundos que la pantalla extra espera.
+- **Al registro, no a la ventana**: fps, Mbps y retardo; los fps de cada etapa («Fluidez: Captura · Codificación ·
+  Dispositivo fps» con Mbps, RTT, resolución y códec, cada 10 s conectado), los avisos técnicos del dispositivo
+  («Aviso: …» al aparecer y «Aviso resuelto: …» al irse), cada conexión y desconexión y las IP de este PC («IP de este
+  PC: …», al cambiar). Se ven en **Ver registro**.
+- **La ventana se puede agrandar** hasta 720 px de ancho y el alto del contenido (sin maximizar), y estrechar hasta
+  480 × 360. Mientras no se toque, toma el alto del contenido; si se cambia el tamaño, se recuerda en el `.ini`
+  (`window_w`, `window_h`, a 96 ppp).
 - **Iniciar / Detener** la transmisión, desde la ventana o desde el menú del icono (clic derecho).
 - **Ajustes a la vista**: modo (pantalla extra o duplicar), la resolución (abre la de Windows; con duplicar, el
   monitor que se duplica), calidad (Alta, Equilibrada, Ahorro) y sonido (en el PC o en la tablet), cada uno con una

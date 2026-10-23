@@ -6,7 +6,7 @@ PC decide. Así no hay dos sitios con la misma opción ni ajustes que se pisan.
 
 **Pocas opciones y todo automático.** Lo que el usuario no sabría elegir no se pregunta: fps, Mbps y códec los
 decide «Calidad» para cada dispositivo (H.264 en los MediaTek, que lo decodifican antes; 90 fps estables en una Idea
-Tab con Alta), el cable USB se usa solo si está, y la fluidez baja sola si la batería del dispositivo no aguanta. Cada
+Tab con Alta), el cable USB se usa solo si está. Cada
 opción que queda dice en una línea qué hace, y la ayuda de la web (`https://extendesk.app/ayuda`, un «?» junto a la
 opción) lo cuenta entero.
 
@@ -31,7 +31,7 @@ dibuja en la imagen.
 | Antes | Ahora |
 | --- | --- |
 | Fluidez (fps), calidad de vídeo (Mbps), códec | Los decide «Calidad»; quien quiera fijarlos, en el `.ini` (`fps`, `bitrate`, `codec`) |
-| Bajar la calidad si la batería no aguanta | Siempre activo (ver [batería](battery.md)): sin cargador baja un escalón por debajo del 20 %, y con el cable si la batería baja igualmente. La ventana dice «Fluidez reducida: la batería del dispositivo no aguanta» |
+| Bajar la calidad si la batería se gasta | En Configuración avanzada, **apagado de serie** (ver [batería](battery.md)). Encendido: sin cargador baja un escalón por debajo del 20 %, y con el cable si la batería baja igualmente (fps y brillo). La ventana dice «Fluidez reducida para cuidar la batería del dispositivo…» |
 | Conexión por cable USB, abrir la app de la tablet al enchufarla | Siempre activos. `extra=--no-usb` en el `.ini` para quitar el túnel |
 | Transmitir nada más abrir | Siempre escucha: la pantalla extra solo aparece cuando un dispositivo se conecta ([desconexión](architecture.md#desconexión)) |
 | Puerto | Solo en el `.ini` (`port`) |

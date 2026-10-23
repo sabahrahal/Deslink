@@ -89,6 +89,12 @@ static void TestCombineLimits() {
   // Una petición igual o mejor que la calidad del PC no cambia nada.
   l = CombineLimits(Profile::kBalanced, 60, 26'000'000, true, ProfileDefaults(Profile::kBalanced));
   CHECK(l.fps == 60 && l.bitrate_bps == 26'000'000 && !l.battery_reduced);
+  // Una petición que no baja nada de lo que ya da la calidad del PC no es «reducido por la batería» (antes lo
+  // parecía porque los 60 fps de Equilibrada quedan por debajo de los 120 automáticos).
+  QualityRequest no_limits{};
+  no_limits.profile = Profile::kSaver;
+  l = CombineLimits(Profile::kBalanced, 120, 52'000'000, true, no_limits);
+  CHECK(l.fps == 60 && l.bitrate_bps == 30'000'000 && !l.battery_reduced);
 }
 
 static void TestRateControllerWifi() {

@@ -46,7 +46,7 @@ std::wstring HostArguments(const Settings& s) {
   a += L" --codec " + (s.codec.empty() ? std::wstring(L"auto") : s.codec);
   if (s.audio_tablet) a += L" --audio-tablet";
   a += s.touch == 2 ? L" --view-only" : L" --touch";
-  a += L" --battery-adapt";  // siempre: la fluidez baja sola si la batería de la tablet no aguanta
+  if (s.battery_adapt) a += L" --battery-adapt";
   // Sin --size: la resolución de la pantalla extra es la de la tablet o la que el usuario deje en Windows.
   if (s.virtual_display) {
     a += L" --virtual";
@@ -65,7 +65,8 @@ std::wstring LiveSettingsLine(const Settings& s) {
   l += L" codec=" + (s.codec.empty() ? std::wstring(L"auto") : s.codec);
   l += L" sonido=" + std::wstring(s.audio_tablet ? L"tablet" : L"pc");
   l += L" tactil=" + std::wstring(TouchArg(s.touch));
-  l += L" bateria=1 abrir_tablet=1";  // ya no se eligen: el host los tiene siempre activados
+  l += L" bateria=" + std::wstring(s.battery_adapt ? L"1" : L"0");
+  l += L" abrir_tablet=1";  // ya no se elige: el host lo tiene siempre activado
   return l;
 }
 

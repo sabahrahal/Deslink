@@ -193,7 +193,9 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         val wifiModeChanged = p.lowLatencyWifi != profile.lowLatencyWifi
         profile = p
         val adapt = config?.batteryAdapt == true
-        session?.setBatteryProfile(if (adapt && p != governorBase()) p else null)
+        // También el perfil del PC al volver a él: si no, el PC se quedaba con la última petición de bajar y seguía
+        // avisando de la batería aunque ya se hubiera recuperado.
+        session?.setBatteryProfile(if (adapt) p else null)
         session?.setFastDecode(p.fastDecode)
         // Rendimiento sostenido: frecuencias estables (sin tirones por calor) a costa de no dejar bajar del todo.
         window.setSustainedPerformanceMode(p.sustainedPerformance)
@@ -666,8 +668,9 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         private const val MENU_BUTTON_DP = 36
         /** Distancia mínima al borde: ahí los gestos de Android (volver, barra de estado) se tragan el toque. */
         private const val MENU_EDGE_DP = 16
-        private const val MENU_COLOR = 0xD90066CC.toInt()  // azul de Extendesk, un poco transparente
-        private const val MENU_COLOR_PRESSED = 0xFF0066CC.toInt()
+        // Lila de la marca (el eslabón de delante del logo, design/tokens.json), un poco transparente; pulsado, el de atrás.
+        private const val MENU_COLOR = 0xD97033FD.toInt()
+        private const val MENU_COLOR_PRESSED = 0xFF4D13C7.toInt()
         private const val PREF_MENU_X = "menu_button_x"
         private const val PREF_MENU_Y = "menu_button_y"
     }
