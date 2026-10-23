@@ -6,9 +6,9 @@ la del PC usan los mismos colores y tamaños de texto para que se sientan una so
 
 ## Marca
 
-El logo está en [`design/logo/`](../design/logo/): el icono (dos eslabones), el nombre «Extendesk» y los dos juntos.
-El nombre va en **Montserrat Black** ([`design/fonts/`](../design/fonts/), licencia OFL, recortada a los caracteres
-latinos).
+El logo es el isotipo (dos eslabones), [`design/logo/extendesk-icon.svg`](../design/logo/extendesk-icon.svg), y al lado
+el nombre «Extendesk» escrito como texto en **Montserrat Black** ([`design/fonts/`](../design/fonts/), licencia OFL, recortada a los caracteres
+latinos). No hay imágenes con el nombre dibujado: cada app lo escribe con la fuente.
 
 | Color | Valor | Dónde |
 | --- | --- | --- |
@@ -17,8 +17,7 @@ latinos).
 | Violeta | `#7033FD` | Eslabón de delante del icono (con sombra `#3F11A5` donde pasa por debajo) |
 | Lavanda | `#A68CFF` | Acento en modo oscuro: los morados no se leen sobre fondo oscuro |
 
-El icono se dibuja una sola vez, en [`tools/design/gen_logo.py`](../tools/design/gen_logo.py) (calca
-`design/logo/extendesk-icon.png`), y de ahí salen con `python3 tools/design/gen_logo.py`:
+El icono se dibuja una sola vez, en [`tools/design/gen_logo.py`](../tools/design/gen_logo.py), y de ahí salen con `python3 tools/design/gen_logo.py`:
 
 - `design/logo/extendesk-icon.svg`.
 - Android: `res/drawable/ic_launcher_foreground.xml` (icono adaptativo sobre blanco) y `res/drawable/ic_logo.xml`
