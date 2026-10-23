@@ -1,0 +1,31 @@
+@font-face{font-family:Montserrat;font-weight:900;src:url(assets/Montserrat-Black.ttf) format("truetype");font-display:swap}
+@font-face{font-family:Montserrat;font-weight:700;src:url(assets/Montserrat-Bold.ttf) format("truetype");font-display:swap}
+:root{--bg:#F5F5F7;--surface:#fff;--sep:#D2D2D7;--text:#1D1D1F;--text2:#5E5E63;--accent:#3F0D91;--on-accent:#fff}
+@media(prefers-color-scheme:dark){:root{--bg:#1C1C1E;--surface:#2C2C2E;--sep:#48484A;--text:#F5F5F7;--text2:#AEAEB2;--accent:#A68CFF;--on-accent:#000}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--accent)}
+.wrap{max-width:880px;margin:0 auto;padding:0 20px}
+header{padding:20px 0;display:flex;align-items:center;justify-content:space-between}
+.brand{font-family:Montserrat,system-ui,sans-serif;font-weight:900;font-size:1.6rem;color:var(--accent)}
+header a.link{text-decoration:none;font-weight:600}
+h1,h2,h3{font-family:Montserrat,system-ui,sans-serif;line-height:1.2}
+h1{font-weight:900;font-size:clamp(2rem,6vw,3.2rem);margin:.4em 0 .3em}
+h2{font-weight:700;font-size:1.5rem;margin:2em 0 .5em}
+h3{font-weight:700;font-size:1.1rem;margin:1.5em 0 .3em}
+.hero{padding:40px 0 20px}
+.hero p.lead{font-size:1.2rem;color:var(--text2);max-width:36em}
+.btn{display:inline-block;background:var(--accent);color:var(--on-accent);text-decoration:none;font-weight:700;padding:12px 22px;border-radius:12px;margin:6px 10px 6px 0}
+.btn.ghost{background:transparent;color:var(--accent);border:2px solid var(--accent)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.card{background:var(--surface);border:1px solid var(--sep);border-radius:16px;padding:20px}
+.card h3{margin-top:0}
+.card p{margin:0;color:var(--text2)}
+ol.steps{padding-left:1.2em}
+ol.steps li{margin:.5em 0}
+.note{color:var(--text2);font-size:.9rem}
+footer{border-top:1px solid var(--sep);margin-top:64px;padding:24px 0 40px;color:var(--text2);font-size:.9rem}
+footer a{margin-right:16px}
+.doc{background:var(--surface);border:1px solid var(--sep);border-radius:16px;padding:8px 28px 28px;margin-bottom:24px}
+table{border-collapse:collapse;width:100%;font-size:.95rem}
+th,td{border-bottom:1px solid var(--sep);padding:8px;text-align:left;vertical-align:top}
