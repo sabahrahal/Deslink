@@ -23,7 +23,8 @@ enum SessionFlags : uint8_t {
 };
 
 // Por qué la imagen va ahora por debajo de lo elegido (para avisar al usuario).
-enum class Reduced : uint8_t { kNone = 0, kWifi = 1, kBattery = 2, kLoad = 3 };
+// kTablet: los fps bajan porque la tablet no decodifica a más (no es la gráfica del PC).
+enum class Reduced : uint8_t { kNone = 0, kWifi = 1, kBattery = 2, kLoad = 3, kTablet = 4 };
 
 struct SessionConfig {
   Profile profile = Profile::kMaxQuality;  // calidad elegida en el PC
@@ -59,7 +60,8 @@ uint32_t AutoFps(uint16_t tablet_refresh_hz, uint32_t user_fps);
 uint32_t AutoBitrateMbps(uint32_t width, uint32_t height, uint32_t fps, Codec codec);
 
 // Códec: el fijado en el PC si la tablet lo decodifica; si no, HEVC salvo que la tablet diga que solo hace H.264.
-// tablet_codec: lo que manda en HelloConfig::codec (0 = no lo dice, 1 = solo H.264, 2 = también HEVC).
+// tablet_codec: lo que manda en HelloConfig::codec (0 = no lo dice, 1 = solo H.264, 2 = también HEVC, 3 = también
+// HEVC pero H.264 le decodifica más deprisa: en automático se elige H.264).
 Codec ResolveCodec(uint8_t user_codec, uint8_t tablet_codec);
 
 // Topes de la sesión: los de la calidad elegida en el PC, y si «bajar si la batería no aguanta» está activado, lo
@@ -85,6 +87,10 @@ class RateController {
   // Informe de la tablet (frames recibidos y perdidos en el último segundo). Devuelve true si cambió la tasa.
   bool OnReport(uint32_t received, uint32_t lost, uint64_t now_us);
   bool OnKeyframeRequest(uint64_t now_us);
+  // Por WiFi, señales de que el enlace va justo aunque no se pierdan frames enteros (una vez por segundo): el envío se
+  // atrasó y se tiraron frames ([backlog]), o hubo que reenviar más del 3 % de los paquetes (cada reenvío retrasa su
+  // frame una ida y vuelta). Recortan como una pérdida. Por cable no hace nada.
+  bool OnLinkQuality(uint32_t sent_packets, uint32_t resent_packets, bool backlog, uint64_t now_us);
   // Cambia el máximo (otra calidad o batería); vuelve al máximo nuevo si el enlace va limpio.
   bool SetMax(uint32_t max_bps, uint64_t now_us);
   // Por cable no se pierden frames, pero el túnel de adb tiene un tope (en algunas tablets ~20 Mbps): si el envío
@@ -121,11 +127,15 @@ class RateController {
 // dice nada de la carga (con él se bajaba a 30 fps sin motivo).
 // Si se descarta más del 10 % durante 3 s, baja un escalón (120, 90, 60, 45, 30). Tras 10 s sin descartes prueba el
 // escalón de arriba; si al subir vuelve a descartar enseguida, la siguiente prueba espera el doble (hasta 160 s).
+// La tablet cuenta igual: si tarda en decodificar más del 90 % del intervalo entre frames, los frames se le apilan en
+// el decodificador (más retardo a cada uno) y se baja como si descartara el PC. Solo se sube si en el escalón de arriba
+// le quedaría al menos un 15 % de holgura.
 class FpsGovernor {
  public:
   void Reset(uint32_t target_fps);
   // Una vez por segundo. Devuelve true si cambian los fps.
-  bool Update(uint32_t submitted, uint32_t dropped);
+  // tablet_decode_us: lo que tarda la tablet en decodificar cada frame (0 si no lo dice).
+  bool Update(uint32_t submitted, uint32_t dropped, uint32_t tablet_decode_us = 0);
   uint32_t fps() const { return fps_; }
   uint32_t target() const { return target_; }
   bool reduced() const { return fps_ < target_; }

@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <numeric>
 #include <random>
 #include <string>
@@ -278,7 +279,40 @@ static void TestQualityRequest() {
   CHECK(w == 640 && hh == 480);
 }
 
+// Rehace el paquete [lost] de su grupo con la paridad, como la tablet (FrameReassembler.kt).
+static void TestFec() {
+  std::vector<uint8_t> data(1176 * 4 + 300);
+  for (size_t i = 0; i < data.size(); ++i) data[i] = static_cast<uint8_t>(i * 7 + 3);
+  auto packets = PacketizeFrame(data.data(), data.size(), 9, false, 77);
+  CHECK(packets.size() == 5);
+  const auto original = packets;
+  AddFec(&packets, 3);
+  // Grupos {0,1,2} y {3,4}: una paridad tras cada uno.
+  CHECK(packets.size() == 7);
+  auto h = ParseHeader(packets[3].data(), packets[3].size());
+  CHECK(h && h->type == PacketType::kVideoFec && h->packet_index == 0 && h->packet_count == 5 && h->fec_group == 3);
+  auto last = ParseHeader(packets[6].data(), packets[6].size());
+  CHECK(last && last->type == PacketType::kVideoFec && last->packet_index == 1 && last->payload_size == 2 + 1176);
+  auto d = ParseHeader(packets[0].data(), packets[0].size());
+  CHECK(d && d->type == PacketType::kVideo && d->fec_group == 3);
+  // Se pierde el último paquete del frame (el corto): sale de la paridad del grupo 1 y del paquete 3.
+  const uint8_t* fec = packets[6].data() + kHeaderSize;
+  const auto p3 = ParseHeader(packets[4].data(), packets[4].size());
+  const uint16_t len = static_cast<uint16_t>((fec[0] | (fec[1] << 8)) ^ p3->payload_size);
+  CHECK(len == 300);
+  std::vector<uint8_t> rebuilt(len);
+  for (size_t b = 0; b < len; ++b) rebuilt[b] = fec[2 + b] ^ packets[4][kHeaderSize + b];
+  CHECK(std::memcmp(rebuilt.data(), original[4].data() + kHeaderSize, len) == 0);
+  // Un VIDEO_FEC puede llevar 2 bytes más que kMaxPayload; un VIDEO no.
+  CHECK(ParseHeader(packets[6].data(), packets[6].size()));
+  // Grupo de 1 o menos: no cambia nada.
+  auto plain = original;
+  AddFec(&plain, 1);
+  CHECK(plain.size() == 5);
+}
+
 int main() {
+  TestFec();
   TestAudioPacket();
   TestQualityRequest();
   TestBurstTypes();

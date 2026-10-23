@@ -35,7 +35,7 @@ void WriteHeader(const Header& h, uint8_t* out) {
   out[2] = kVersion;
   out[3] = static_cast<uint8_t>(h.type);
   out[4] = h.flags;
-  out[5] = 0;
+  out[5] = h.fec_group;
   Put32(out + 6, h.frame_id);
   Put16(out + 10, h.packet_index);
   Put16(out + 12, h.packet_count);
@@ -54,7 +54,9 @@ std::optional<Header> ParseHeader(const uint8_t* data, size_t size) {
   h.packet_count = Get16(data + 12);
   h.timestamp_us = Get64(data + 14);
   h.payload_size = Get16(data + 22);
-  if (h.payload_size > kMaxPayload || size < kHeaderSize + h.payload_size) {
+  h.fec_group = data[5];
+  const size_t max = h.type == PacketType::kVideoFec ? kMaxFecPayload : kMaxPayload;
+  if (h.payload_size > max || size < kHeaderSize + h.payload_size) {
     return std::nullopt;
   }
   return h;
@@ -88,6 +90,46 @@ std::vector<std::vector<uint8_t>> PacketizeFrame(const uint8_t* data, size_t siz
     packets.push_back(std::move(pkt));
   }
   return packets;
+}
+
+void AddFec(std::vector<std::vector<uint8_t>>* packets, uint8_t group) {
+  if (group < 2 || packets->empty()) return;
+  std::vector<std::vector<uint8_t>> out;
+  out.reserve(packets->size() + packets->size() / group + 1);
+  const size_t count = packets->size();
+  for (size_t start = 0; start < count; start += group) {
+    const size_t end = std::min(count, start + group);
+    std::vector<uint8_t> parity(kMaxPayload, 0);
+    uint16_t len_xor = 0;
+    size_t longest = 0;
+    Header first;
+    for (size_t i = start; i < end; ++i) {
+      auto& pkt = (*packets)[i];
+      pkt[5] = group;  // fec_group en la cabecera ya escrita
+      const auto h = ParseHeader(pkt.data(), pkt.size());
+      if (!h) continue;
+      if (i == start) first = *h;
+      len_xor ^= h->payload_size;
+      longest = std::max<size_t>(longest, h->payload_size);
+      for (size_t b = 0; b < h->payload_size; ++b) parity[b] ^= pkt[kHeaderSize + b];
+      out.push_back(std::move(pkt));
+    }
+    Header f;
+    f.type = PacketType::kVideoFec;
+    f.flags = static_cast<uint8_t>(first.flags & kFlagKeyframe);
+    f.frame_id = first.frame_id;
+    f.packet_index = static_cast<uint16_t>(start / group);
+    f.packet_count = static_cast<uint16_t>(count);
+    f.timestamp_us = first.timestamp_us;
+    f.fec_group = group;
+    f.payload_size = static_cast<uint16_t>(2 + longest);
+    std::vector<uint8_t> fec(kHeaderSize + 2 + longest);
+    WriteHeader(f, fec.data());
+    Put16(fec.data() + kHeaderSize, len_xor);
+    std::memcpy(fec.data() + kHeaderSize + 2, parity.data(), longest);
+    out.push_back(std::move(fec));
+  }
+  *packets = std::move(out);
 }
 
 std::vector<uint8_t> MakeControlPacket(PacketType type, const uint8_t* payload,

@@ -1,6 +1,6 @@
 # windows/driver
 
-Monitor virtual de DeskLink: un driver de pantalla indirecta (IddCx, modo usuario / UMDF) que hace que Windows vea la tablet como una pantalla más, para extender el escritorio en vez de duplicarlo.
+Monitor virtual de Extendesk: un driver de pantalla indirecta (IddCx, modo usuario / UMDF) que hace que Windows vea la tablet como una pantalla más, para extender el escritorio en vez de duplicarlo.
 
 | Carpeta | Contenido |
 | --- | --- |
@@ -23,7 +23,7 @@ Windows sólo instala drivers firmados. Como es un driver de **modo usuario**, n
 
 - La CI crea un certificado nuevo en cada compilación, firma el driver y lo destruye. La clave privada no se puede exportar y muere con la máquina de la CI, así que nadie puede usarla para firmar otra cosa.
 - El paquete trae la parte pública (`desklink-idd.cer`). `instalar` la añade a «Entidades de certificación raíz de confianza» y «Editores de confianza» del equipo; `desinstalar` la quita.
-- Cada compilación lleva un certificado distinto. El instalador de DeskLink (`windows/installer/`) sólo reinstala el driver cuando cambia su código; con el paquete suelto hay que volver a ejecutar `instalar-driver.bat` del paquete nuevo (sustituye el certificado anterior).
+- Cada compilación lleva un certificado distinto. El instalador de Extendesk (`windows/installer/`) sólo reinstala el driver cuando cambia su código; con el paquete suelto hay que volver a ejecutar `instalar-driver.bat` del paquete nuevo (sustituye el certificado anterior).
 
 Para distribuirlo a otras personas hará falta firmarlo con un certificado de Microsoft (fase 6, instalador firmado).
 

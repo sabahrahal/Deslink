@@ -34,6 +34,16 @@ class PowerProfileTest {
     }
 
     @Test
+    fun fastRefreshRateAvoidsJudder() {
+        val rates = listOf(144f, 120f, 90f, 60f)
+        assertEquals(120f, PowerProfile.pickFastRefreshRate(rates, 60)!!, 0.01f)
+        assertEquals(120f, PowerProfile.pickFastRefreshRate(rates, 30)!!, 0.01f)
+        assertEquals(90f, PowerProfile.pickFastRefreshRate(rates, 90)!!, 0.01f)
+        assertEquals(144f, PowerProfile.pickFastRefreshRate(listOf(144f, 60f), 50)!!, 0.01f)
+        assertNull(PowerProfile.pickFastRefreshRate(rates, 0))
+    }
+
+    @Test
     fun qualityRequestMatchesProtocol() {
         val p = Dlp.qualityRequest(PowerProfile.AHORRO, 9)
         val h = Dlp.parseHeader(p, p.size)!!

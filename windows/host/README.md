@@ -23,6 +23,7 @@ build\host\Release\desklink-host.exe --fps 60 --bitrate 50 --codec hevc
 | `--fps` | 60 | Fotogramas por segundo máximos |
 | `--bitrate` | 50 | Mbps (CBR) |
 | `--codec` | hevc | `hevc` o `h264` |
+| `--encoder` | auto | `auto`: codificación directa según la GPU que captura, NVENC con NVIDIA y AMF con AMD (menos retardo que sus codificadores de Media Foundation), y si no arranca o la GPU es de otra marca (Intel), Media Foundation; `nvenc` o `amf` lo mismo solo para esa marca; `mf` siempre Media Foundation |
 | `--virtual` | apagado | Monitor virtual en vez de `--output` (requiere el driver) |
 | `--size` | la de la tablet | Resolución del monitor virtual. Sin `--size` se usa la que pide la tablet al conectar (o la última recordada hasta que conecte) |
 | `--pace` | 100 | Reparte cada frame a estos Mbps por UDP (0 = de golpe); por cable USB no se usa |

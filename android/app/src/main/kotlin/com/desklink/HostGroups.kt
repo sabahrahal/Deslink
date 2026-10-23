@@ -10,10 +10,16 @@ data class PcEntry(
     /** Clave estable de la tarjeta (el nombre en minúsculas, o la dirección si el PC no da nombre). */
     val key: String,
     val name: String,
-    /** Camino por cable: el del cable USB de DeskLink o, si no está, el anclaje de red por USB. */
+    /**
+     * Camino por cable: el anclaje de red por USB si está activo y, si no, el cable USB de Extendesk (adb). Por el
+     * anclaje los paquetes van directos; por adb pasan por su túnel y en una Lenovo con MediaTek el peor frame subía
+     * de ~55 a 75-95 ms.
+     */
     val usb: Found?,
     /** Caminos por red (Wi-Fi, Ethernet), el primero el preferido. */
     val network: List<Found>,
+    /** Todos los caminos encontrados, también el cable de adb cuando gana el anclaje. */
+    val all: List<Found> = listOfNotNull(usb) + network,
 ) {
     val hasBoth: Boolean get() = usb != null && network.isNotEmpty()
 
@@ -21,7 +27,7 @@ data class PcEntry(
     fun route(preferUsb: Boolean = true): Found = if (usb != null && (preferUsb || network.isEmpty())) usb else network.first()
 
     /** ¿Alguno de sus caminos es esta dirección? */
-    fun matches(address: String?): Boolean = address != null && (usb?.ip == address || network.any { it.ip == address })
+    fun matches(address: String?): Boolean = address != null && all.any { it.ip == address }
 }
 
 object HostGroups {
@@ -36,9 +42,9 @@ object HostGroups {
             byKey.getOrPut(key) { ArrayList() }.add(f)
         }
         return byKey.map { (key, list) ->
-            val usb = list.firstOrNull { it.isCable } ?: list.firstOrNull { isTether(it) }
+            val usb = list.firstOrNull { isTether(it) } ?: list.firstOrNull { it.isCable }
             val network = list.filter { !it.isCable && !isTether(it) }.sortedBy { if (it.transport == Transport.WIFI) 1 else 0 }
-            PcEntry(key, (list.firstOrNull { it.name.isNotBlank() } ?: list.first()).title, usb, network)
+            PcEntry(key, (list.firstOrNull { it.name.isNotBlank() } ?: list.first()).title, usb, network, list)
         }.sortedWith(compareBy({ it.usb == null }, { it.name.lowercase() }))
     }
 
@@ -47,7 +53,7 @@ object HostGroups {
 
     /**
      * PC al que conectarse solo al abrir la app: el último usado (por su dirección o por su nombre), y siempre
-     * por el cable si llega por él. El cable de DeskLink vale en cuanto aparece; cualquier otro camino espera a
+     * por el cable si llega por él (el anclaje antes que adb). El cable vale en cuanto aparece; cualquier otro camino espera a
      * la segunda búsqueda ([scans] >= 2), por si la prueba del cable solo tardaba. Si la tablet está enchufada con la
      * depuración USB activa ([cableExpected]) el cable va a aparecer en unos segundos, así que la red espera hasta
      * [CABLE_WAIT_SCANS] búsquedas. Null si aún no toca.
@@ -64,14 +70,14 @@ object HostGroups {
         val pc = group(found).firstOrNull {
             it.matches(lastHost) || (name.isNotEmpty() && it.name.equals(name, ignoreCase = true))
         } ?: return null
-        pc.usb?.takeIf { it.isCable }?.let { return it }
+        pc.usb?.takeIf { it.isCable || isTether(it) }?.let { return it }
         return if (scans >= (if (cableExpected) CABLE_WAIT_SCANS else 2)) pc.route() else null
     }
 
     /** Texto bajo el nombre del PC para el camino elegido. */
     fun describe(f: Found): String = when {
         f.isCable -> "Por cable USB · la conexión más rápida"
-        isTether(f) -> "Por cable USB (anclaje de red) · ${f.ip}"
+        isTether(f) -> "Por cable USB (anclaje de red) · el más estable · ${f.ip}"
         f.transport == Transport.ETHERNET -> "Por cable de red · ${f.ip}"
         else -> "Por Wi-Fi · ${f.ip}"
     }

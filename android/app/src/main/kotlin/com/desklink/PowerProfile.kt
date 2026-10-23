@@ -23,13 +23,16 @@ enum class PowerProfile(
     val lowLatencyWifi: Boolean,
     /** Pide a Android fijar la CPU/GPU en una frecuencia sostenible. */
     val sustainedPerformance: Boolean,
-    /** Fija el modo de pantalla con la menor frecuencia que acomoda los fps del stream. */
+    /**
+     * Fija el modo de pantalla con la menor frecuencia que acomoda los fps del stream. Si no, la mayor que los acomoda
+     * sin saltos (60 fps → 120 Hz en una pantalla de 144 Hz): cada frame espera menos al siguiente refresco.
+     */
     val lowRefreshMode: Boolean,
     /** Decodificador a su velocidad máxima (menos retardo, más consumo); si no, a la justa para los fps. */
     val fastDecode: Boolean,
 ) {
     MAXIMA("maxima", "Máxima calidad", 0, 0, 0, 100, null, true, true, false, true),
-    EQUILIBRADO("equilibrado", "Equilibrado", 1, 60, 30, 100, null, true, false, true, true),
+    EQUILIBRADO("equilibrado", "Equilibrado", 1, 60, 30, 100, null, true, false, false, true),
     AHORRO("ahorro", "Ahorro", 2, 30, 12, 75, 0.5f, false, false, true, false),
     MINIMO("minimo", "Mínimo", 3, 30, 8, 60, 0.35f, false, false, true, false);
 
@@ -75,6 +78,19 @@ enum class PowerProfile(
                 k >= 1 && kotlin.math.abs(it - k * fps) < 0.6f
             }
             return multiple.minOrNull() ?: enough.minOrNull()
+        }
+
+        /**
+         * La mayor frecuencia de pantalla que muestra [fps] sin saltos (un múltiplo exacto: 60 fps → 120 Hz, no 144, que
+         * repetiría unos frames 2 veces y otros 3). Si no hay ninguna, la mayor. Null sin modos o con [fps] <= 0.
+         */
+        fun pickFastRefreshRate(rates: List<Float>, fps: Int): Float? {
+            if (fps <= 0 || rates.isEmpty()) return null
+            val multiple = rates.filter {
+                val k = Math.round(it / fps)
+                k >= 1 && kotlin.math.abs(it - k * fps) < 0.6f
+            }
+            return multiple.maxOrNull() ?: rates.maxOrNull()
         }
     }
 }

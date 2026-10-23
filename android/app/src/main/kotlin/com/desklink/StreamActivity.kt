@@ -50,6 +50,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
     private lateinit var host: String
     private lateinit var settings: AppSettings
     private var helloConfig: Dlp.HelloConfig? = null
+    private lateinit var codecMeter: CodecMeter
     private var lastBackMs = 0L
     private val probe by lazy { DeviceProbe(this) }
     private var touchFallbackShown = false
@@ -107,7 +108,8 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         settings = SettingsStore(this).load()
         statsVisible = settings.showStats
         statsShown = statsVisible
-        helloConfig = AppSettings.hello(Device.display(this), Device.hevcSupported)
+        codecMeter = CodecMeter(this)
+        helloConfig = AppSettings.hello(Device.display(this), Device.hevcSupported, codecMeter.prefersH264(Device.prefersH264))
 
         // La pantalla no se apaga mientras se usa como monitor (ya no es una opción: nadie la quiere apagada).
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -197,7 +199,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         window.setSustainedPerformanceMode(p.sustainedPerformance)
         val lp = window.attributes
         lp.screenBrightness = brightnessFor(p)
-        lp.preferredDisplayModeId = if (p.lowRefreshMode && streamFps > 0) lowRefreshModeId(streamFps) else 0
+        lp.preferredDisplayModeId = if (streamFps > 0) refreshModeId(streamFps, p.lowRefreshMode) else 0
         window.attributes = lp
         if (wifiModeChanged && wifiLock != null) {
             releaseWifiLock()
@@ -222,15 +224,19 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         }
     }
 
-    /** Modo de pantalla de la misma resolución con la menor frecuencia que acomoda [fps] (0 = sin preferencia). */
+    /**
+     * Modo de pantalla de la misma resolución con la menor ([low]) o la mayor frecuencia que acomoda [fps]
+     * (0 = sin preferencia).
+     */
     @Suppress("DEPRECATION")
-    private fun lowRefreshModeId(fps: Int): Int {
+    private fun refreshModeId(fps: Int, low: Boolean): Int {
         val display = (if (Build.VERSION.SDK_INT >= 30) display else windowManager.defaultDisplay) ?: return 0
         val current = display.mode
         val modes = display.supportedModes.filter {
             it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight
         }
-        val rate = PowerProfile.pickRefreshRate(modes.map { it.refreshRate }, fps) ?: return 0
+        val rates = modes.map { it.refreshRate }
+        val rate = (if (low) PowerProfile.pickRefreshRate(rates, fps) else PowerProfile.pickFastRefreshRate(rates, fps)) ?: return 0
         return modes.first { it.refreshRate == rate }.modeId
     }
 
@@ -250,7 +256,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     /**
-     * Botón que abre el menú rápido: redondo, del azul de DeskLink y con borde blanco para que se vea sobre cualquier
+     * Botón que abre el menú rápido: redondo, del azul de Extendesk y con borde blanco para que se vea sobre cualquier
      * fondo. Se puede arrastrar a otro sitio si tapa algo del PC, pero nunca fuera de la pantalla ni pegado al borde
      * (donde los gestos de Android lo taparían); se recuerda dónde se dejó (en proporción, para que valga al girarla).
      *
@@ -268,7 +274,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
             setColor(MENU_COLOR)
             setStroke(dp(1).coerceAtLeast(2), Color.WHITE)
         }
-        contentDescription = "Menú de DeskLink"
+        contentDescription = "Menú de Extendesk"
         visibility = View.GONE
         val slop = ViewConfiguration.get(this@StreamActivity).scaledTouchSlop
         var downX = 0f
@@ -374,6 +380,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
                 Dlp.REDUCED_WIFI -> "Calidad reducida un momento: el Wi-Fi va justo"
                 Dlp.REDUCED_BATTERY -> "Fluidez reducida para no gastar la batería"
                 Dlp.REDUCED_LOAD -> "Fluidez reducida: la gráfica del PC va cargada"
+                Dlp.REDUCED_TABLET -> "Fluidez ajustada a lo que esta tablet decodifica a tiempo"
                 else -> ""
             }
             summary = SessionSummary(
@@ -515,9 +522,14 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         phaseDetail = ""
         overlay.visibility = View.VISIBLE
         val audioManager = getSystemService(AudioManager::class.java)
-        session = StreamSession(host, s, this, helloConfig) {
-            "${audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)}/${audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)}"
-        }.also {
+        val meter = codecMeter
+        session = StreamSession(
+            host, s, this, helloConfig,
+            mediaVolume = {
+                "${audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)}/${audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)}"
+            },
+            onDecodeSample = meter::record,
+        ).also {
             it.setFastDecode(profile.fastDecode)
             it.start()
         }
@@ -561,9 +573,10 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
             if (Build.VERSION.SDK_INT >= 30 && info.fps > 0) {
                 surfaceView.holder.surface.setFrameRate(info.fps.toFloat(), android.view.Surface.FRAME_RATE_COMPATIBILITY_DEFAULT)
             }
-            // Con los perfiles de ahorro además se fija el modo de pantalla (p. ej. 60 Hz en vez de 144 Hz).
+            // Y se fija el modo de pantalla: con los perfiles de ahorro el más lento que acomoda los fps (60 Hz en vez de
+            // 144 Hz); con los demás el más rápido (120 Hz para 60 fps), para que cada frame espere menos al refresco.
             streamFps = info.fps
-            if (profile.lowRefreshMode) applyProfile(profile)
+            applyProfile(profile)
         }
     }
 
@@ -639,7 +652,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         private const val MENU_BUTTON_DP = 36
         /** Distancia mínima al borde: ahí los gestos de Android (volver, barra de estado) se tragan el toque. */
         private const val MENU_EDGE_DP = 16
-        private const val MENU_COLOR = 0xD90066CC.toInt()  // azul de DeskLink, un poco transparente
+        private const val MENU_COLOR = 0xD90066CC.toInt()  // azul de Extendesk, un poco transparente
         private const val MENU_COLOR_PRESSED = 0xFF0066CC.toInt()
         private const val PREF_MENU_X = "menu_button_x"
         private const val PREF_MENU_Y = "menu_button_y"

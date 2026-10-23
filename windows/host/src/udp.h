@@ -66,4 +66,11 @@ class UdpEndpoint {
   std::chrono::steady_clock::time_point last_rx_{};
   bool peer_lost_ = false;  // el cable USB se cerró: se olvida al cliente sin esperar
   UsbLink usb_;
+
+  // Prioridad de vídeo en el Wi-Fi (qWAVE): los paquetes al cliente salen marcados como audio/vídeo (DSCP 40), y el
+  // router y la tarjeta Wi-Fi los mandan por la cola WMM de vídeo, por delante de descargas y actualizaciones.
+  void PrioritizeFlowTo(const sockaddr_in& peer);
+  HANDLE qos_ = nullptr;
+  unsigned long qos_flow_ = 0;  // QOS_FLOWID; 0 = ninguno
+  sockaddr_in qos_peer_{};
 };

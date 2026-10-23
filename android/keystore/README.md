@@ -1,6 +1,6 @@
 # android/keystore
 
-Todas las APK de DeskLink (depuración y release, en local y en la CI) se firman con **una sola clave fija**. Antes cada
+Todas las APK de Extendesk (depuración y release, en local y en la CI) se firman con **una sola clave fija**. Antes cada
 ejecución de la CI firmaba con una clave de depuración distinta, así que Android no dejaba instalar la APK nueva
 encima de la vieja y había que desinstalar cada vez. Con una clave fija, `adb install -r` (o abrir la APK en la tablet)
 actualiza la app y conserva sus ajustes.
@@ -24,5 +24,5 @@ La CI firma con la clave guardada en tres secretos del repositorio (Settings →
 mantiene el proyecto. Es también la clave de subida de Google Play (el `.aab` de cada versión sale firmado con ella);
 si se pierde, Play obliga a pedir un cambio de clave de subida, que tarda días.
 
-Para comprobar con qué clave se firmó una APK descargada: `keytool -printcert -jarfile DeskLink.apk` (la huella SHA-256
+Para comprobar con qué clave se firmó una APK descargada: `keytool -printcert -jarfile Extendesk.apk` (la huella SHA-256
 debe ser siempre la misma).

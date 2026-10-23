@@ -3,6 +3,7 @@ package com.desklink
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -46,6 +47,10 @@ class SettingsTest {
         // Pantalla completa, su frecuencia y si decodifica HEVC; fps y tasa a 0: los decide el PC.
         assertEquals(Dlp.HelloConfig(2944, 1840, 0, 0, Dlp.CAN_DECODE_HEVC, 320, 90), AppSettings.hello(tablet, hevcSupported = true))
         assertEquals(Dlp.CAN_DECODE_H264_ONLY, AppSettings.hello(tablet, hevcSupported = false).codec)
+        assertEquals(Dlp.CAN_DECODE_HEVC_PREFERS_H264, AppSettings.hello(tablet, hevcSupported = true, prefersH264 = true).codec)
+        assertEquals(Dlp.CAN_DECODE_H264_ONLY, AppSettings.hello(tablet, hevcSupported = false, prefersH264 = true).codec)
+        assertTrue(Device.isMediaTek("c2.mtk.hevc.decoder"))
+        assertFalse(Device.isMediaTek("c2.qti.hevc.decoder"))
     }
 
     @Test

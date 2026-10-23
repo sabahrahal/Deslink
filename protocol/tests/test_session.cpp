@@ -40,6 +40,8 @@ static void TestSessionConfigRoundtrip() {
   CHECK(o && o->profile == Profile::kBalanced && o->input == SessionInput::kTouch && o->reduced == Reduced::kNone &&
         o->fps == 60 && !o->audio_on_tablet());
   CHECK(!DecodeSessionConfig(odd, kSessionConfigSize - 1));
+  const uint8_t tablet[kSessionConfigSize] = {0, 0, 0, 4, 90, 0, 0, 0, 0, 0};
+  CHECK(DecodeSessionConfig(tablet, sizeof(tablet))->reduced == Reduced::kTablet);
 }
 
 static void TestAutoValues() {
@@ -62,6 +64,8 @@ static void TestAutoValues() {
   CHECK(ResolveCodec(0, 1) == Codec::kH264);  // la tablet no decodifica HEVC
   CHECK(ResolveCodec(2, 1) == Codec::kH264);  // aunque el PC pida HEVC
   CHECK(ResolveCodec(1, 2) == Codec::kH264);
+  CHECK(ResolveCodec(0, 3) == Codec::kH264);  // MediaTek: H.264 decodifica antes
+  CHECK(ResolveCodec(2, 3) == Codec::kHevc);  // salvo que el PC pida HEVC
 }
 
 static void TestCombineLimits() {
@@ -113,6 +117,30 @@ static void TestRateControllerWifi() {
   CHECK(r.OnKeyframeRequest(t += 1'000'000));
   CHECK(!r.OnKeyframeRequest(t += 500'000));
   CHECK(r.current_bps() == 42'500'000);
+}
+
+static void TestRateControllerWifiLinkQuality() {
+  RateController r;
+  uint64_t t = 1'000'000;
+  r.Reset(30'000'000, false, t);
+  for (int i = 0; i < 20; ++i) r.OnReport(60, 0, t += 1'000'000);
+  CHECK(r.current_bps() == 30'000'000);
+  // Pocos reenvíos (2 %): nada.
+  CHECK(!r.OnLinkQuality(2000, 40, false, t += 1'000'000));
+  // Más del 3 % reenviado: recorta aunque no se pierdan frames, y no vuelve a subir enseguida.
+  CHECK(r.OnLinkQuality(2000, 100, false, t += 1'000'000));
+  CHECK(r.current_bps() == 25'500'000);
+  CHECK(!r.OnReport(60, 0, t += 1'000'000));
+  CHECK(r.current_bps() == 25'500'000);
+  // Envío atrasado: también recorta (como mucho una vez por segundo).
+  CHECK(r.OnLinkQuality(10, 0, true, t += 1'000'000));
+  CHECK(!r.OnLinkQuality(10, 0, true, t += 500'000));
+  // Con pocos paquetes (escritorio quieto) los reenvíos no cuentan.
+  CHECK(!r.OnLinkQuality(50, 20, false, t += 2'000'000));
+  // Por cable no hace nada.
+  RateController u;
+  u.Reset(30'000'000, true, t);
+  CHECK(!u.OnLinkQuality(2000, 1000, true, t += 1'000'000));
 }
 
 static void TestRateControllerUsbAndMax() {
@@ -196,6 +224,32 @@ static void TestFpsGovernor() {
   // Nunca baja de 30.
   for (int i = 0; i < 60; ++i) g.Update(100, 90);
   CHECK(g.fps() == 30);
+
+  // La tablet no da abasto a 120 (HEVC a 14 ms: como mucho ~70 fps): baja aunque el PC no descarte nada.
+  FpsGovernor t;
+  t.Reset(120);
+  CHECK(!t.Update(120, 0, 14'000));
+  CHECK(!t.Update(120, 0, 14'000));
+  CHECK(t.Update(120, 0, 14'000));
+  CHECK(t.fps() == 90);
+  CHECK(!t.Update(90, 0, 14'000));
+  CHECK(!t.Update(90, 0, 14'000));
+  CHECK(t.Update(90, 0, 14'000));
+  CHECK(t.fps() == 60);
+  // A 60 le cabe (14 ms de 16,7) pero a 90 no: no prueba a subir.
+  for (int i = 0; i < 40; ++i) CHECK(!t.Update(60, 0, 14'000));
+  CHECK(t.fps() == 60);
+  // Con H.264 a 9 ms, a 90 iría al 81 %: sube tras 10 s; a 120 iría al 108 %: de ahí no pasa.
+  for (int i = 0; i < 9; ++i) CHECK(!t.Update(60, 0, 9'000));
+  CHECK(t.Update(60, 0, 9'000));
+  CHECK(t.fps() == 90);
+  for (int i = 0; i < 60; ++i) CHECK(!t.Update(90, 0, 9'000));
+  CHECK(t.fps() == 90);
+  // La tablet que dice 0 (no lo mide) no frena nada.
+  FpsGovernor u;
+  u.Reset(120);
+  for (int i = 0; i < 10; ++i) CHECK(!u.Update(120, 0, 0));
+  CHECK(u.fps() == 120);
 }
 
 int main() {
@@ -203,6 +257,7 @@ int main() {
   TestAutoValues();
   TestCombineLimits();
   TestRateControllerWifi();
+  TestRateControllerWifiLinkQuality();
   TestRateControllerUsbAndMax();
   TestRateControllerUsbLink();
   TestFpsGovernor();

@@ -60,7 +60,7 @@ private fun schemeFor(c: DlColors, dark: Boolean) = if (dark) {
 }
 
 /**
- * Tema de DeskLink. Además de los colores de Material, fija el color y el estilo del texto por defecto: sin esto,
+ * Tema de Extendesk. Además de los colores de Material, fija el color y el estilo del texto por defecto: sin esto,
  * un Text sin color fuera de un Surface sale negro (el fallo de los títulos ilegibles sobre fondo oscuro).
  */
 @Composable

@@ -7,8 +7,8 @@ host, que escucha en `127.0.0.1:47800` (TCP) del PC. No pasa por ninguna red ni 
 Una sola vez:
 1. En la tablet, activa las **Opciones de desarrollador** (Ajustes → Acerca de la tablet → toca 7 veces «Número de
    compilación») y dentro activa **Depuración USB**. Se queda activada; no hay que repetirlo como el anclaje.
-   Si la tablet está enchufada sin depuración USB, la pantalla de inicio de DeskLink lo avisa y abre el ajuste.
-2. En el PC no hay que instalar nada más: el instalador de DeskLink y el paquete `desklink-host-windows` de la CI ya
+   Si la tablet está enchufada sin depuración USB, la pantalla de inicio de Extendesk lo avisa y abre el ajuste.
+2. En el PC no hay que instalar nada más: el instalador de Extendesk y el paquete `desklink-host-windows` de la CI ya
    traen `adb.exe`, `AdbWinApi.dll` y `AdbWinUsbApi.dll` junto a `desklink-host.exe` (del paquete, descomprímelo entero
    en una carpeta). Si compilas el host tú, copia esos tres archivos de las
    [platform-tools de Android](https://developer.android.com/tools/releases/platform-tools) junto al .exe (o deja adb
@@ -39,7 +39,7 @@ conexión nueva sustituye a la anterior. `--no-usb` lo desactiva.
 1. Conecta la tablet al PC con un cable USB-C **de datos** (mejor uno USB 3.x o Thunderbolt, no el de carga lenta).
 2. En la tablet: Ajustes → Conexiones → Punto de acceso y anclaje → **Anclaje USB**.
 3. En el PC aparece un adaptador de red nuevo. Mira su IPv4 con `ipconfig` (normalmente `192.168.42.x`).
-4. Escribe esa IP en DeskLink. Es el mismo protocolo UDP, sin pasar por el router.
+4. Escribe esa IP en Extendesk. Es el mismo protocolo UDP, sin pasar por el router.
 
 Con el campo de IP vacío, la app busca el PC sola (broadcast por todas las redes, incluido el anclaje USB). Para comparar con WiFi: pulsa «Diagnóstico y recomendaciones» con cada IP y compara la mediana y el p95.
 
@@ -60,7 +60,7 @@ Los umbrales están en `Advisor.kt` y se ajustarán con mediciones reales. La ve
 1. La tablet debe mostrar el anclaje USB activo (Ajustes → Conexiones → Punto de acceso y anclaje → Anclaje USB).
 2. Al fallar, la app lista las redes que ve la tablet; con el anclaje activo debe aparecer una `USB (rndis0 …)`.
 3. Windows suele clasificar el adaptador del anclaje como red **pública** y bloquea UDP entrante. En PowerShell como
-   administrador: `netsh advfirewall firewall add rule name="DeskLink" dir=in action=allow protocol=UDP localport=47800 profile=any`.
+   administrador: `netsh advfirewall firewall add rule name="Extendesk" dir=in action=allow protocol=UDP localport=47800 profile=any`.
 
 ## Opciones del host para enlaces difíciles
 `desklink-host.exe --pace <Mbps>` reparte el envío de cada frame a esa tasa (por defecto 100; `--pace 0` envía de golpe) y `--bitrate <Mbps>` baja

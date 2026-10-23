@@ -1,6 +1,6 @@
 # Asesor de latencia
 
-Al conectar un dispositivo, DeskLink detecta el hardware de ambos lados, mide cada transporte disponible y aplica la configuración de menor latencia. Luego explica al usuario, sin tecnicismos, qué eligió y qué podría mejorar.
+Al conectar un dispositivo, Extendesk detecta el hardware de ambos lados, mide cada transporte disponible y aplica la configuración de menor latencia. Luego explica al usuario, sin tecnicismos, qué eligió y qué podría mejorar.
 
 ## Qué detecta y cómo decide
 

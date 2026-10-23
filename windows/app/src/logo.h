@@ -1,5 +1,5 @@
 // Generado por tools/design/gen_logo.py. No editar a mano.
-// El icono de DeskLink (los dos eslabones) para dibujarlo con GDI+ a cualquier tamaño.
+// El icono de Extendesk (los dos eslabones) para dibujarlo con GDI+ a cualquier tamaño.
 #pragma once
 
 namespace logo {

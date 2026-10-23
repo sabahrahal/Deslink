@@ -2,8 +2,8 @@ name: release
 
 # Compila todo (APK firmada, host, driver, adb) y arma el instalador de Windows. En cada cambio en main lo publica
 # como la versión de prueba «latest» de GitHub Releases, siempre con los mismos enlaces:
-#   https://github.com/sabahrahal/Deslink/releases/download/latest/DeskLink-Setup.exe
-#   https://github.com/sabahrahal/Deslink/releases/download/latest/DeskLink.apk
+#   https://github.com/sabahrahal/Deslink/releases/download/latest/Extendesk-Setup.exe
+#   https://github.com/sabahrahal/Deslink/releases/download/latest/Extendesk.apk
 # En los PR sólo compila (para probar que el instalador sigue armándose) y deja los archivos como artefactos.
 
 on:
@@ -62,14 +62,14 @@ jobs:
           # Compose, que solo va en debug para no meterla en la APK publicada. La release no tiene código propio.
           # El .aab es el formato que pide Google Play (firmado con la misma clave, que hace de clave de subida).
           ./gradlew :app:testDebugUnitTest :app:assembleRelease :app:bundleRelease --no-daemon
-          cp app/build/outputs/apk/release/app-release.apk ../DeskLink.apk
-          cp app/build/outputs/bundle/release/app-release.aab ../DeskLink.aab
+          cp app/build/outputs/apk/release/app-release.apk ../Extendesk.apk
+          cp app/build/outputs/bundle/release/app-release.aab ../Extendesk.aab
       - uses: actions/upload-artifact@v4
         with:
-          name: DeskLink.apk
+          name: Extendesk.apk
           path: |
-            DeskLink.apk
-            DeskLink.aab
+            Extendesk.apk
+            Extendesk.aab
 
   windows:
     # windows-2022 trae el WDK (Windows Driver Kit) instalado; windows-2025 no.
@@ -134,12 +134,12 @@ jobs:
           $driverId = Get-Content -Raw "$stage/driver/driver-id.txt"
           & $iscc "/DAppVersion=$env:VERSION" "/DStage=$stage" "/DDriverId=$driverId" "/O$PWD" windows/installer/desklink.iss
           if ($LASTEXITCODE) { throw 'ISCC' }
-          Get-Item DeskLink-Setup.exe
+          Get-Item Extendesk-Setup.exe
 
       - uses: actions/upload-artifact@v4
         with:
-          name: DeskLink-Setup.exe
-          path: DeskLink-Setup.exe
+          name: Extendesk-Setup.exe
+          path: Extendesk-Setup.exe
 
   publish:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
@@ -165,16 +165,16 @@ jobs:
           title="Versión de prueba $VERSION"
           notes="Compilada automáticamente desde main ($GITHUB_SHA). Se sustituye con cada cambio en main.
 
-          - **DeskLink-Setup.exe**: instalador de Windows (host, monitor virtual y adb). Se instala encima de la versión anterior.
-          - **DeskLink.apk**: app de la tablet. Se instala encima de la anterior sin borrar los ajustes.
-          - **DeskLink.aab**: la misma app en el formato que se sube a Google Play."
+          - **Extendesk-Setup.exe**: instalador de Windows (host, monitor virtual y adb). Se instala encima de la versión anterior.
+          - **Extendesk.apk**: app de la tablet. Se instala encima de la anterior sin borrar los ajustes.
+          - **Extendesk.aab**: la misma app en el formato que se sube a Google Play."
           # Mueve la etiqueta «latest» a este commit (la versión sigue apuntando a la etiqueta).
           gh api -X PATCH "repos/$GH_REPO/git/refs/tags/latest" -f sha="$GITHUB_SHA" -F force=true > /dev/null 2>&1 ||
             gh api -X POST "repos/$GH_REPO/git/refs" -f ref=refs/tags/latest -f sha="$GITHUB_SHA" > /dev/null
           if gh release view latest > /dev/null 2>&1; then
-            gh release upload latest assets/DeskLink-Setup.exe assets/DeskLink.apk assets/DeskLink.aab --clobber
+            gh release upload latest assets/Extendesk-Setup.exe assets/Extendesk.apk assets/Extendesk.aab --clobber
             gh release edit latest --prerelease --title "$title" --notes "$notes"
           else
-            gh release create latest assets/DeskLink-Setup.exe assets/DeskLink.apk assets/DeskLink.aab --prerelease --verify-tag \
+            gh release create latest assets/Extendesk-Setup.exe assets/Extendesk.apk assets/Extendesk.aab --prerelease --verify-tag \
               --title "$title" --notes "$notes"
           fi

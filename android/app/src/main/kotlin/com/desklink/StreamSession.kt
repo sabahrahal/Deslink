@@ -18,6 +18,8 @@ class StreamSession(
     private val helloConfig: Dlp.HelloConfig? = null,
     /** Volumen multimedia de la tablet («5/15»), para el informe de sonido del log del PC. */
     private val mediaVolume: () -> String = { "?" },
+    /** Cada segundo con vídeo: codec, tamaño y lo que tardó de media en decodificarse cada frame (para [CodecMeter]). */
+    private val onDecodeSample: (codec: Int, width: Int, height: Int, decodeMs: Double) -> Unit = { _, _, _, _ -> },
 ) {
     /** En qué punto está la conexión, para la pantalla de estado. */
     enum class Phase { CONNECTING, NO_ANSWER, STREAMING, RECONNECTING, FAILED }
@@ -124,7 +126,7 @@ class StreamSession(
                 if (!reported) {
                     setPhase(
                         if (streamInfo == null) Phase.NO_ANSWER else Phase.RECONNECTING,
-                        "Esperando al PC por el cable USB. Comprueba que DeskLink está abierto en el PC.",
+                        "Esperando al PC por el cable USB. Comprueba que Extendesk está abierto en el PC.",
                     )
                 }
                 reported = true
@@ -161,7 +163,7 @@ class StreamSession(
                 lastRxUs = nowUs()
                 if (streamInfo != null && phase != Phase.STREAMING) setPhase(Phase.STREAMING)
                 when (header.type) {
-                    Dlp.TYPE_VIDEO -> onVideo(buf, length)
+                    Dlp.TYPE_VIDEO, Dlp.TYPE_VIDEO_FEC -> onVideo(buf, length)
                     Dlp.TYPE_STREAM_INFO -> onStreamInfo(buf, header)
                     Dlp.TYPE_PONG -> {
                         val now = nowUs()
@@ -182,7 +184,7 @@ class StreamSession(
             l.close()
             if (!cable || !running) return
             // El cable se cortó (host cerrado, cable desenchufado): se reintenta solo.
-            setPhase(Phase.RECONNECTING, "Se cortó el cable USB o se cerró DeskLink en el PC. Reconectando…")
+            setPhase(Phase.RECONNECTING, "Se cortó el cable USB o se cerró Extendesk en el PC. Reconectando…")
             if (!sleepWhileRunning(1000)) return
         }
     }
@@ -371,10 +373,10 @@ class StreamSession(
                     setPhase(
                         Phase.NO_ANSWER,
                         if (isCable) {
-                            "El PC no responde por el cable USB. Comprueba que DeskLink está abierto en el PC " +
+                            "El PC no responde por el cable USB. Comprueba que Extendesk está abierto en el PC " +
                                 "y que la depuración USB está aceptada."
                         } else {
-                            "El PC ($host) no responde. Comprueba que DeskLink está abierto en el PC, que el " +
+                            "El PC ($host) no responde. Comprueba que Extendesk está abierto en el PC, que el " +
                                 "cortafuegos de Windows lo permite y que los dos estáis en la misma red."
                         },
                     )
@@ -388,6 +390,9 @@ class StreamSession(
             val decodeNs = decoder?.decodeNanos ?: 0L
             val decodeN = decoder?.decodeCount ?: 0L
             val decodeMs = if (decodeN > lastDecodeCount) (decodeNs - lastDecodeNanos) / 1e6 / (decodeN - lastDecodeCount) else -1.0
+            if (info != null && decodeMs >= 0 && decodeN - lastDecodeCount >= 10) {
+                onDecodeSample(info.codec, info.width, info.height, decodeMs)
+            }
             lastDecodeNanos = decodeNs
             lastDecodeCount = decodeN
             val mbps = (bytesReceived - lastBytes) * 8 / secs / 1e6
@@ -402,6 +407,7 @@ class StreamSession(
                     (if (lat.frames > 0) " · ${lat.text()}" else if (decodeMs >= 0) " · decodificar ${"%.1f".format(decodeMs)} ms" else "") +
                     " · perdidos ${reassembler.framesDropped + decoderDrops}" +
                     " · reclamados ${reassembler.packetsRequested}" +
+                    (if (reassembler.packetsRecovered > 0) " · rehechos ${reassembler.packetsRecovered}" else "") +
                     when (inputMode?.active) {
                         Dlp.INPUT_TOUCH -> " · táctil directo"
                         Dlp.INPUT_MOUSE -> " · táctil como ratón"

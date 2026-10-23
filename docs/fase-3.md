@@ -11,12 +11,12 @@ Objetivo: que Windows vea la tablet como una segunda pantalla (extender el escri
 ## Cómo probarlo
 
 1. Si tenías SuperDisplay u otro programa de pantalla virtual, desinstálalo antes (Configuración, Aplicaciones), para que sus drivers no choquen.
-2. Instala `DeskLink-Setup.exe` (ver [Instalar y probar](instalar-y-probar.md)): trae el host y el driver. Windows pide permiso de administrador.
+2. Instala `Extendesk-Setup.exe` (ver [Instalar y probar](instalar-y-probar.md)): trae el host y el driver. Windows pide permiso de administrador.
 3. (Sin el instalador: descarga `desklink-driver-windows` y `desklink-host-windows` de Actions y ejecuta `instalar-driver.bat`.)
-4. Abre «DeskLink» en el menú Inicio (es `desklink-host.exe --virtual`) y conecta la tablet como siempre.
+4. Abre «Extendesk» en el menú Inicio (es `desklink-host.exe --virtual`) y conecta la tablet como siempre.
 5. En Configuración, Pantalla, aparece una pantalla nueva. Arrástrala para colocarla a un lado del monitor principal y ajusta la escala (por ejemplo 200 %) para que el texto no se vea diminuto. Windows lo recuerda para la próxima vez.
 
-Al cerrar el host, la pantalla desaparece sola. Para quitarlo todo: desinstala DeskLink desde Configuración, Aplicaciones (o `desinstalar-driver.bat` si usaste el paquete suelto).
+Al cerrar el host, la pantalla desaparece sola. Para quitarlo todo: desinstala Extendesk desde Configuración, Aplicaciones (o `desinstalar-driver.bat` si usaste el paquete suelto).
 
 ## Opciones
 

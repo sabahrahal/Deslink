@@ -32,8 +32,8 @@ la tasa por debajo del 60 % de la elegida. Sin esa opción, la batería de la ta
 
 | Perfil | fps | Mbps | Resolución codificada | Brillo | WiFi | Pantalla | Decodificador |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Alta (Máxima calidad) | automáticos | automáticos | 100 % | sin tocar | baja latencia | frecuencia libre, rendimiento sostenido | velocidad máxima |
-| **Equilibrado (recomendado)** | 60 | 30 | 100 % | sin tocar | baja latencia | modo de 60 Hz | velocidad máxima |
+| Alta (Máxima calidad) | automáticos | automáticos | 100 % | sin tocar | baja latencia | el modo más rápido sin saltos, rendimiento sostenido | velocidad máxima |
+| **Equilibrado (recomendado)** | 60 | 30 | 100 % | sin tocar | baja latencia | el modo más rápido sin saltos (120 Hz) | velocidad máxima |
 | Ahorro | 30 | 12 | 75 % (2208x1380 en la Idea Tab Pro) | tope 50 % | alto rendimiento (deja dormir la radio) | modo de 60 Hz | ritmo justo para los fps |
 | Mínimo (solo automático) | 30 | 8 | 60 % | tope 35 % | alto rendimiento | modo de 60 Hz | ritmo justo para los fps |
 
@@ -42,8 +42,10 @@ la tasa por debajo del 60 % de la elegida. Sin esa opción, la batería de la ta
 - El tope de brillo solo actúa con el brillo en manual y más alto que el tope; en automático no se toca (al sol
   quedaría ilegible).
 - «Modo de 60 Hz»: se pide a Android el modo de pantalla de la misma resolución con la menor frecuencia que muestra
-  los fps del stream sin saltos (30 fps → 60 Hz; en una pantalla de 144 Hz esto evita refrescar a 144 Hz). Máxima
-  calidad solo da la pista de fps (`Surface.setFrameRate`) y deja decidir al sistema.
+  los fps del stream sin saltos (30 fps → 60 Hz; en una pantalla de 144 Hz esto evita refrescar a 144 Hz).
+- «El modo más rápido sin saltos» (Máxima calidad y Equilibrado): la mayor frecuencia que es múltiplo de los fps
+  (60 fps → 120 Hz, no 144 Hz, que mostraría unos frames dos refrescos y otros tres). Cada frame espera de media medio
+  refresco a encenderse: ~4 ms a 120 Hz frente a ~8 ms a 60 Hz, a cambio de 0,3–0,8 W.
 - Cambiar fps o Mbps no corta la imagen. Cambiar la escala rehace la captura en el PC (un parpadeo de una fracción de
   segundo) porque el codificador cambia de tamaño.
 - El códec sigue siendo HEVC en todos: a igual calidad necesita menos Mbps que H.264 y la tablet lo decodifica por

@@ -12,7 +12,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'  # Invoke-WebRequest va mucho más rápido sin barra de progreso
 if (-not $Tablet -and -not $PC) { $Tablet = $true }
 
-$dir = Join-Path $env:TEMP 'DeskLink-actualizar'
+$dir = Join-Path $env:TEMP 'Extendesk-actualizar'
 New-Item -ItemType Directory -Force $dir | Out-Null
 
 function Get-Token {
@@ -54,11 +54,11 @@ function Find-Adb {
   }
   $cmd = Get-Command adb.exe -ErrorAction SilentlyContinue
   if ($cmd) { return $cmd.Source }
-  throw 'No encuentro adb.exe (instala DeskLink o pon adb en el PATH).'
+  throw 'No encuentro adb.exe (instala Extendesk o pon adb en el PATH).'
 }
 
 if ($Tablet) {
-  $apk = Get-Asset 'DeskLink.apk'
+  $apk = Get-Asset 'Extendesk.apk'
   $adb = Find-Adb
   Write-Host 'Instalando en la tablet...'
   & $adb install -r $apk
@@ -72,7 +72,7 @@ if ($Tablet) {
 }
 
 if ($PC) {
-  $setup = Get-Asset 'DeskLink-Setup.exe'
+  $setup = Get-Asset 'Extendesk-Setup.exe'
   Write-Host 'Instalando en el PC (Windows pedirá permiso de administrador)...'
   $p = Start-Process $setup -ArgumentList '/SILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
   if ($p.ExitCode) { throw "El instalador terminó con el código $($p.ExitCode)." }

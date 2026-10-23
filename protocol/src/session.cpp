@@ -52,7 +52,7 @@ std::optional<SessionConfig> DecodeSessionConfig(const uint8_t* p, size_t size) 
   c.profile = p[0] <= static_cast<uint8_t>(Profile::kMinimum) ? static_cast<Profile>(p[0]) : Profile::kBalanced;
   c.flags = p[1];
   c.input = p[2] <= static_cast<uint8_t>(SessionInput::kViewOnly) ? static_cast<SessionInput>(p[2]) : SessionInput::kTouch;
-  c.reduced = p[3] <= static_cast<uint8_t>(Reduced::kLoad) ? static_cast<Reduced>(p[3]) : Reduced::kNone;
+  c.reduced = p[3] <= static_cast<uint8_t>(Reduced::kTablet) ? static_cast<Reduced>(p[3]) : Reduced::kNone;
   c.fps = Get16(p + 4);
   c.bitrate_x100kbps = Get16(p + 6);
   c.max_bitrate_x100kbps = Get16(p + 8);
@@ -73,9 +73,11 @@ uint32_t AutoBitrateMbps(uint32_t width, uint32_t height, uint32_t fps, Codec co
 }
 
 Codec ResolveCodec(uint8_t user_codec, uint8_t tablet_codec) {
-  const bool tablet_hevc = tablet_codec != 1;  // 0 (no lo dice) o 2 (HEVC por hardware)
+  const bool tablet_hevc = tablet_codec != 1;  // 0 (no lo dice), 2 o 3 (HEVC por hardware)
   if (user_codec == static_cast<uint8_t>(Codec::kH264)) return Codec::kH264;
-  return tablet_hevc ? Codec::kHevc : Codec::kH264;
+  if (user_codec == static_cast<uint8_t>(Codec::kHevc)) return tablet_hevc ? Codec::kHevc : Codec::kH264;
+  // Automático: HEVC salvo que la tablet diga que su H.264 decodifica más deprisa (3).
+  return tablet_hevc && tablet_codec != 3 ? Codec::kHevc : Codec::kH264;
 }
 
 Limits CombineLimits(Profile host_profile, uint32_t target_fps, uint32_t target_bitrate_bps, bool battery_adapt,
@@ -145,6 +147,14 @@ bool RateController::OnKeyframeRequest(uint64_t now_us) {
   return Decrease(now_us);
 }
 
+bool RateController::OnLinkQuality(uint32_t sent_packets, uint32_t resent_packets, bool backlog, uint64_t now_us) {
+  if (usb_) return false;
+  const bool many_resends = sent_packets >= 100 && static_cast<uint64_t>(resent_packets) * 100 >
+                                                       static_cast<uint64_t>(sent_packets) * 3;
+  if (!backlog && !many_resends) return false;
+  return Decrease(now_us);
+}
+
 bool RateController::SetMax(uint32_t max_bps, uint64_t now_us) {
   max_bps = std::max<uint32_t>(max_bps, 1'000'000);
   if (max_bps == max_) return false;
@@ -191,7 +201,7 @@ void FpsGovernor::Reset(uint32_t target_fps) {
   since_up_ = -1;
 }
 
-bool FpsGovernor::Update(uint32_t submitted, uint32_t dropped) {
+bool FpsGovernor::Update(uint32_t submitted, uint32_t dropped, uint32_t tablet_decode_us) {
   if (submitted < 10) {  // escritorio casi quieto: no dice nada de la carga
     slow_seconds_ = 0;
     return false;
@@ -200,7 +210,8 @@ bool FpsGovernor::Update(uint32_t submitted, uint32_t dropped) {
     since_up_ = -1;
     wait_seconds_ = 10;
   }
-  if (dropped * 10 > submitted) {
+  const bool tablet_slow = tablet_decode_us && static_cast<uint64_t>(tablet_decode_us) * fps_ > 900'000;
+  if (dropped * 10 > submitted || tablet_slow) {
     clean_seconds_ = 0;
     if (++slow_seconds_ < 3) return false;
     slow_seconds_ = 0;
@@ -212,13 +223,15 @@ bool FpsGovernor::Update(uint32_t submitted, uint32_t dropped) {
     return true;
   }
   slow_seconds_ = 0;
-  if (dropped > 0 || fps_ >= target_) {
+  const uint32_t up = StepUp(fps_, target_);
+  const bool tablet_room = !tablet_decode_us || static_cast<uint64_t>(tablet_decode_us) * up < 850'000;
+  if (dropped > 0 || fps_ >= target_ || !tablet_room) {
     clean_seconds_ = 0;
     return false;
   }
   if (++clean_seconds_ < wait_seconds_) return false;
   clean_seconds_ = 0;
-  fps_ = StepUp(fps_, target_);
+  fps_ = up;
   since_up_ = 0;
   return true;
 }

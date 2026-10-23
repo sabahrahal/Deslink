@@ -1,4 +1,4 @@
-// DeskLink: app de bandeja para Windows. Arranca desklink-host.exe sin consola con los ajustes guardados, muestra
+// Extendesk: app de bandeja para Windows. Arranca desklink-host.exe sin consola con los ajustes guardados, muestra
 // el estado de la conexión (cable USB o Wi-Fi, fps, Mbps, RTT) y explica los errores con palabras normales.
 // La captura y la codificación siguen en desklink-host.exe, que también se puede usar solo desde una consola.
 //
@@ -31,6 +31,7 @@ using std::min;
 #include <thread>
 #include <vector>
 
+#include "direct_wifi.h"
 #include "host_process.h"
 #include "logo.h"
 #include "settings.h"
@@ -44,10 +45,11 @@ namespace {
 
 constexpr wchar_t kMainClass[] = L"DeskLinkMain";
 constexpr wchar_t kLogClass[] = L"DeskLinkLog";
-constexpr wchar_t kAppName[] = L"DeskLink";
+constexpr wchar_t kAppName[] = L"Extendesk";
 constexpr UINT WM_TRAY = WM_APP + 1;
 constexpr UINT WM_APP_SHOW = WM_APP + 4;  // otra copia de la app pide mostrar esta ventana
 constexpr UINT WM_DRIVER_DONE = WM_APP + 5;  // terminó la instalación del driver; lParam = código de salida
+constexpr UINT WM_DIRECT_WIFI = WM_APP + 6;  // la red Wi-Fi del PC cambió; lParam = DirectWifi* (se libera al leerlo)
 constexpr UINT kTrayId = 1;
 constexpr UINT_PTR kTimerRestart = 1;
 constexpr UINT_PTR kTimerRefresh = 2;
@@ -121,6 +123,8 @@ struct App {
   bool autostart = false;
   std::vector<std::wstring> monitors;
   std::wstring addresses;
+  DirectWifi direct_wifi;
+  bool direct_wifi_busy = false;
 } g;
 
 const tokens::Colors& P() { return g.dark ? tokens::kDark : tokens::kLight; }
@@ -162,7 +166,7 @@ std::wstring FriendlyError(const std::wstring& line) {
            L"elige «Duplicar».";
   }
   if (has(L"no se pudo abrir el driver")) {
-    return L"Windows no deja abrir el driver de la pantalla extra. Reinstala DeskLink con el instalador de la "
+    return L"Windows no deja abrir el driver de la pantalla extra. Reinstala Extendesk con el instalador de la "
            L"última versión.";
   }
   if (has(L"no activó el monitor virtual")) {
@@ -173,7 +177,7 @@ std::wstring FriendlyError(const std::wstring& line) {
            L"reinstala el driver.";
   }
   if (has(L"bind al puerto") || has(L"USB: no se pudo escuchar")) {
-    return Format(L"El puerto %d ya está en uso. ¿Hay otro DeskLink abierto (por ejemplo desklink-host.exe en una "
+    return Format(L"El puerto %d ya está en uso. ¿Hay otro Extendesk abierto (por ejemplo desklink-host.exe en una "
                   L"consola)? Ciérralo y pulsa Iniciar.",
                   g.settings.port);
   }
@@ -259,6 +263,11 @@ ViewInput Input() {
   in.autostart = g.autostart;
   in.monitors = g.monitors;
   in.addresses = g.addresses;
+  in.direct_wifi_on = g.direct_wifi.on;
+  in.direct_wifi_busy = g.direct_wifi_busy;
+  in.direct_wifi_ssid = g.direct_wifi.ssid;
+  in.direct_wifi_pass = g.direct_wifi.passphrase;
+  in.direct_wifi_error = g.direct_wifi.error;
   return in;
 }
 
@@ -373,7 +382,7 @@ void ShowLog() {
     SetForegroundWindow(g.log_wnd);
     return;
   }
-  g.log_wnd = CreateWindowExW(0, kLogClass, L"DeskLink: registro", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+  g.log_wnd = CreateWindowExW(0, kLogClass, L"Extendesk: registro", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
                               static_cast<int>(F(760)), static_cast<int>(F(440)), nullptr, nullptr, g.inst, nullptr);
   ShowWindow(g.log_wnd, SW_SHOW);
 }
@@ -471,7 +480,7 @@ void RepairDriver() {
   const std::wstring dir = AppDirectory() + L"\\driver";
   const std::wstring exe = dir + L"\\desklink-driver.exe";
   if (GetFileAttributesW(exe.c_str()) == INVALID_FILE_ATTRIBUTES) {
-    g.error = L"No encuentro el driver junto a DeskLink. Vuelve a instalar DeskLink con DeskLink-Setup.exe.";
+    g.error = L"No encuentro el driver junto a Extendesk. Vuelve a instalar Extendesk con Extendesk-Setup.exe.";
     g.error_mapped = true;
     SetState(State::kError);
     return;
@@ -590,7 +599,7 @@ void OnHostLine(bool from_stderr, const std::wstring& line) {
     const std::wstring link = g.stats[L"enlace"];
     if (link != g.link && g.state != State::kStopping) {
       if (link == L"ninguno") {
-        Notify(L"Dispositivo desconectado", L"DeskLink sigue esperando a que vuelva a conectarse.");
+        Notify(L"Dispositivo desconectado", L"Extendesk sigue esperando a que vuelva a conectarse.");
       } else {
         Notify(L"Dispositivo conectado", link == L"usb" ? L"Por cable USB." : L"Por Wi-Fi (" + g.stats[L"ip"] + L").");
       }
@@ -643,12 +652,12 @@ void OnHostExit(DWORD code) {
   }
   if (ran >= kStableRunMs) {
     // Funcionaba: un fallo pasajero (la GPU se reinició, cambió el modo de pantalla…). Se vuelve a intentar.
-    Notify(L"DeskLink se reinicia", g.error, true);
+    Notify(L"Extendesk se reinicia", g.error, true);
     SetTimer(g.wnd, kTimerRestart, 3000, nullptr);
     SetState(State::kRestarting);
     return;
   }
-  Notify(L"DeskLink no pudo transmitir", g.error, true);
+  Notify(L"Extendesk no pudo transmitir", g.error, true);
   SetState(State::kError);
 }
 
@@ -972,8 +981,25 @@ void OnChoice(const std::string& id, float x, float y) {
   }
 }
 
+// Windows tarda unos segundos en encender o apagar su zona con cobertura: se hace en otro hilo.
+void RefreshDirectWifi(int action) {  // 0 consultar, 1 encender, 2 apagar
+  if (g.direct_wifi_busy) return;
+  g.direct_wifi_busy = action != 0;
+  HWND wnd = g.wnd;
+  std::thread([action, wnd] {
+    auto* d = new DirectWifi(action == 1 ? StartDirectWifi() : action == 2 ? StopDirectWifi() : QueryDirectWifi());
+    if (!PostMessageW(wnd, WM_DIRECT_WIFI, action, reinterpret_cast<LPARAM>(d))) delete d;
+  }).detach();
+}
+
 void OnToggle(const std::string& id) {
   Settings s = g.settings;
+  if (id == "wifi_directo") {
+    RefreshDirectWifi(g.direct_wifi.on ? 2 : 1);
+    if (g.direct_wifi_busy) AddLog(g.direct_wifi.on ? L"--- apagando la red Wi-Fi del PC" : L"--- creando la red Wi-Fi del PC");
+    Redraw();
+    return;
+  }
   if (id == "autostart") {
     SetStartWithWindows(!g.autostart);
     g.autostart = StartsWithWindows();
@@ -1172,11 +1198,11 @@ void Paint(gp::Graphics& gr, float width) {
   auto large = MakeFont(tokens::kLargeTitlePx, true, tokens::kLargeTitleBrand, tokens::kLargeTitleWeight);
   auto note = MakeFont(tokens::kNotePx, false);
   auto section = MakeFont(tokens::kSectionPx, true, tokens::kSectionBrand, tokens::kSectionWeight);
-  // El logo: los dos eslabones y «Desklink» en Montserrat Black, del color del acento.
+  // El logo: los dos eslabones y «Extendesk» en Montserrat Black, del color del acento.
   const float logo_h = F(26);
   DrawLogo(gr, x, y + (F(36) - logo_h) / 2, logo_h);
   const float logo_w = logo_h * logo::kWidth / logo::kHeight + F(10);
-  Text(gr, L"Desklink", gp::RectF(x + logo_w, y, w - logo_w, F(36)), *large, P().accent);
+  Text(gr, L"Extendesk", gp::RectF(x + logo_w, y, w - logo_w, F(36)), *large, P().accent);
   y += F(36);
   Text(gr, L"Tu dispositivo como segunda pantalla", gp::RectF(x, y, w, F(18)), *note, P().text_secondary);
   y += F(30);
@@ -1344,6 +1370,7 @@ void ShowMain() {
   g.driver_installed = VirtualDriverInstalled();
   g.autostart = StartsWithWindows();
   UpdateAddresses();
+  RefreshDirectWifi(0);  // por si se encendió o apagó desde Windows
   ShowWindow(g.wnd, IsIconic(g.wnd) ? SW_RESTORE : SW_SHOW);
   SetForegroundWindow(g.wnd);
   PulseTimer();
@@ -1361,7 +1388,7 @@ void ExitApp() {
 
 void ShowTrayMenu() {
   HMENU m = CreatePopupMenu();
-  AppendMenuW(m, MF_STRING, kMenuOpen, L"Abrir DeskLink");
+  AppendMenuW(m, MF_STRING, kMenuOpen, L"Abrir Extendesk");
   SetMenuDefaultItem(m, kMenuOpen, FALSE);
   AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
   AppendMenuW(m, MF_STRING | (g.state == State::kStopping ? MF_GRAYED : 0), kMenuToggle,
@@ -1430,6 +1457,18 @@ LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_DRIVER_DONE:
       OnDriverDone(static_cast<DWORD>(lp));
       return 0;
+    case WM_DIRECT_WIFI: {
+      std::unique_ptr<DirectWifi> d(reinterpret_cast<DirectWifi*>(lp));
+      const bool asked = wp != 0;
+      if (!asked && g.direct_wifi_busy) return 0;  // una consulta vieja: manda lo que se pidió después
+      g.direct_wifi = *d;
+      g.direct_wifi_busy = false;
+      // Al abrir solo se consulta: un «no se puede» entonces no es un error que enseñar.
+      if (!asked) g.direct_wifi.error.clear();
+      if (asked && !d->error.empty()) AddLog(L"Red Wi-Fi del PC: " + d->error);
+      Redraw();
+      return 0;
+    }
     case WM_MOUSEWHEEL:
       ScrollBy(-static_cast<float>(GET_WHEEL_DELTA_WPARAM(wp)) / WHEEL_DELTA * F(60));
       return 0;
@@ -1511,7 +1550,7 @@ LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
       ShowWindow(hwnd, SW_HIDE);
       if (!g.tray_hint_shown) {
         g.tray_hint_shown = true;
-        Notify(L"DeskLink sigue abierto", L"Está junto al reloj. Para cerrarlo: clic derecho en el icono > Salir.");
+        Notify(L"Extendesk sigue abierto", L"Está junto al reloj. Para cerrarlo: clic derecho en el icono > Salir.");
       }
       return 0;
     case WM_QUERYENDSESSION:
@@ -1617,6 +1656,16 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd_line, int) {
                           r.bottom - r.top, nullptr, nullptr, inst, nullptr);
   if (!g.wnd) return 1;
   StyleTitleBar(g.wnd);
+  // El de la clase es de 32 px: la barra de tareas a más del 100 % de escala lo pide más grande y Windows podía
+  // tirar de otro (el de la caché). Se le da el del tamaño justo para el DPI de la ventana.
+  {
+    const UINT dpi = GetDpiForWindow(g.wnd);
+    const int big = MulDiv(GetSystemMetrics(SM_CXICON), static_cast<int>(dpi), 96);
+    if (HICON icon = static_cast<HICON>(LoadImageW(inst, L"APP", IMAGE_ICON, big, big, 0))) {
+      SendMessageW(g.wnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(icon));
+    }
+    SendMessageW(g.wnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(g.app_icon_small));
+  }
 
   // Primera pasada de dibujo fuera de pantalla para saber el alto del contenido y centrar la ventana ya con él.
   {

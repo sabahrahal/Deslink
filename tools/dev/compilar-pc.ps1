@@ -109,7 +109,7 @@ $stageFull = (Resolve-Path $stage).Path
 $driverId = Get-Content -Raw "$stage/driver/driver-id.txt"
 & $iscc "/DAppVersion=$Version" "/DStage=$stageFull" "/DDriverId=$driverId" "/O$repo\build" windows/installer/desklink.iss
 if ($LASTEXITCODE) { throw 'Inno Setup no pudo armar el instalador.' }
-$setup = "$repo\build\DeskLink-Setup.exe"
+$setup = "$repo\build\Extendesk-Setup.exe"
 Write-Host "Listo: $setup"
 
 if ($Instalar) {

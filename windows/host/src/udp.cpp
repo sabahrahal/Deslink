@@ -2,6 +2,7 @@
 
 #include <iphlpapi.h>
 #include <windows.h>
+#include <qos2.h>
 
 #include <cstdio>
 #include <cstring>
@@ -155,7 +156,7 @@ bool UdpEndpoint::BindWithRetry(const sockaddr_in& addr, uint16_t port,
     const DWORD pid = UdpPortOwner(port);
     const std::string owner = DescribeProcess(pid);
     if (!killed && pid && pid != GetCurrentProcessId() && _strnicmp(owner.c_str(), "desklink-host.exe", 17) == 0) {
-      std::printf("Cierro una versión anterior de DeskLink que seguía abierta: %s.\n", owner.c_str());
+      std::printf("Cierro una versión anterior de Extendesk que seguía abierta: %s.\n", owner.c_str());
       if (HANDLE h = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, pid)) {
         TerminateProcess(h, 0);
         WaitForSingleObject(h, 5000);
@@ -167,23 +168,23 @@ bool UdpEndpoint::BindWithRetry(const sockaddr_in& addr, uint16_t port,
     const bool orphaned = pid && ProcessGone(pid);
     if (orphaned && !freed && free_orphaned_port) {
       freed = true;
-      std::printf("El puerto UDP %u sigue retenido por un DeskLink que ya se cerró (PID %lu): cierro el servidor de "
+      std::printf("El puerto UDP %u sigue retenido por un Extendesk que ya se cerró (PID %lu): cierro el servidor de "
                   "adb, que lo heredó.\n",
                   port, pid);
       if (free_orphaned_port()) continue;
     }
     if (attempt >= 10 && orphaned) {
       std::fprintf(stderr,
-                   "Error: el puerto UDP %u, el de DeskLink, lo retiene un programa que lo heredó de un DeskLink ya "
+                   "Error: el puerto UDP %u, el de Extendesk, lo retiene un programa que lo heredó de un Extendesk ya "
                    "cerrado (PID %lu), casi siempre adb. Cierra adb.exe en el Administrador de tareas (o ejecuta "
-                   "«adb kill-server») y vuelve a abrir DeskLink.\n",
+                   "«adb kill-server») y vuelve a abrir Extendesk.\n",
                    port, pid);
       return false;
     }
     if (attempt >= 10) {
       std::fprintf(stderr,
-                   "Error: el puerto UDP %u, el de DeskLink, lo está usando %s. Cierra ese programa y vuelve a "
-                   "abrir DeskLink.\n",
+                   "Error: el puerto UDP %u, el de Extendesk, lo está usando %s. Cierra ese programa y vuelve a "
+                   "abrir Extendesk.\n",
                    port, owner.c_str());
       return false;
     }
@@ -191,8 +192,37 @@ bool UdpEndpoint::BindWithRetry(const sockaddr_in& addr, uint16_t port,
   }
 }
 
+void UdpEndpoint::PrioritizeFlowTo(const sockaddr_in& peer) {
+  if (IsUsb(peer) || socket_ == INVALID_SOCKET) return;
+  if (qos_flow_ && qos_peer_.sin_addr.s_addr == peer.sin_addr.s_addr && qos_peer_.sin_port == peer.sin_port) return;
+  if (!qos_) {
+    QOS_VERSION version{1, 0};
+    if (!QOSCreateHandle(&version, &qos_)) {
+      std::printf("Wi-Fi: no se pudo pedir prioridad de vídeo (qWAVE, error %lu); se envía sin marcar.\n",
+                  GetLastError());
+      qos_ = INVALID_HANDLE_VALUE;
+    }
+  }
+  if (qos_ == INVALID_HANDLE_VALUE) return;
+  if (qos_flow_) {
+    QOSRemoveSocketFromFlow(qos_, socket_, qos_flow_, 0);
+    qos_flow_ = 0;
+  }
+  QOS_FLOWID flow = 0;
+  sockaddr_in dest = peer;
+  if (QOSAddSocketToFlow(qos_, socket_, reinterpret_cast<sockaddr*>(&dest), QOSTrafficTypeAudioVideo,
+                         QOS_NON_ADAPTIVE_FLOW, &flow)) {
+    qos_flow_ = flow;
+    qos_peer_ = peer;
+    std::printf("Wi-Fi: vídeo marcado como prioritario (cola WMM de vídeo).\n");
+  } else {
+    std::printf("Wi-Fi: no se pudo marcar el vídeo como prioritario (qWAVE, error %lu).\n", GetLastError());
+  }
+}
+
 void UdpEndpoint::SetPeer(const sockaddr_in& peer) {
   std::lock_guard<std::mutex> lock(mutex_);
+  PrioritizeFlowTo(peer);
   peer_ = peer;
   has_peer_ = true;
   peer_lost_ = false;
@@ -276,6 +306,11 @@ void UdpEndpoint::Stop() {
   stop_ = true;
   usb_.Stop();
   if (thread_.joinable()) thread_.join();
+  if (qos_ && qos_ != INVALID_HANDLE_VALUE) {
+    QOSCloseHandle(qos_);  // también saca el socket de su flujo
+    qos_ = nullptr;
+    qos_flow_ = 0;
+  }
   if (socket_ != INVALID_SOCKET) {
     closesocket(socket_);
     socket_ = INVALID_SOCKET;
