@@ -2,8 +2,8 @@ name: release
 
 # Compila todo (APK firmada, host, driver, adb) y arma el instalador de Windows. En cada cambio en main lo publica
 # como la versión de prueba «latest» de GitHub Releases, siempre con los mismos enlaces:
-#   https://github.com/sabahrahal/Deslink/releases/download/latest/Extendesk-Setup.exe
-#   https://github.com/sabahrahal/Deslink/releases/download/latest/Extendesk.apk
+#   https://github.com/sabahrahal/Extendesk/releases/download/latest/Extendesk-Setup.exe
+#   https://github.com/sabahrahal/Extendesk/releases/download/latest/Extendesk.apk
 # En los PR sólo compila (para probar que el instalador sigue armándose) y deja los archivos como artefactos.
 
 on:

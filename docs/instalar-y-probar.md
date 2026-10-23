@@ -3,10 +3,10 @@
 Cada cambio que entra en `main` lo compila la CI y lo publica como la versión de prueba **latest** de GitHub Releases.
 Los enlaces no cambian nunca (el repo es privado: hay que tener la sesión de GitHub iniciada):
 
-- PC: <https://github.com/sabahrahal/Deslink/releases/download/latest/Extendesk-Setup.exe>
-- Tablet: <https://github.com/sabahrahal/Deslink/releases/download/latest/Extendesk.apk>
+- PC: <https://github.com/sabahrahal/Extendesk/releases/download/latest/Extendesk-Setup.exe>
+- Tablet: <https://github.com/sabahrahal/Extendesk/releases/download/latest/Extendesk.apk>
 
-La página de la versión (<https://github.com/sabahrahal/Deslink/releases/tag/latest>) dice de qué commit sale.
+La página de la versión (<https://github.com/sabahrahal/Extendesk/releases/tag/latest>) dice de qué commit sale.
 
 ## La primera vez
 

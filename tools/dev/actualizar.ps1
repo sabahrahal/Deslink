@@ -7,7 +7,7 @@
 # El repo es privado: hace falta un token de GitHub con permiso de lectura del repo. Si tienes la CLI `gh` con
 # sesión iniciada se usa esa; si no, la primera vez pide un token y lo guarda cifrado para tu usuario de Windows en
 # %APPDATA%\Extendesk\github-token.txt (bórralo para cambiarlo).
-param([switch]$Tablet, [switch]$PC, [string]$Repo = 'sabahrahal/Deslink', [string]$Tag = 'latest')
+param([switch]$Tablet, [switch]$PC, [string]$Repo = 'sabahrahal/Extendesk', [string]$Tag = 'latest')
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'  # Invoke-WebRequest va mucho más rápido sin barra de progreso
 if (-not $Tablet -and -not $PC) { $Tablet = $true }
