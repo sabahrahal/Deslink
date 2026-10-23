@@ -16,6 +16,8 @@ class VirtualDisplay {
  public:
   ~VirtualDisplay() { Unplug(); }
 
+  // ¿Está instalado el driver? Sin crear nada: el monitor se pone cuando llega una tablet.
+  static bool Installed();
   bool Plug(UINT width, UINT height, UINT refresh_hz, UINT mode_w, UINT mode_h);
   void Unplug();
   // Cambia la resolución o los Hz del monitor ya enchufado (sin quitarlo: Windows conserva su posición y su escala).

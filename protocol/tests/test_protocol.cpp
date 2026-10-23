@@ -311,7 +311,17 @@ static void TestFec() {
   CHECK(plain.size() == 5);
 }
 
+// BYE: tipo 20 y el motivo en el primer byte (mismos números que Dlp.TYPE_BYE y Dlp.BYE_* en la app).
+void TestBye() {
+  CHECK(static_cast<int>(PacketType::kBye) == 20 && kByeLeave == 0 && kByePause == 1);
+  const uint8_t reason = kByePause;
+  const auto pkt = MakeControlPacket(PacketType::kBye, &reason, 1, 7);
+  const auto h = ParseHeader(pkt.data(), pkt.size());
+  CHECK(h && h->type == PacketType::kBye && h->payload_size == 1 && pkt[kHeaderSize] == kByePause);
+}
+
 int main() {
+  TestBye();
   TestFec();
   TestAudioPacket();
   TestQualityRequest();

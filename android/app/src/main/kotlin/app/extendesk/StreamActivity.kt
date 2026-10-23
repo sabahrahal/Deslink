@@ -512,7 +512,9 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) = Unit
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
-        stopSession()
+        // Saliendo (Desconectar, Atrás): el PC quita la pantalla extra ya. Si no, se bloqueó o pasó a segundo plano y
+        // vuelve al desbloquearla: el PC la guarda un rato para que las ventanas no se muevan.
+        stopSession(if (isFinishing) Dlp.BYE_LEAVE else Dlp.BYE_PAUSE)
         surface = null
     }
 
@@ -535,15 +537,15 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         }
     }
 
-    private fun stopSession() {
+    private fun stopSession(byeReason: Int = Dlp.BYE_LEAVE) {
         touchHandler.removeCallbacks(touchKeepAlive)
         touchCount = 0
-        session?.stop()
+        session?.stop(byeReason)
         session = null
     }
 
     private fun restartSession() {
-        stopSession()
+        stopSession(Dlp.BYE_PAUSE)  // vuelve enseguida: que el PC no quite la pantalla extra entre medias
         startSession()
     }
 
@@ -637,6 +639,16 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         if (state.requested == Dlp.INPUT_TOUCH && state.active == Dlp.INPUT_MOUSE && !touchFallbackShown) {
             touchFallbackShown = true
             onError("El PC no aceptó el táctil directo: los toques mueven el ratón")
+        }
+    }
+
+    /** El PC se detuvo o se perdió: al inicio, con un aviso, en vez de quedarse esperando para siempre. */
+    override fun onEnded(hostStopped: Boolean) {
+        runOnUiThread {
+            if (isFinishing) return@runOnUiThread
+            val text = if (hostStopped) "Extendesk se detuvo en $hostName." else "Se perdió la conexión con $hostName."
+            Toast.makeText(this, text, Toast.LENGTH_LONG).show()
+            finish()
         }
     }
 

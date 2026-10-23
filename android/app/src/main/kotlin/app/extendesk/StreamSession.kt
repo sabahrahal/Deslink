@@ -22,7 +22,7 @@ class StreamSession(
     private val onDecodeSample: (codec: Int, width: Int, height: Int, decodeMs: Double) -> Unit = { _, _, _, _ -> },
 ) {
     /** En qué punto está la conexión, para la pantalla de estado. */
-    enum class Phase { CONNECTING, NO_ANSWER, STREAMING, RECONNECTING, FAILED }
+    enum class Phase { CONNECTING, NO_ANSWER, STREAMING, RECONNECTING, HOST_STOPPED, FAILED }
 
     interface Listener {
         fun onStreamInfo(info: Dlp.StreamInfo)
@@ -36,11 +36,18 @@ class StreamSession(
         fun onInputMode(state: Dlp.InputModeState) = Unit
         /** Lo que decidió el PC (calidad, sonido, táctil…); llega al conectar y cuando cambia. */
         fun onSessionConfig(config: Dlp.SessionConfig) = Unit
+        /**
+         * La sesión terminó y hay que volver al inicio: el PC se detuvo y no volvió en [HOST_STOPPED_WAIT_US]
+         * ([hostStopped]) o no se oyó nada de él en [LOST_US]. Llega una sola vez.
+         */
+        fun onEnded(hostStopped: Boolean) = Unit
     }
 
     @Volatile private var phase: Phase? = null
     private fun setPhase(p: Phase, detail: String = "") {
         if (phase == p && p != Phase.FAILED) return
+        // El PC dijo adiós: que se corte el cable o deje de contestar ya se sabe; solo vuelve a STREAMING si regresa.
+        if (phase == Phase.HOST_STOPPED && (p == Phase.RECONNECTING || p == Phase.NO_ANSWER)) return
         phase = p
         listener.onPhase(p, detail)
     }
@@ -53,6 +60,9 @@ class StreamSession(
     @Volatile private var rttUs = -1L
     @Volatile private var routeLabel = ""
     @Volatile private var lastRxUs = 0L
+    /** Cuándo llegó el BYE del PC (0: no llegó). */
+    @Volatile private var hostByeUs = 0L
+    @Volatile private var ended = false
     @Volatile var inputMode: Dlp.InputModeState? = null
         private set
     /** Perfil que pide la tablet para no gastar batería; null = no pide nada (lo que decida el PC). */
@@ -84,8 +94,24 @@ class StreamSession(
         controlThread = Thread({ controlLoop() }, "extendesk-control").also { it.start() }
     }
 
-    fun stop() {
+    /**
+     * Para la sesión y se lo dice al PC con [byeReason] ([Dlp.BYE_LEAVE] al desconectar, [Dlp.BYE_PAUSE] al bloquear
+     * la tablet): así quita la pantalla extra enseguida o la guarda un rato, en vez de esperar a no oír nada.
+     */
+    fun stop(byeReason: Int = Dlp.BYE_LEAVE) {
         running = false
+        // Android no deja enviar por red desde el hilo de la interfaz: por el mismo hilo que los toques.
+        try {
+            touchExecutor.execute { repeat(3) { send(Dlp.bye(byeReason, nowUs())) } }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            // Ya parada.
+        }
+        touchExecutor.shutdown()
+        try {
+            touchExecutor.awaitTermination(300, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (_: InterruptedException) {
+            // Se sigue cerrando.
+        }
         touchExecutor.shutdownNow()
         link?.close()
         receiveThread?.interrupt()
@@ -161,7 +187,10 @@ class StreamSession(
                 }
                 val header = Dlp.parseHeader(buf, length) ?: continue
                 lastRxUs = nowUs()
-                if (streamInfo != null && phase != Phase.STREAMING) setPhase(Phase.STREAMING)
+                if (header.type != Dlp.TYPE_BYE) {
+                    hostByeUs = 0L
+                    if (streamInfo != null && phase != Phase.STREAMING) setPhase(Phase.STREAMING)
+                }
                 when (header.type) {
                     Dlp.TYPE_VIDEO, Dlp.TYPE_VIDEO_FEC -> onVideo(buf, length)
                     Dlp.TYPE_STREAM_INFO -> onStreamInfo(buf, header)
@@ -179,6 +208,12 @@ class StreamSession(
                     }
                     Dlp.TYPE_AUDIO -> onAudio(buf, header, cable)
                     Dlp.TYPE_SESSION_CONFIG -> Dlp.parseSessionConfig(buf, header)?.let { onSessionConfig(it) }
+                    Dlp.TYPE_BYE -> {
+                        // Detener o Salir en el PC: se avisa y se espera un poco por si vuelve (al aplicar cambios
+                        // el PC se reinicia en un par de segundos).
+                        hostByeUs = nowUs()
+                        setPhase(Phase.HOST_STOPPED, "Si vuelve a transmitir en unos segundos, la imagen sigue sola.")
+                    }
                 }
             }
             l.close()
@@ -331,10 +366,14 @@ class StreamSession(
         send(Dlp.controlPacket(Dlp.TYPE_KEYFRAME_REQUEST, now))
     }
 
-    private companion object {
-        const val BUSY_TIMEOUT_MS = 4
-        const val IDLE_TIMEOUT_MS = 50
-        const val CABLE_TIMEOUT_MS = 100
+    companion object {
+        /** Tras el BYE del PC, cuánto se espera a que vuelva (reinicio al aplicar cambios) antes de ir al inicio. */
+        const val HOST_STOPPED_WAIT_US = 8_000_000L
+        /** Sin oír nada del PC, cuándo se da la sesión por perdida: lo mismo que guarda él la pantalla extra. */
+        const val LOST_US = 20_000_000L
+        private const val BUSY_TIMEOUT_MS = 4
+        private const val IDLE_TIMEOUT_MS = 50
+        private const val CABLE_TIMEOUT_MS = 100
     }
 
     /** Cada segundo: HELLO hasta que el host responda, PING para medir RTT y estadísticas. */
@@ -360,6 +399,16 @@ class StreamSession(
             }
             if (silent && phase == Phase.STREAMING) {
                 setPhase(Phase.RECONNECTING, "El PC no responde. Reintentando…")
+            }
+            // No volvió: al inicio, en vez de quedarse esperando para siempre (el PC también quita la pantalla extra).
+            val byeUs = hostByeUs
+            val now0 = nowUs()
+            if (!ended && byeUs > 0 && now0 - byeUs > HOST_STOPPED_WAIT_US) {
+                ended = true
+                listener.onEnded(hostStopped = true)
+            } else if (!ended && info != null && now0 - lastRxUs > LOST_US) {
+                ended = true
+                listener.onEnded(hostStopped = false)
             }
             try {
                 Thread.sleep(1000)
