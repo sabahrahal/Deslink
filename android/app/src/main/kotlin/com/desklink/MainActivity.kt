@@ -108,7 +108,9 @@ class MainActivity : ComponentActivity() {
                             cableExpected = UsbDebug.cableExpected(this@MainActivity),
                             debugOff = !UsbDebug.debuggingOn(this@MainActivity),
                         )
-                        val cable = hosts.firstOrNull { it.isCable }
+                        // Por el cable: el anclaje USB si está activo (sin los picos del túnel de adb), si no adb.
+                        val cable = hosts.firstOrNull { HostGroups.isTether(it) && hosts.any { c -> c.isCable } }
+                            ?: hosts.firstOrNull { it.isCable }
                         if (plugPending && cable != null) {
                             // Enchufada la tablet: se conecta por el cable sin mirar el ajuste de conexión automática.
                             plugPending = false

@@ -25,6 +25,12 @@ struct ViewInput {
   bool autostart = false;  // abrir al iniciar Windows
   std::vector<std::wstring> monitors;
   std::wstring addresses;  // IP de este PC
+  // Red Wi-Fi propia del PC (direct_wifi.h): encendida, cambiando ahora, su nombre y contraseña, y el último error.
+  bool direct_wifi_on = false;
+  bool direct_wifi_busy = false;
+  std::wstring direct_wifi_ssid;
+  std::wstring direct_wifi_pass;
+  std::wstring direct_wifi_error;
 };
 
 enum class Control { kSegmented, kChoice, kToggle, kInfo, kLink };

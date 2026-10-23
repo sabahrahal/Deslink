@@ -180,6 +180,7 @@ View BuildView(const ViewInput& in) {
     if (reduced == L"wifi") v.notice = {L"Calidad reducida un momento: el Wi-Fi va justo.", Tone::kWarning};
     else if (reduced == L"bateria") v.notice = {L"Fluidez reducida: la batería del dispositivo no aguanta.", Tone::kWarning};
     else if (reduced == L"carga") v.notice = {L"Fluidez reducida: la gráfica del PC va cargada.", Tone::kWarning};
+    else if (reduced == L"tablet") v.notice = {L"Fluidez ajustada a lo que el dispositivo decodifica a tiempo.", Tone::kSecondary};
     const std::wstring tablet = Stat(in, L"tablet_fps");
     if (v.notice.text.empty() && fps >= 20 && !tablet.empty() && tablet != L"-" &&
         StatNum(in, L"tablet_fps") < 0.8 * fps) {
@@ -268,6 +269,19 @@ View BuildView(const ViewInput& in) {
     v.advanced.push_back(Choice("mbps", L"Calidad de vídeo", BitrateLabel(s.bitrate)));
     v.advanced.push_back(Choice("codec", L"Códec", CodecLabel(s.codec)));
     v.advanced.push_back(Toggle("bateria", L"Bajar la calidad si la batería del dispositivo no aguanta", s.battery_adapt));
+    Row direct = Toggle("wifi_directo", L"Red Wi-Fi propia del PC", in.direct_wifi_on);
+    if (in.direct_wifi_busy) {
+      direct.hint = L"Cambiando…";
+    } else if (!in.direct_wifi_error.empty()) {
+      direct.hint = in.direct_wifi_error;
+      direct.hint_tone = Tone::kWarning;
+    } else if (in.direct_wifi_on) {
+      direct.hint = L"Conecta el dispositivo a la red «" + in.direct_wifi_ssid + L"», contraseña «" + in.direct_wifi_pass +
+                    L"». El vídeo va directo, sin pasar por el router.";
+    } else {
+      direct.hint = L"Sin router de por medio: menos retardo y menos tirones por Wi-Fi. Hace falta Wi-Fi en el PC.";
+    }
+    v.advanced.push_back(direct);
     v.advanced.push_back(Toggle("usb", L"Conexión por cable USB", s.usb));
     if (s.usb) v.advanced.push_back(Toggle("abrir_tablet", L"Abrir DeskLink en el dispositivo al enchufarlo", s.open_tablet));
     v.advanced.push_back(Toggle("autostart", L"Abrir DeskLink al iniciar Windows", in.autostart));

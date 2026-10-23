@@ -78,7 +78,16 @@ Name: "{group}\Desinstalar DeskLink"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\DeskLink"; Filename: "{app}\{#MainExe}"; Parameters: "{#MainArgs}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
+; Windows guarda en caché los iconos de los programas: sin esto la barra de tareas seguía con el logo de antes.
+Filename: "{sys}\ie4uinit.exe"; Parameters: "-show"; Flags: runhidden waituntilterminated skipifdoesntexist
+; El cortafuegos deja entrar a la tablet en cualquier red, también en la red Wi-Fi propia del PC (que Windows trata
+; como pública y para la que el aviso de la primera vez no daba permiso). Se borra antes por si ya estaba.
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""DeskLink"""; Flags: runhidden waituntilterminated
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""DeskLink"" dir=in action=allow program=""{app}\{#HostExe}"" protocol=udp profile=any enable=yes"; Flags: runhidden waituntilterminated
 Filename: "{app}\{#MainExe}"; Parameters: "{#MainArgs}"; WorkingDir: "{app}"; Description: "Abrir DeskLink"; Flags: postinstall nowait skipifsilent unchecked
+
+[UninstallRun]
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""DeskLink"""; Flags: runhidden waituntilterminated; RunOnceId: "DeskLinkFirewall"
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\driver"

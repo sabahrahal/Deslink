@@ -31,6 +31,7 @@ using std::min;
 #include <thread>
 #include <vector>
 
+#include "direct_wifi.h"
 #include "host_process.h"
 #include "logo.h"
 #include "settings.h"
@@ -48,6 +49,7 @@ constexpr wchar_t kAppName[] = L"DeskLink";
 constexpr UINT WM_TRAY = WM_APP + 1;
 constexpr UINT WM_APP_SHOW = WM_APP + 4;  // otra copia de la app pide mostrar esta ventana
 constexpr UINT WM_DRIVER_DONE = WM_APP + 5;  // terminó la instalación del driver; lParam = código de salida
+constexpr UINT WM_DIRECT_WIFI = WM_APP + 6;  // la red Wi-Fi del PC cambió; lParam = DirectWifi* (se libera al leerlo)
 constexpr UINT kTrayId = 1;
 constexpr UINT_PTR kTimerRestart = 1;
 constexpr UINT_PTR kTimerRefresh = 2;
@@ -121,6 +123,8 @@ struct App {
   bool autostart = false;
   std::vector<std::wstring> monitors;
   std::wstring addresses;
+  DirectWifi direct_wifi;
+  bool direct_wifi_busy = false;
 } g;
 
 const tokens::Colors& P() { return g.dark ? tokens::kDark : tokens::kLight; }
@@ -259,6 +263,11 @@ ViewInput Input() {
   in.autostart = g.autostart;
   in.monitors = g.monitors;
   in.addresses = g.addresses;
+  in.direct_wifi_on = g.direct_wifi.on;
+  in.direct_wifi_busy = g.direct_wifi_busy;
+  in.direct_wifi_ssid = g.direct_wifi.ssid;
+  in.direct_wifi_pass = g.direct_wifi.passphrase;
+  in.direct_wifi_error = g.direct_wifi.error;
   return in;
 }
 
@@ -972,8 +981,25 @@ void OnChoice(const std::string& id, float x, float y) {
   }
 }
 
+// Windows tarda unos segundos en encender o apagar su zona con cobertura: se hace en otro hilo.
+void RefreshDirectWifi(int action) {  // 0 consultar, 1 encender, 2 apagar
+  if (g.direct_wifi_busy) return;
+  g.direct_wifi_busy = action != 0;
+  HWND wnd = g.wnd;
+  std::thread([action, wnd] {
+    auto* d = new DirectWifi(action == 1 ? StartDirectWifi() : action == 2 ? StopDirectWifi() : QueryDirectWifi());
+    if (!PostMessageW(wnd, WM_DIRECT_WIFI, action, reinterpret_cast<LPARAM>(d))) delete d;
+  }).detach();
+}
+
 void OnToggle(const std::string& id) {
   Settings s = g.settings;
+  if (id == "wifi_directo") {
+    RefreshDirectWifi(g.direct_wifi.on ? 2 : 1);
+    if (g.direct_wifi_busy) AddLog(g.direct_wifi.on ? L"--- apagando la red Wi-Fi del PC" : L"--- creando la red Wi-Fi del PC");
+    Redraw();
+    return;
+  }
   if (id == "autostart") {
     SetStartWithWindows(!g.autostart);
     g.autostart = StartsWithWindows();
@@ -1344,6 +1370,7 @@ void ShowMain() {
   g.driver_installed = VirtualDriverInstalled();
   g.autostart = StartsWithWindows();
   UpdateAddresses();
+  RefreshDirectWifi(0);  // por si se encendió o apagó desde Windows
   ShowWindow(g.wnd, IsIconic(g.wnd) ? SW_RESTORE : SW_SHOW);
   SetForegroundWindow(g.wnd);
   PulseTimer();
@@ -1430,6 +1457,18 @@ LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_DRIVER_DONE:
       OnDriverDone(static_cast<DWORD>(lp));
       return 0;
+    case WM_DIRECT_WIFI: {
+      std::unique_ptr<DirectWifi> d(reinterpret_cast<DirectWifi*>(lp));
+      const bool asked = wp != 0;
+      if (!asked && g.direct_wifi_busy) return 0;  // una consulta vieja: manda lo que se pidió después
+      g.direct_wifi = *d;
+      g.direct_wifi_busy = false;
+      // Al abrir solo se consulta: un «no se puede» entonces no es un error que enseñar.
+      if (!asked) g.direct_wifi.error.clear();
+      if (asked && !d->error.empty()) AddLog(L"Red Wi-Fi del PC: " + d->error);
+      Redraw();
+      return 0;
+    }
     case WM_MOUSEWHEEL:
       ScrollBy(-static_cast<float>(GET_WHEEL_DELTA_WPARAM(wp)) / WHEEL_DELTA * F(60));
       return 0;
@@ -1617,6 +1656,16 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd_line, int) {
                           r.bottom - r.top, nullptr, nullptr, inst, nullptr);
   if (!g.wnd) return 1;
   StyleTitleBar(g.wnd);
+  // El de la clase es de 32 px: la barra de tareas a más del 100 % de escala lo pide más grande y Windows podía
+  // tirar de otro (el de la caché). Se le da el del tamaño justo para el DPI de la ventana.
+  {
+    const UINT dpi = GetDpiForWindow(g.wnd);
+    const int big = MulDiv(GetSystemMetrics(SM_CXICON), static_cast<int>(dpi), 96);
+    if (HICON icon = static_cast<HICON>(LoadImageW(inst, L"APP", IMAGE_ICON, big, big, 0))) {
+      SendMessageW(g.wnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(icon));
+    }
+    SendMessageW(g.wnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(g.app_icon_small));
+  }
 
   // Primera pasada de dibujo fuera de pantalla para saber el alto del contenido y centrar la ventana ya con él.
   {

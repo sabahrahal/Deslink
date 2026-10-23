@@ -27,6 +27,8 @@
 #include "encoder.h"
 #include "gpu.h"
 #include "frame_sender.h"
+#include "nvenc_encoder.h"
+#include "amf_encoder.h"
 #include "history.h"
 #include "touch.h"
 #include "udp.h"
@@ -251,6 +253,8 @@ struct Options {
   int input_mode = -1;   // --touch (0) / --mouse (1) / --view-only (2); si no, el guardado (táctil por defecto)
   bool touch = true;     // --no-touch desactiva el control táctil
   UINT pace_mbps = 100;  // reparte cada frame a esta tasa; 0 = de golpe (el anclaje USB pierde ráfagas)
+  UINT fec_group = 10;   // --fec: por WiFi, una paridad cada tantos paquetes (10 % más de datos); 0 = sin FEC
+  int encoder = 0;       // --encoder: 0 auto (NVENC o AMF directo según la GPU), 1 nvenc, 2 mf (Media Foundation), 3 amf
   bool virtual_display = false;  // --virtual: crea un monitor virtual (driver desklink-idd) y captura ese
   UINT virtual_width = 2944;     // --size: resolución del monitor virtual (por defecto, la Lenovo Idea Tab Pro)
   UINT virtual_height = 1840;
@@ -378,7 +382,7 @@ struct Pipeline {
   Gpu gpu;
   DesktopCapture capture;
   Nv12Converter converter;
-  std::unique_ptr<MfEncoder> encoder;
+  std::unique_ptr<VideoEncoder> encoder;
   UINT w = 0, h = 0;    // tamaño capturado
   UINT ew = 0, eh = 0;  // tamaño codificado (menor con los perfiles de ahorro)
   uint8_t scale_percent = 100;
@@ -418,6 +422,20 @@ bool ParseArgs(int argc, char** argv, Options* o) {
       o->battery_adapt = true;
     } else if (a == "--view-only") {
       o->input_mode = 2;
+    } else if (a == "--encoder") {
+      auto v = next("--encoder"); if (!v) return false;
+      const std::string e = v;
+      if (e == "auto") o->encoder = 0;
+      else if (e == "nvenc") o->encoder = 1;
+      else if (e == "mf") o->encoder = 2;
+      else if (e == "amf") o->encoder = 3;
+      else {
+        std::fprintf(stderr, "--encoder: auto, nvenc, amf o mf\n");
+        return false;
+      }
+    } else if (a == "--fec") {
+      auto v = next("--fec"); if (!v) return false;
+      o->fec_group = static_cast<UINT>(std::atoi(v));
     } else if (a == "--pace") {
       auto v = next("--pace"); if (!v) return false;
       o->pace_mbps = static_cast<UINT>(std::atoi(v));
@@ -477,13 +495,13 @@ bool ParseArgs(int argc, char** argv, Options* o) {
       std::fprintf(stderr,
                    "Uso: desklink-host [--port 47800] [--output 0] [--fps auto|60] [--bitrate auto|50] "
                    "[--codec auto|hevc|h264] [--profile alta|equilibrada|ahorro] [--audio-tablet] [--battery-adapt] "
-                   "[--pace Mbps] [--refine 4] [--no-touch] [--touch|--mouse|--view-only] [--no-cursor] [--no-audio] "
+                   "[--encoder auto|nvenc|amf|mf] [--pace Mbps] [--fec 10] [--refine 4] [--no-touch] [--touch|--mouse|--view-only] [--no-cursor] [--no-audio] "
                    "[--audio-bitrate 128] [--virtual [--size 2944x1840]] [--no-usb] [--no-open-tablet] [--adb ruta\\adb.exe] [--status] "
                    "[--stop-event nombre]\n");
       return false;
     }
   }
-  return o->refine <= 30 && o->audio_kbps >= 32 && o->audio_kbps <= 256;
+  return o->refine <= 30 && o->audio_kbps >= 32 && o->audio_kbps <= 256 && o->fec_group <= 64;
 }
 
 // Una línea «@ajustes clave=valor ...» de la app de bandeja (entrada estándar): lo que el usuario cambió en la
@@ -565,6 +583,9 @@ int Run(int argc, char** argv) {
 
   std::atomic<uint32_t> next_frame_id{1};
   std::atomic<uint64_t> bytes_sent{0}, frames_encoded{0}, encode_latency_us{0}, keyframes_sent{0}, retransmits{0}, touch_packets{0};
+  std::atomic<uint64_t> packets_sent{0};
+  // El envío se atrasó y tiró frames: la tasa lo lee con el siguiente informe de la tablet (RateController).
+  std::atomic<bool> send_backlog{false};
   // Para --status: último informe de la tablet y RTT medido con PING del host (0 = la tablet no contesta).
   std::atomic<uint32_t> tablet_received{0}, tablet_lost{0};
   std::atomic<int> tablet_decoded{-1};  // frames que mostró la tablet el último segundo (-1: tablet antigua)
@@ -584,7 +605,7 @@ int Run(int argc, char** argv) {
   // El codificador lo toca también el hilo de recepción (tasa, frames clave): su puntero se publica
   // bajo este cerrojo y se retira antes de destruirlo.
   std::mutex enc_mutex;
-  MfEncoder* enc_ptr = nullptr;
+  VideoEncoder* enc_ptr = nullptr;
   auto enc_bitrate = [&](uint32_t bps) {
     std::lock_guard<std::mutex> lock(enc_mutex);
     if (enc_ptr) enc_ptr->SetBitrate(bps);
@@ -625,6 +646,7 @@ int Run(int argc, char** argv) {
   std::atomic<bool> view_only{opt.input_mode == 2};
   std::atomic<uint32_t> rate_bps{0};
   std::atomic<bool> rate_reduced{false};
+  std::atomic<bool> fps_by_tablet{false};  // la última bajada de fps fue porque la tablet no decodifica a más
   if (opt.status) {
     // Ajustes en vivo desde la ventana del PC. Sin la app (consola) la entrada no trae nada y el hilo termina.
     std::thread([&config_mutex, &pending_settings, &config_seq] {
@@ -661,9 +683,13 @@ int Run(int argc, char** argv) {
     if (udp.peer_is_usb()) {
       udp.SendBatchToPeer(packets);  // por cable no hay pérdidas: TCP ya regula el ritmo, sin --pace
     } else {
+      // Por WiFi (o anclaje) una paridad por grupo: la tablet rehace un paquete perdido sin pedirlo. Los reenvíos
+      // siguen para cuando se pierden dos del mismo grupo (o la paridad); el historial guarda solo los de vídeo.
+      dlp::AddFec(&packets, static_cast<uint8_t>(opt.fec_group));
       SendPaced(packets, opt.pace_mbps, [&](const std::vector<uint8_t>& p) { udp.SendToPeer(p); });
     }
     bytes_sent += f.data.size();
+    packets_sent += packets.size();
     if (f.keyframe) ++keyframes_sent;
   });
 
@@ -672,7 +698,10 @@ int Run(int argc, char** argv) {
     const uint64_t now = NowUs();
     if (now > ts_us) encode_latency_us += now - ts_us;
     // El envío va más de 4 frames atrasado: se tiran y se pide un frame clave.
-    if (sender.Push(data, size, keyframe, ts_us)) enc_keyframe();
+    if (sender.Push(data, size, keyframe, ts_us)) {
+      send_backlog = true;
+      enc_keyframe();
+    }
   };
 
   // SESSION_CONFIG: lo que eligió el PC y por qué la imagen va por debajo, si es así (ver dlp/session.h).
@@ -690,7 +719,7 @@ int Run(int argc, char** argv) {
               : touch_ready && touch.requested() == TouchInjector::Mode::kMouse ? dlp::SessionInput::kMouse
                                                                                  : dlp::SessionInput::kTouch;
     c.reduced = eff.battery_reduced ? dlp::Reduced::kBattery
-                : fps_gov.reduced()  ? dlp::Reduced::kLoad
+                : fps_gov.reduced()  ? (fps_by_tablet ? dlp::Reduced::kTablet : dlp::Reduced::kLoad)
                 : rate_reduced       ? dlp::Reduced::kWifi
                                      : dlp::Reduced::kNone;
     c.fps = static_cast<uint16_t>(eff.fps);
@@ -745,13 +774,38 @@ int Run(int argc, char** argv) {
                   opt.codec == VideoCodec::kHevc ? "HEVC" : "H.264");
     }
     if (!p->converter.Init(p->gpu, p->w, p->h, ew, eh, 24)) return nullptr;
-    p->converter.SetDrawCursor(opt.cursor);
-    p->encoder = std::make_unique<MfEncoder>();
+    // En el monitor virtual Windows ya pinta el cursor dentro de la imagen (el driver no tiene cursor por hardware),
+    // y a la escala de ese monitor: dibujarlo otra vez salía doble, uno grande y otro pequeño desplazado.
+    // Desktop Duplication solo lo deja fuera en un monitor de verdad.
+    p->converter.SetDrawCursor(opt.cursor && !opt.virtual_display);
     // El codificador se crea a los fps del host: con menos fps simplemente recibe menos frames (como con el
-    // escritorio quieto), así un cambio de perfil no obliga a rehacerlo.
-    if (!p->encoder->Init(p->gpu, opt.codec, ew, eh, opt.fps, eff.bitrate_mbps_x10 * 100'000u, on_encoded)) {
-      std::fprintf(stderr, "Error: no se pudo iniciar el codificador (arriba está el motivo).\n");
-      return nullptr;
+    // escritorio quieto), así un cambio de perfil no obliga a rehacerlo. Con NVIDIA, NVENC directo (menos
+    // espera que su MFT); si no arranca, Media Foundation, que vale para cualquier GPU.
+    if ((opt.encoder == 0 || opt.encoder == 1) && NvencEncoder::IsNvidia(p->gpu)) {
+      auto nv = std::make_unique<NvencEncoder>();
+      if (nv->Init(p->gpu, opt.codec, ew, eh, opt.fps, eff.bitrate_mbps_x10 * 100'000u, on_encoded)) {
+        p->encoder = std::move(nv);
+      } else {
+        std::printf("NVENC directo no arrancó (arriba está el motivo): se usa el de Media Foundation.\n");
+      }
+    } else if ((opt.encoder == 0 || opt.encoder == 3) && AmfEncoder::IsAmd(p->gpu)) {
+      // Igual con AMD: AMF directo, sin la cola del MFT.
+      auto amd = std::make_unique<AmfEncoder>();
+      if (amd->Init(p->gpu, opt.codec, ew, eh, opt.fps, eff.bitrate_mbps_x10 * 100'000u, on_encoded)) {
+        p->encoder = std::move(amd);
+      } else {
+        std::printf("AMF directo no arrancó (arriba está el motivo): se usa el de Media Foundation.\n");
+      }
+    } else if (opt.encoder == 1 || opt.encoder == 3) {
+      std::printf("--encoder %s: la GPU que captura no es de %s, se usa el de Media Foundation.\n",
+                  opt.encoder == 1 ? "nvenc" : "amf", opt.encoder == 1 ? "NVIDIA" : "AMD");
+    }
+    if (!p->encoder) {
+      p->encoder = std::make_unique<MfEncoder>();
+      if (!p->encoder->Init(p->gpu, opt.codec, ew, eh, opt.fps, eff.bitrate_mbps_x10 * 100'000u, on_encoded)) {
+        std::fprintf(stderr, "Error: no se pudo iniciar el codificador (arriba está el motivo).\n");
+        return nullptr;
+      }
     }
     dlp::StreamInfo info;
     info.width = static_cast<uint16_t>(ew);
@@ -812,6 +866,7 @@ int Run(int argc, char** argv) {
     rate.Reset(current_quality().bitrate_mbps_x10 * 100'000u, true, NowUs());
     // Lo que pasa de verdad por el enlace desde el último informe de la tablet (solo por cable, ver OnLinkLoad).
     uint64_t link_last_us = NowUs(), link_last_busy = sender.busy_us, link_last_bytes = sender.sent_bytes;
+    uint64_t quality_last_sent = packets_sent, quality_last_resent = retransmits;
     auto publish_rate = [&](const char* why) {
       enc_bitrate(rate.current_bps());
       rate_bps = rate.current_bps();
@@ -937,6 +992,18 @@ int Run(int argc, char** argv) {
             tablet_hold_x10 = q[12] | (q[13] << 8);
             tablet_screen_x10 = q[14] | (q[15] << 8);
             tablet_worst_x10 = q[16] | (q[17] << 8);
+          }
+          {
+            // Por WiFi también se recorta si se reenvía mucho o el envío se atrasa, aunque no se pierdan frames.
+            const uint64_t sent = packets_sent.load(), resent = retransmits.load();
+            const bool backlog = send_backlog.exchange(false);
+            if (rate.OnLinkQuality(static_cast<uint32_t>(std::min<uint64_t>(sent - quality_last_sent, UINT32_MAX)),
+                                   static_cast<uint32_t>(std::min<uint64_t>(resent - quality_last_resent, UINT32_MAX)),
+                                   backlog, NowUs())) {
+              publish_rate(backlog ? "el envío se atrasa" : "muchos reenvíos");
+            }
+            quality_last_sent = sent;
+            quality_last_resent = resent;
           }
           if (rate.OnReport(tablet_received, lost, NowUs())) {
             publish_rate(lost ? "la tablet pierde frames" : "enlace limpio");
@@ -1134,11 +1201,24 @@ int Run(int argc, char** argv) {
 
     constexpr uint64_t kRefineIntervalUs = 100'000;  // separación de las repeticiones de afinado
     uint64_t last_submit_us = 0;
+    // Límite de fps por plazos fijos: cada envío corre el plazo un intervalo y se puede mandar hasta 1/4 de intervalo
+    // antes. Contar el intervalo desde el último envío hacía que, con el monitor a los mismos Hz que los fps, una
+    // imagen que llegaba un pelo antes de cumplirse (los vsync bailan décimas de ms) esperase al vsync siguiente:
+    // casi un frame entero (~13 ms de media a 60 Hz) parado en el PC.
+    // El intervalo es un 5 % más corto que el de los fps: el monitor (sobre todo el virtual) puede ir a 60,0x Hz y,
+    // con el límite exacto a 60, las imágenes llegaban algo más deprisa de lo que se dejaban salir y cada una acababa
+    // esperando casi un intervalo (~11 ms de «espera de captura» aunque la gráfica sobraba).
+    uint64_t next_due_us = 0;
+    auto pace_interval = [&] { return min_interval_us.load() * 95 / 100; };
     uint64_t last_rect_check_us = 0;
     ID3D11Texture2D* last_nv12 = nullptr;
     bool dirty = false;      // la imagen guardada (o el cursor) cambió y aún no se convirtió ni envió
-    uint64_t dirty_since_us = 0;  // cuándo llegó el primer cambio aún sin enviar (lo que espera por el límite de fps)
-    uint64_t capture_wait_us = 0, capture_wait_n = 0, latency_capture_wait = 0, latency_capture_n = 0;
+    // Cuándo llegó la imagen más reciente aún sin enviar: lo que espera la que de verdad se manda. Contar desde el primer
+    // cambio pendiente exageraba con el escritorio a más Hz que los fps (a 180 imágenes/s y 60 fps salía ~11 ms de
+    // espera aunque la imagen enviada tuviera 0-5 ms).
+    uint64_t dirty_since_us = 0;
+    uint64_t capture_wait_us = 0, capture_wait_n = 0, latency_capture_wait = 0, latency_capture_n = 0,
+             latency_captured = 0;
     int flush_left = 0;      // repeticiones pendientes para vaciar el codificador
     UINT refine_left = 0;    // repeticiones lentas pendientes para afinar la calidad de la imagen quieta
     uint64_t captured = 0, composed = 0, last_composed = 0, last_stats_us = NowUs();
@@ -1291,7 +1371,8 @@ int Run(int argc, char** argv) {
       if (udp.has_peer() && pipe->converter.has_image()) {
         uint64_t due = 0;
         if (dirty || flush_left > 0 || pipe->encoder->keyframe_pending()) {
-          due = last_submit_us + min_interval_us.load();
+          const uint64_t interval = pace_interval();
+          due = next_due_us > interval / 4 ? next_due_us - interval / 4 : 1;
         } else if (refine_left > 0) {
           due = last_submit_us + kRefineIntervalUs;
         }
@@ -1375,6 +1456,7 @@ int Run(int argc, char** argv) {
         rtt_us = 0;
         tablet_received = tablet_lost = 0;
         tablet_decoded = -1;
+        tablet_decode_x10 = -1;
         tablet_total_x10 = 0;
         std::printf("Cliente desconectado (sin respuesta durante 5 s). Esperando cliente.\n");
       }
@@ -1386,14 +1468,15 @@ int Run(int argc, char** argv) {
       if (result == DesktopCapture::Result::kFrame) {
         pipe->converter.Store(frame);
         pipe->capture.Release();
-        if (!dirty) dirty_since_us = NowUs();
+        dirty_since_us = NowUs();
         dirty = true;
         ++captured;
       } else {
         pipe->capture.Release();
         // Solo se movió el cursor: se redibujará sobre la última imagen.
-        if (result == DesktopCapture::Result::kCursorMoved && opt.cursor && pipe->converter.has_image()) {
-          if (!dirty) dirty_since_us = NowUs();
+        if (result == DesktopCapture::Result::kCursorMoved && opt.cursor && !opt.virtual_display &&
+            pipe->converter.has_image()) {
+          dirty_since_us = NowUs();
           dirty = true;
         }
       }
@@ -1405,7 +1488,7 @@ int Run(int argc, char** argv) {
       // quieta (texto nítido tras desplazar o arrastrar una ventana) en vez de dejarla como salió en movimiento.
       const uint64_t now = NowUs();
       const bool refine_due = refine_left > 0 && now - last_submit_us >= kRefineIntervalUs;
-      if (udp.has_peer() && pipe->converter.has_image() && now - last_submit_us >= min_interval_us.load() &&
+      if (udp.has_peer() && pipe->converter.has_image() && now + pace_interval() / 4 >= next_due_us &&
           (dirty || flush_left > 0 || refine_due || pipe->encoder->keyframe_pending())) {
         if (dirty || !last_nv12) {
           const uint64_t conv_start = NowUs();
@@ -1420,11 +1503,17 @@ int Run(int argc, char** argv) {
         }
         pipe->encoder->Submit(last_nv12, now);
         last_submit_us = now;
+        {
+          // Sin acumular crédito tras estar quieto: como mucho medio intervalo de adelanto respecto a ahora.
+          const uint64_t interval = pace_interval();
+          next_due_us = std::max(next_due_us + interval, now + interval / 2);
+        }
         if (dirty) {
           if (now > dirty_since_us) capture_wait_us += now - dirty_since_us;
           ++capture_wait_n;
           dirty = false;
-          flush_left = 2;
+          // NVENC directo entrega cada frame al momento: repetirlo solo quitaba el hueco al siguiente cambio.
+          flush_left = pipe->encoder->retains_frames() ? 2 : 0;
           refine_left = opt.refine;
         } else if (flush_left > 0) {
           --flush_left;
@@ -1475,7 +1564,9 @@ int Run(int argc, char** argv) {
                         "ida y vuelta %.1f ms",
                         capture_ms, mailbox_ms, encode_ms, send_ms, rtt_us.load() / 1000.0);
             if (tablet_decode_x10 >= 0) std::printf(" · decodificar en la tablet %.1f ms", tablet_decode_x10 / 10.0);
-            std::printf(" (%llu frames en 5 s).\n", static_cast<unsigned long long>(sent));
+            // Imágenes nuevas que dio Windows: si pasan de los fps, el monitor va más rápido que el límite.
+            std::printf(" (%llu frames en 5 s, %llu imágenes nuevas del escritorio).\n", static_cast<unsigned long long>(sent),
+                        static_cast<unsigned long long>(captured - latency_captured));
             // La tablet mide desde que el frame entra al codificador (con la hora del PC del PONG) hasta que se enciende
             // en su pantalla. La red es lo que queda de «llegar» al quitar lo que el PC tarda en cola, codificar y enviar.
             if (const uint32_t total = tablet_total_x10.load()) {
@@ -1490,6 +1581,7 @@ int Run(int argc, char** argv) {
           }
           latency_capture_wait = capture_wait_us;
           latency_capture_n = capture_wait_n;
+          latency_captured = captured;
           // Con el sonido en la tablet, cuánto se le manda y cuánto suena de verdad en el PC.
           if (audio.running()) {
             std::printf("Sonido: enviados %llu trozos de 10 ms en 5 s, %llu con algo audible.\n",
@@ -1515,11 +1607,19 @@ int Run(int argc, char** argv) {
         if (udp.has_peer()) {
           UINT new_fps = 0;
           bool slower = false;
+          // La tablet también frena: si decodificar le lleva casi todo el intervalo, los frames se le apilan.
+          const int decode_x10 = tablet_decode_x10.load();
+          const uint32_t decode_us = decode_x10 > 0 ? static_cast<uint32_t>(decode_x10) * 100u : 0u;
+          bool tablet_limit = false;
           {
             std::lock_guard<std::mutex> lock(quality_mutex);
-            if (fps_gov.Update(static_cast<uint32_t>(submitted), static_cast<uint32_t>(dropped))) {
+            const uint32_t before = fps_gov.fps();
+            tablet_limit = decode_us && static_cast<uint64_t>(decode_us) * before > 900'000;
+            if (fps_gov.Update(static_cast<uint32_t>(submitted), static_cast<uint32_t>(dropped), decode_us)) {
               new_fps = Apply(opt, tablet_request, fps_gov.fps()).fps;
               slower = fps_gov.reduced();
+              if (!slower) fps_by_tablet = false;
+              else if (fps_gov.fps() < before) fps_by_tablet = tablet_limit;
               min_interval_us = 1'000'000ull / new_fps;
             }
           }
@@ -1528,7 +1628,10 @@ int Run(int argc, char** argv) {
             const uint64_t fed_n = pipe->encoder->fed_frames - last_fed;
             std::printf("Fluidez: %u fps (%s; último segundo: %llu de %llu frames descartados, total %.1f ms: "
                         "en cola %.1f ms, codificador %.1f ms).\n",
-                        new_fps, slower ? "la gráfica no llega a más" : "vuelve a subir",
+                        new_fps,
+                        !slower         ? "vuelve a subir"
+                        : tablet_limit  ? "la tablet no decodifica a más"
+                                        : "la gráfica no llega a más",
                         static_cast<unsigned long long>(dropped), static_cast<unsigned long long>(submitted),
                         enc ? lat / 1000.0 / enc : 0.0,
                         fed_n ? (pipe->encoder->mailbox_wait_us - last_mailbox) / 1000.0 / fed_n : 0.0,
@@ -1559,6 +1662,7 @@ int Run(int argc, char** argv) {
           const char* reduced = session.reduced == dlp::Reduced::kWifi      ? "wifi"
                                 : session.reduced == dlp::Reduced::kBattery ? "bateria"
                                 : session.reduced == dlp::Reduced::kLoad    ? "carga"
+                                : session.reduced == dlp::Reduced::kTablet  ? "tablet"
                                                                             : "no";
           std::printf("@estado enlace=%s ip=%s capturados=%.1f codificados=%.1f mbps=%.1f cod_ms=%.1f rtt_ms=%.1f "
                       "recibidos=%u perdidos=%u reenvios=%llu size=%ux%u fps_max=%u fps_obj=%u mbps_obj=%.1f "

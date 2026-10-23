@@ -59,13 +59,15 @@ class HostGroupsTest {
         assertEquals(listOf("192.168.1.20"), pc.network.map { it.ip })
         assertTrue(pc.hasBoth)
         assertEquals("192.168.42.10", pc.route().ip)
-        assertEquals("Por cable USB (anclaje de red) · 192.168.42.10", HostGroups.describe(pcTether))
+        assertEquals("Por cable USB (anclaje de red) · el más estable · 192.168.42.10", HostGroups.describe(pcTether))
     }
 
     @Test
-    fun adbCableBeatsTethering() {
-        val pc = HostGroups.group(listOf(pcTether, pcWifi, usbCable)).single()
-        assertEquals(Link.CABLE_HOST, pc.usb?.ip)
+    fun tetheringBeatsAdbCable() {
+        // Por adb los picos llegaban a 75-95 ms; por el anclaje, ~55.
+        val pc = HostGroups.group(listOf(usbCable, pcWifi, pcTether)).single()
+        assertEquals("192.168.42.10", pc.usb?.ip)
+        assertEquals("192.168.42.10", HostGroups.autoTarget(listOf(usbCable, pcTether), Link.CABLE_HOST, "", scans = 1)?.ip)
         assertEquals(listOf("192.168.1.20"), pc.network.map { it.ip })
     }
 
@@ -84,8 +86,8 @@ class HostGroupsTest {
         // En la primera búsqueda el cable aún puede estar respondiendo: no se elige la red todavía.
         assertNull(HostGroups.autoTarget(found, "192.168.1.20", "ESCRITORIO", scans = 1))
         assertEquals("192.168.1.20", HostGroups.autoTarget(found, "192.168.1.20", "ESCRITORIO", scans = 2)?.ip)
-        // El anclaje USB también espera, pero gana al Wi-Fi.
-        assertEquals("192.168.42.10", HostGroups.autoTarget(found + pcTether, "192.168.1.20", null, scans = 2)?.ip)
+        // El anclaje USB va por el cable: gana al Wi-Fi sin esperar.
+        assertEquals("192.168.42.10", HostGroups.autoTarget(found + pcTether, "192.168.1.20", null, scans = 1)?.ip)
     }
 
     @Test

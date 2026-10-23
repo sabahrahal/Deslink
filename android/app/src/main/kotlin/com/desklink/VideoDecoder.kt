@@ -30,6 +30,8 @@ class VideoDecoder(
     private val callbackThread = HandlerThread("desklink-decoder", Process.THREAD_PRIORITY_URGENT_DISPLAY).apply { start() }
     /** Buffers de entrada libres; también hace de monitor para esperar uno (wait/notify). */
     private val freeInputs = ArrayDeque<Int>()
+    /** Para estimar la etapa de pantalla en las tablets que no dicen cuándo se encendió el frame. */
+    private val screenClock = latency?.let { ScreenClock(Handler(callbackThread.looper)) }
     private var released = false // protegido por freeInputs
 
     @Volatile
@@ -152,7 +154,9 @@ class VideoDecoder(
             // Algunos (p. ej. MediaTek con Android 16) no dicen cuándo se encendió, sino la hora pedida al soltarlo, que
             // es la misma con la que se apuntó la salida: eso daba «pantalla 0,0 ms». Un refresco real nunca es tan rápido.
             val shown = nanoTime.takeIf { t != null && it - t.decodedNanos >= MIN_REAL_SHOW_NANOS }
-            if (t != null && !first) record(presentationTimeUs, t, shown)
+            if (t != null && !first) {
+                if (shown != null) record(presentationTimeUs, t, shown) else recordEstimated(presentationTimeUs, t)
+            }
         }, Handler(callbackThread.looper))
         codec.configure(format, surface, null, 0)
         codec.start()
@@ -205,15 +209,23 @@ class VideoDecoder(
     private fun onDecoded(ptsUs: Long, t: Timing) {
         if (latency == null) return
         // Hasta que Android avise de un frame en pantalla se apunta al salir del decodificador, sin la etapa de pantalla.
-        if (!showCallbacks) record(ptsUs, t, null)
+        if (!showCallbacks) recordEstimated(ptsUs, t)
         synchronized(awaitingShow) {
             if (awaitingShow.size >= 32) awaitingShow.remove(awaitingShow.keys.first())
             awaitingShow[ptsUs] = t
         }
     }
 
-    private fun record(ptsUs: Long, t: Timing, shownNanos: Long?) {
-        latency?.record(ptsUs, t.completeUs, t.queuedNanos / 1000, t.decodedNanos / 1000, shownNanos?.div(1000), t.inputNanos / 1000)
+    private fun record(ptsUs: Long, t: Timing, shownNanos: Long?, estimated: Boolean = false) {
+        latency?.record(
+            ptsUs, t.completeUs, t.queuedNanos / 1000, t.decodedNanos / 1000, shownNanos?.div(1000), t.inputNanos / 1000,
+            shownEstimated = estimated,
+        )
+    }
+
+    private fun recordEstimated(ptsUs: Long, t: Timing) {
+        val shown = screenClock?.estimateShown(t.decodedNanos)
+        record(ptsUs, t, shown, estimated = shown != null)
     }
 
     fun release() {
@@ -228,6 +240,7 @@ class VideoDecoder(
         } catch (_: IllegalStateException) {
         }
         codec.release()
+        screenClock?.stop()
         callbackThread.quitSafely()
     }
 

@@ -34,10 +34,86 @@ class FrameReassemblerTest {
 
     private fun data(n: Int, seed: Int) = ByteArray(n) { (seed + it * 31).toByte() }
 
+    /** Mismo formato que dlp::AddFec en C++: una paridad tras cada grupo de [group] paquetes. */
+    private fun addFec(packets: List<ByteArray>, group: Int): List<ByteArray> {
+        val out = ArrayList<ByteArray>()
+        for (start in packets.indices step group) {
+            val end = minOf(packets.size, start + group)
+            val parity = ByteArray(Dlp.MAX_PAYLOAD)
+            var lenXor = 0
+            var longest = 0
+            for (i in start until end) {
+                val pkt = packets[i]
+                pkt[5] = group.toByte()
+                val h = Dlp.parseHeader(pkt, pkt.size)!!
+                lenXor = lenXor xor h.payloadSize
+                longest = maxOf(longest, h.payloadSize)
+                for (b in 0 until h.payloadSize) parity[b] = (parity[b].toInt() xor pkt[Dlp.HEADER_SIZE + b].toInt()).toByte()
+                out.add(pkt)
+            }
+            val first = Dlp.parseHeader(packets[start], packets[start].size)!!
+            val b = ByteBuffer.allocate(Dlp.HEADER_SIZE + 2 + longest).order(ByteOrder.LITTLE_ENDIAN)
+            b.putShort(0, Dlp.MAGIC.toShort())
+            b.put(2, Dlp.VERSION.toByte())
+            b.put(3, Dlp.TYPE_VIDEO_FEC.toByte())
+            b.put(4, (first.flags and Dlp.FLAG_KEYFRAME).toByte())
+            b.put(5, group.toByte())
+            b.putInt(6, first.frameId.toInt())
+            b.putShort(10, (start / group).toShort())
+            b.putShort(12, packets.size.toShort())
+            b.putLong(14, first.timestampUs)
+            b.putShort(22, (2 + longest).toShort())
+            b.putShort(Dlp.HEADER_SIZE, lenXor.toShort())
+            System.arraycopy(parity, 0, b.array(), Dlp.HEADER_SIZE + 2, longest)
+            out.add(b.array())
+        }
+        return out
+    }
+
     private fun feed(r: FrameReassembler, packets: List<ByteArray>): Frame? {
         var out: Frame? = null
         for (p in packets) r.push(p, p.size)?.let { out = it }
         return out
+    }
+
+    @Test
+    fun fecRebuildsOneLostPacketPerGroupWithoutNack() {
+        for (lost in listOf(0, 2, 4)) { // uno lleno del primer grupo, el último del primero y el corto del final
+            val r = FrameReassembler()
+            val d = data(Dlp.MAX_PAYLOAD * 4 + 300, 5)
+            val packets = addFec(packetize(d, 1, true, 7), 3)
+            val dataIndex = listOf(0, 1, 2, 4, 5) // posiciones de los VIDEO entre las paridades (3 y 6)
+            val f = feed(r, packets.filterIndexed { i, _ -> i != dataIndex[lost] })
+            assertNotNull("perdido $lost", f)
+            assertArrayEquals(d, f!!.data.copyOf(f.size))
+            assertEquals(1L, r.packetsRecovered)
+            assertEquals(0L, r.packetsRequested)
+        }
+    }
+
+    @Test
+    fun fecWaitsForParityBeforeNacking() {
+        val r = FrameReassembler()
+        val packets = addFec(packetize(data(Dlp.MAX_PAYLOAD * 6, 9), 1, true, 7), 3)
+        // Llegan 0 y 2 (falta el 1): sin la paridad del grupo aún no se reclama.
+        r.push(packets[0], packets[0].size, 0)
+        r.push(packets[2], packets[2].size, 0)
+        assertTrue(r.collectNacks(10_000, retryUs = 4_000, quietUs = 100_000).isEmpty())
+        // Se pierde también la paridad: en cuanto llega el grupo siguiente, se reclama.
+        r.push(packets[4], packets[4].size, 10_000)
+        val nacks = r.collectNacks(11_000, retryUs = 4_000, quietUs = 100_000)
+        assertEquals(listOf(1), nacks.flatMap { it.indices.take(it.count) })
+    }
+
+    @Test
+    fun fecTwoLostInAGroupStillNacks() {
+        val r = FrameReassembler()
+        val packets = addFec(packetize(data(Dlp.MAX_PAYLOAD * 3, 2), 1, true, 7), 3)
+        r.push(packets[0], packets[0].size, 0)
+        r.push(packets[3], packets[3].size, 0) // la paridad, sin 1 ni 2
+        assertEquals(0L, r.packetsRecovered)
+        val nacks = r.collectNacks(10_000, retryUs = 4_000, quietUs = 3_000)
+        assertEquals(listOf(1, 2), nacks.flatMap { it.indices.take(it.count) })
     }
 
     @Test

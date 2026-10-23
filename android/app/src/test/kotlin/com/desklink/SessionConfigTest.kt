@@ -32,6 +32,7 @@ class SessionConfigTest {
         assertEquals(1, c.profile)
         assertEquals(Dlp.INPUT_TOUCH, c.input)
         assertEquals(Dlp.REDUCED_NONE, c.reduced)
+        assertEquals(Dlp.REDUCED_TABLET, parse(bytes(0, 0, 0, 4, 90, 0, 0, 0, 0, 0))!!.reduced)
         assertFalse(c.audioOnTablet)
         assertNull(parse(bytes(1, 2, 3)))
     }

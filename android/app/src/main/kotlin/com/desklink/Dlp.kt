@@ -43,17 +43,24 @@ object Dlp {
     const val SESSION_CONFIG_SIZE = 10
     /** Tablet -> host: texto para el log del PC (modelo y decodificador). */
     const val TYPE_CLIENT_INFO = 18
+
+    /** Paridad de un grupo de paquetes de vídeo (dlp::AddFec): payload = u16 XOR de longitudes + XOR de datos. */
+    const val TYPE_VIDEO_FEC = 19
+    const val MAX_FEC_PAYLOAD = MAX_PAYLOAD + 2
     const val INPUT_VIEW_ONLY = 2
 
     /** [HelloConfig.codec] en el HELLO: qué puede decodificar la tablet. */
     const val CAN_DECODE_H264_ONLY = 1
     const val CAN_DECODE_HEVC = 2
+    /** Decodifica HEVC, pero H.264 más deprisa: el PC en automático elige H.264. */
+    const val CAN_DECODE_HEVC_PREFERS_H264 = 3
 
     /** Por qué la imagen va por debajo de lo elegido en el PC ([SessionConfig.reduced]). */
     const val REDUCED_NONE = 0
     const val REDUCED_WIFI = 1
     const val REDUCED_BATTERY = 2
     const val REDUCED_LOAD = 3
+    const val REDUCED_TABLET = 4
 
     const val FLAG_KEYFRAME = 1
     const val FLAG_LAST_PACKET = 2
@@ -74,6 +81,8 @@ object Dlp {
         val packetCount: Int,
         val timestampUs: Long,
         val payloadSize: Int,
+        /** Byte 5: cuántos paquetes cubre cada paridad del frame (0 = sin FEC). */
+        val fecGroup: Int = 0,
     )
 
     /** [hostFlags] y [hostName] solo los mandan hosts nuevos; uno antiguo deja 0 y "". */
@@ -156,7 +165,7 @@ object Dlp {
             profile = u8(0).takeIf { it <= 3 } ?: 1,
             flags = u8(1),
             input = u8(2).takeIf { it <= INPUT_VIEW_ONLY } ?: INPUT_TOUCH,
-            reduced = u8(3).takeIf { it <= REDUCED_LOAD } ?: REDUCED_NONE,
+            reduced = u8(3).takeIf { it <= REDUCED_TABLET } ?: REDUCED_NONE,
             fps = u16(4),
             bitrateX100kbps = u16(6),
             maxBitrateX100kbps = u16(8),
@@ -172,15 +181,17 @@ object Dlp {
         val b = ByteBuffer.wrap(data, 0, length).order(ByteOrder.LITTLE_ENDIAN)
         if ((b.getShort(0).toInt() and 0xFFFF) != MAGIC || (data[2].toInt() and 0xFF) != VERSION) return null
         val payload = b.getShort(22).toInt() and 0xFFFF
-        if (payload > MAX_PAYLOAD || length < HEADER_SIZE + payload) return null
+        val type = data[3].toInt() and 0xFF
+        if (payload > (if (type == TYPE_VIDEO_FEC) MAX_FEC_PAYLOAD else MAX_PAYLOAD) || length < HEADER_SIZE + payload) return null
         return Header(
-            type = data[3].toInt() and 0xFF,
+            type = type,
             flags = data[4].toInt() and 0xFF,
             frameId = b.getInt(6).toLong() and 0xFFFFFFFFL,
             packetIndex = b.getShort(10).toInt() and 0xFFFF,
             packetCount = b.getShort(12).toInt() and 0xFFFF,
             timestampUs = b.getLong(14),
             payloadSize = payload,
+            fecGroup = data[5].toInt() and 0xFF,
         )
     }
 

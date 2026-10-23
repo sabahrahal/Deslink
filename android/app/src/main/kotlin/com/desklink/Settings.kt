@@ -17,12 +17,16 @@ data class AppSettings(
          * HELLO de esta tablet: su pantalla completa, su frecuencia y si decodifica HEVC. Los fps y la tasa van a 0:
          * los decide el PC.
          */
-        fun hello(display: DisplaySpec, hevcSupported: Boolean) = Dlp.HelloConfig(
+        fun hello(display: DisplaySpec, hevcSupported: Boolean, prefersH264: Boolean = false) = Dlp.HelloConfig(
             width = display.width,
             height = display.height,
             fps = 0,
             bitrateMbps = 0,
-            codec = if (hevcSupported) Dlp.CAN_DECODE_HEVC else Dlp.CAN_DECODE_H264_ONLY,
+            codec = when {
+                !hevcSupported -> Dlp.CAN_DECODE_H264_ONLY
+                prefersH264 -> Dlp.CAN_DECODE_HEVC_PREFERS_H264
+                else -> Dlp.CAN_DECODE_HEVC
+            },
             densityDpi = display.densityDpi,
             refreshHz = display.refreshHz,
         )

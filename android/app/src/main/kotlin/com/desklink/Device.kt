@@ -34,4 +34,22 @@ object Device {
             true
         }
     }
+
+    /**
+     * ¿Le conviene H.264 aunque tenga HEVC? En MediaTek (Lenovo Idea Tab Pro, mt8792, a 2944x1840) HEVC tardaba 13-15 ms
+     * por frame en decodificar y H.264 8,7-9,4 ms, con la calidad igual de buena a la tasa automática.
+     */
+    val prefersH264: Boolean by lazy {
+        try {
+            MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.any { info ->
+                !info.isEncoder && isMediaTek(info.name) &&
+                    info.supportedTypes.any { it.equals(MediaFormat.MIMETYPE_VIDEO_HEVC, ignoreCase = true) }
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    fun isMediaTek(decoderName: String): Boolean =
+        decoderName.startsWith("c2.mtk.", ignoreCase = true) || decoderName.startsWith("omx.mtk.", ignoreCase = true)
 }
