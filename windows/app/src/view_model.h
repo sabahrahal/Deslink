@@ -57,8 +57,7 @@ struct View {
   Tone dot = Tone::kSecondary;
   std::wstring detail;
   std::wstring stats;  // «120 fps · 48,0 Mbps · 4 ms», solo conectado
-  std::wstring fluency;  // dónde se quedan los fps: «Captura 60 · Codificación 60 · Tablet 58 fps»
-  Line notice;         // por qué la imagen va por debajo de lo elegido, si es así
+  Line notice;         // por qué la imagen va por debajo de lo elegido (Wi-Fi, batería, gráfica), si es así
   std::wstring error;
   std::vector<Line> connection;  // por dónde puede conectar la tablet (cable USB y Wi-Fi)
   std::wstring primary;          // «Iniciar», «Detener»…
@@ -66,12 +65,21 @@ struct View {
   bool primary_stop = false;
   bool show_apply = false;
   std::wstring repair;    // botón para instalar el driver de la pantalla extra (vacío: no hace falta)
-  std::vector<Row> main;  // a la vista: modo, calidad, sonido, táctil
+  std::vector<Row> main;  // a la vista: modo, resolución (o monitor), calidad, sonido, táctil
   bool advanced_open = false;
   std::vector<Row> advanced;
 };
 
 View BuildView(const ViewInput& in);
+
+// Lo técnico que no se enseña en la ventana y va al registro (Configuración avanzada > Ver registro), para medir y
+// diagnosticar: los fps de cada etapa y si el dispositivo se queda atrás. Sale de la última línea «@estado».
+struct Diagnostics {
+  std::wstring fluency;  // dónde se quedan los fps: «Captura 60 · Codificación 60 · Dispositivo 58 fps»
+  std::wstring stats;    // «58,3 Mbps · RTT 3 ms · 2944x1840 · hevc»
+  std::wstring notice;   // «El dispositivo muestra menos imágenes de las que recibe…», o vacío
+};
+Diagnostics BuildDiagnostics(const std::map<std::wstring, std::wstring>& stats);
 
 // Opciones de los desplegables de Configuración avanzada (0 o vacío = automático).
 const std::vector<int>& FpsChoices();

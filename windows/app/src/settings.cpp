@@ -76,6 +76,8 @@ bool LoadSettings(Settings* s) {
   s->port = ReadInt(path, L"port", s->port);
   s->adb = ReadString(path, L"adb");
   s->extra = ReadString(path, L"extra");
+  s->window_w = ReadInt(path, L"window_w", 0);
+  s->window_h = ReadInt(path, L"window_h", 0);
   Sanitize(s);
   if (ReadInt(path, L"config", 1) < kConfigVersion) SaveSettings(*s);
   return true;
@@ -113,4 +115,6 @@ void SaveSettings(const Settings& s) {
   WriteInt(path, L"port", s.port);
   WriteString(path, L"adb", s.adb);
   WriteString(path, L"extra", s.extra);
+  WriteInt(path, L"window_w", s.window_w);
+  WriteInt(path, L"window_h", s.window_h);
 }

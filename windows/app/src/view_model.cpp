@@ -5,15 +5,21 @@
 
 namespace {
 
-std::wstring Stat(const ViewInput& in, const wchar_t* key) {
-  const auto it = in.stats.find(key);
-  return it == in.stats.end() ? std::wstring() : it->second;
+using Stats = std::map<std::wstring, std::wstring>;
+
+std::wstring Stat(const Stats& stats, const wchar_t* key) {
+  const auto it = stats.find(key);
+  return it == stats.end() ? std::wstring() : it->second;
 }
 
-double StatNum(const ViewInput& in, const wchar_t* key) {
-  const std::wstring v = Stat(in, key);
+std::wstring Stat(const ViewInput& in, const wchar_t* key) { return Stat(in.stats, key); }
+
+double StatNum(const Stats& stats, const wchar_t* key) {
+  const std::wstring v = Stat(stats, key);
   return v.empty() ? 0.0 : std::wcstod(v.c_str(), nullptr);
 }
+
+double StatNum(const ViewInput& in, const wchar_t* key) { return StatNum(in.stats, key); }
 
 int StatInt(const ViewInput& in, const wchar_t* key, int def) {
   const std::wstring v = Stat(in, key);
@@ -137,12 +143,11 @@ View BuildView(const ViewInput& in) {
         v.detail = L"La conexión más rápida.";
       } else if (link == L"anclaje") {
         v.title = L"Conectado por cable USB (anclaje de red)";
-        v.detail = L"Funciona, pero con la depuración USB va más fluido y no hay que activar el anclaje cada vez.";
+        v.detail = L"Con la depuración USB va más fluido y no hay que activar el anclaje cada vez.";
       } else {
         v.title = L"Conectado por Wi-Fi";
         v.detail = L"Tablet " + Stat(in, L"ip") + L".";
       }
-      if (!Stat(in, L"size").empty()) v.detail += L" Pantalla de " + Stat(in, L"size") + L".";
       v.dot = Tone::kSuccess;
       break;
     case State::kStopping:
@@ -168,24 +173,12 @@ View BuildView(const ViewInput& in) {
     v.stats = fps < 1 ? std::wstring(L"Imagen quieta") : Fmt(L"%.0f fps", fps);
     v.stats += L" · " + Fmt(L"%.1f Mbps", StatNum(in, L"mbps"));
     if (StatNum(in, L"rtt_ms") > 0) v.stats += L" · " + Fmt(L"%.0f ms", StatNum(in, L"rtt_ms"));
-    // Por dónde se pierden los fps, de punta a punta: lo que da Windows, lo que sale del codificador y lo que muestra
-    // la tablet (si su versión lo cuenta).
-    if (fps >= 1) {
-      v.fluency = Fmt(L"Captura %.0f", StatNum(in, L"capturados")) + L" · " + Fmt(L"Codificación %.0f", fps);
-      const std::wstring tablet = Stat(in, L"tablet_fps");
-      if (!tablet.empty() && tablet != L"-") v.fluency += L" · " + Fmt(L"Dispositivo %.0f", StatNum(in, L"tablet_fps"));
-      v.fluency += L" fps";
-    }
+    // Lo que el usuario puede entender y le explica por qué baja la imagen. Los fps de cada etapa y el aviso del
+    // decodificador del dispositivo van al registro (BuildDiagnostics).
     const std::wstring reduced = Stat(in, L"reducido");
     if (reduced == L"wifi") v.notice = {L"Calidad reducida un momento: el Wi-Fi va justo.", Tone::kWarning};
     else if (reduced == L"bateria") v.notice = {L"Fluidez reducida: la batería del dispositivo no aguanta.", Tone::kWarning};
     else if (reduced == L"carga") v.notice = {L"Fluidez reducida: la gráfica del PC va cargada.", Tone::kWarning};
-    else if (reduced == L"tablet") v.notice = {L"Fluidez ajustada a lo que el dispositivo decodifica a tiempo.", Tone::kSecondary};
-    const std::wstring tablet = Stat(in, L"tablet_fps");
-    if (v.notice.text.empty() && fps >= 20 && !tablet.empty() && tablet != L"-" &&
-        StatNum(in, L"tablet_fps") < 0.8 * fps) {
-      v.notice = {L"El dispositivo muestra menos imágenes de las que recibe: su decodificador no da abasto.", Tone::kWarning};
-    }
   }
 
   // Por dónde puede llegar la tablet: el cable USB y el Wi-Fi, los dos a la vez si los hay.
@@ -238,6 +231,23 @@ View BuildView(const ViewInput& in) {
     v.repair = in.repairing_driver ? L"Instalando la pantalla extra…" : L"Instalar la pantalla extra";
   }
   v.main.push_back(mode);
+  if (s.virtual_display) {
+    // Un solo sitio para la resolución: la de Windows. Extendesk la recuerda para este dispositivo.
+    Row resolution;
+    resolution.id = "resolucion";
+    resolution.control = Control::kLink;
+    resolution.label = L"Resolución";
+    const std::wstring size = Stat(in, L"size");
+    resolution.value = connected && !size.empty() ? SizeLabel(size) : L"Cambiar en Windows";
+    resolution.hint = L"Se cambia en Windows con el dispositivo conectado. Para ver todo más grande, sube la «Escala»: "
+                      L"se ve más nítido.";
+    v.main.push_back(resolution);
+  } else {
+    const std::wstring monitor = s.output < static_cast<int>(in.monitors.size())
+                                     ? in.monitors[s.output]
+                                     : std::to_wstring(s.output + 1) + L": (no conectado)";
+    v.main.push_back(Choice("monitor", L"Monitor", monitor));
+  }
   Row quality = Segmented("calidad", L"Calidad", {L"Alta", L"Equilibrada", L"Ahorro"}, QualityIndex(s.quality));
   const wchar_t* quality_hints[] = {L"La mejor imagen y la máxima fluidez", L"Hasta 60 fps y 30 Mbps",
                                     L"30 fps: gasta menos en el dispositivo"};
@@ -250,21 +260,6 @@ View BuildView(const ViewInput& in) {
   // Configuración avanzada, plegada.
   v.advanced_open = in.advanced_open;
   if (in.advanced_open) {
-    if (s.virtual_display) {
-      // Un solo sitio para la resolución: la de Windows. Extendesk la recuerda para esta tablet.
-      Row resolution;
-      resolution.id = "resolucion";
-      resolution.control = Control::kLink;
-      resolution.label = L"Cambiar la resolución en Windows";
-      resolution.hint = L"Para ver todo más grande, sube la «Escala» en vez de bajar la resolución: se ve más nítido. "
-                        L"Cámbialo con el dispositivo conectado y Extendesk lo recuerda.";
-      v.advanced.push_back(resolution);
-    } else {
-      const std::wstring monitor = s.output < static_cast<int>(in.monitors.size())
-                                       ? in.monitors[s.output]
-                                       : std::to_wstring(s.output + 1) + L": (no conectado)";
-      v.advanced.push_back(Choice("monitor", L"Monitor que se duplica", monitor));
-    }
     v.advanced.push_back(Choice("fps", L"Fluidez", FpsLabel(s.fps)));
     v.advanced.push_back(Choice("mbps", L"Calidad de vídeo", BitrateLabel(s.bitrate)));
     v.advanced.push_back(Choice("codec", L"Códec", CodecLabel(s.codec)));
@@ -298,4 +293,28 @@ View BuildView(const ViewInput& in) {
     v.advanced.push_back(log);
   }
   return v;
+}
+
+Diagnostics BuildDiagnostics(const std::map<std::wstring, std::wstring>& stats) {
+  Diagnostics d;
+  const double fps = StatNum(stats, L"codificados");
+  const std::wstring tablet = Stat(stats, L"tablet_fps");
+  const bool has_tablet = !tablet.empty() && tablet != L"-";  // las versiones viejas del dispositivo no lo cuentan
+  // Por dónde se pierden los fps, de punta a punta: lo que da Windows, lo que sale del codificador y lo que muestra
+  // el dispositivo.
+  if (fps >= 1) {
+    d.fluency = Fmt(L"Captura %.0f", StatNum(stats, L"capturados")) + L" · " + Fmt(L"Codificación %.0f", fps);
+    if (has_tablet) d.fluency += L" · " + Fmt(L"Dispositivo %.0f", StatNum(stats, L"tablet_fps"));
+    d.fluency += L" fps";
+  }
+  d.stats = Fmt(L"%.1f Mbps", StatNum(stats, L"mbps"));
+  if (StatNum(stats, L"rtt_ms") > 0) d.stats += L" · " + Fmt(L"RTT %.0f ms", StatNum(stats, L"rtt_ms"));
+  if (!Stat(stats, L"size").empty()) d.stats += L" · " + Stat(stats, L"size");
+  if (!Stat(stats, L"codec").empty()) d.stats += L" · " + Stat(stats, L"codec");
+  if (Stat(stats, L"reducido") == L"tablet") {
+    d.notice = L"Fluidez ajustada a lo que el dispositivo decodifica a tiempo.";
+  } else if (fps >= 20 && has_tablet && StatNum(stats, L"tablet_fps") < 0.8 * fps) {
+    d.notice = L"El dispositivo muestra menos imágenes de las que recibe: su decodificador no da abasto.";
+  }
+  return d;
 }

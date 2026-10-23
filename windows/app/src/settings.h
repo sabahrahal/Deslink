@@ -27,6 +27,8 @@ struct Settings {
   int port = 47800;
   std::wstring adb;             // ruta de adb.exe; vacía = la busca el host
   std::wstring extra;           // opciones extra para extendesk-host.exe
+  int window_w = 0;             // tamaño del área de la ventana que dejó el usuario, a 96 ppp; 0 = el del contenido
+  int window_h = 0;
 };
 
 std::wstring SettingsPath();

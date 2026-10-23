@@ -25,6 +25,7 @@ void Sanitize(Settings* s) {
   if (s->bitrate < 0 || s->bitrate > 1000) s->bitrate = 0;
   if (s->codec != L"hevc" && s->codec != L"h264") s->codec.clear();
   if (s->port < 1 || s->port > 65535) s->port = 47800;
+  if (s->window_w < 300 || s->window_w > 8000 || s->window_h < 200 || s->window_h > 8000) s->window_w = s->window_h = 0;
   unsigned w, h;
   if (!s->size.empty() && !ParseSize(s->size, &w, &h)) s->size.clear();
 }

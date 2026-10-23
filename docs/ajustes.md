@@ -15,12 +15,13 @@ A la vista, lo que casi todo el mundo toca:
 | Sonido | En el PC (de serie) · En la tablet | Dónde suena el PC. En la tablet, los altavoces del PC se silencian mientras dura y vuelven al terminar |
 | Táctil | Táctil (de serie) · Solo ver | Toques reales de Windows, o los toques no llegan al PC |
 
-En **Configuración avanzada**: fluidez (fps), calidad de vídeo (Mbps), códec (todo «Automático» de serie), el
-monitor que se duplica, «bajar la calidad si la batería de la tablet no aguanta» (de serie, no),
+En **Configuración avanzada**: fluidez (fps), calidad de vídeo (Mbps), códec (todo «Automático» de serie),
+«bajar la calidad si la batería de la tablet no aguanta» (de serie, no),
 cable USB, abrir Extendesk en la tablet al enchufarla (de serie, sí), abrir con Windows, transmitir nada más abrir, el
-puerto y el registro. El puntero del ratón siempre se dibuja en la imagen.
+puerto y el registro. El puntero del ratón siempre se dibuja en la imagen. El monitor que se duplica, con «Duplicar»,
+se elige a la vista, en el sitio de «Resolución».
 
-La **resolución de la pantalla extra** no tiene ajuste propio: «Cambiar la resolución en Windows» abre Configuración
+La **resolución de la pantalla extra** no tiene ajuste propio: «Resolución», a la vista bajo el modo, abre Configuración
 de pantalla y el host sigue lo que se elija ahí. La recuerda para esa tablet (por su resolución nativa) y manda sobre
 la de la tablet; con otra tablet se vuelve a usar su resolución nativa.
 
@@ -71,7 +72,7 @@ configurar nada) o por cable (botones a «Anclaje USB», sin modo desarrollador,
 fluidez; si ya está activa lo dice), subir la «Escala» de Windows en vez de bajar la
 resolución para ver todo más grande, y el botón ☰ durante la sesión. Quien ya había conectado con una versión
 anterior no la ve de golpe; está siempre en Configuración avanzada > Ayuda > Guía de inicio. En el PC, el mismo
-consejo de la escala va bajo «Cambiar la resolución en Windows».
+consejo de la escala va bajo «Resolución».
 
 ## «¿Necesitas más velocidad por USB?»
 

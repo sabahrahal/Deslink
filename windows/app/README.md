@@ -11,15 +11,20 @@ de `src/view_model.cpp`, sin Windows, y lo prueba `tests/test_view_model.cpp`.
 ## Qué hace
 
 - **Estado**: conectado por cable USB o por Wi-Fi (con la IP de la tablet), fps, Mbps y retardo, y por qué la imagen
-  va reducida si es así. Esperando, enseña las dos formas de conectar: el cable USB (enchufada y lista, o qué falta)
-  y el Wi-Fi (la IP de este PC).
+  va reducida si es por algo que el usuario entiende (Wi-Fi, batería, gráfica). Esperando, enseña las dos formas de
+  conectar: el cable USB (enchufada y lista, o qué falta) y el Wi-Fi (la IP de este PC).
+- **Al registro, no a la ventana**: los fps de cada etapa («Fluidez: Captura · Codificación · Dispositivo fps» con
+  Mbps, RTT, resolución y códec, cada 10 s conectado), los avisos técnicos del dispositivo («Aviso: …» al aparecer y
+  «Aviso resuelto: …» al irse) y cada conexión y desconexión. Se ven en **Ver registro**.
+- **La ventana se puede agrandar** (y maximizar; la columna se queda centrada). Mientras no se toque, toma el alto del
+  contenido; si se cambia el tamaño, se recuerda en el `.ini` (`window_w`, `window_h`, a 96 ppp).
 - **Iniciar / Detener** la transmisión, desde la ventana o desde el menú del icono (clic derecho).
-- **Ajustes a la vista**: modo (pantalla extra o duplicar), calidad (Alta, Equilibrada, Ahorro), sonido (en el PC o
-  en la tablet) y táctil (táctil, ratón o solo ver). El PC manda: la tablet usa lo que se elija aquí (ver
-  [ajustes](../../docs/ajustes.md)).
-- **Configuración avanzada**, plegada: resolución, fluidez (fps), calidad de vídeo (Mbps), códec, monitor que se
-  duplica, bajar la calidad si la batería de la tablet no aguanta, puntero, cable USB, abrir con Windows,
-  transmitir al abrir, el puerto y **Ver registro** (la salida completa del host, con «Copiar todo»).
+- **Ajustes a la vista**: modo (pantalla extra o duplicar), la resolución (abre la de Windows; con duplicar, el
+  monitor que se duplica), calidad (Alta, Equilibrada, Ahorro), sonido (en el PC o en la tablet) y táctil (táctil o
+  solo ver). El PC manda: la tablet usa lo que se elija aquí (ver [ajustes](../../docs/ajustes.md)).
+- **Configuración avanzada**, plegada: fluidez (fps), calidad de vídeo (Mbps), códec, bajar la calidad si la batería
+  de la tablet no aguanta, red Wi-Fi del PC, cable USB, abrir con Windows, transmitir al abrir, el puerto y **Ver
+  registro** (la salida completa del host, con «Copiar todo»).
 - Casi todo se aplica en marcha: la app manda al host una línea `@ajustes …` por su entrada. El monitor, el puntero
   y el cable USB necesitan reiniciar la transmisión: aparece **Aplicar cambios**. El modo reinicia solo.
 - Se guarda en `%APPDATA%\Extendesk\extendesk.ini` (`config=3`; los `.ini` anteriores, también el `%APPDATA%\DeskLink\desklink.ini`
