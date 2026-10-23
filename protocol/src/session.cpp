@@ -201,7 +201,7 @@ void FpsGovernor::Reset(uint32_t target_fps) {
   since_up_ = -1;
 }
 
-bool FpsGovernor::Update(uint32_t submitted, uint32_t dropped) {
+bool FpsGovernor::Update(uint32_t submitted, uint32_t dropped, uint32_t tablet_decode_us) {
   if (submitted < 10) {  // escritorio casi quieto: no dice nada de la carga
     slow_seconds_ = 0;
     return false;
@@ -210,7 +210,8 @@ bool FpsGovernor::Update(uint32_t submitted, uint32_t dropped) {
     since_up_ = -1;
     wait_seconds_ = 10;
   }
-  if (dropped * 10 > submitted) {
+  const bool tablet_slow = tablet_decode_us && static_cast<uint64_t>(tablet_decode_us) * fps_ > 900'000;
+  if (dropped * 10 > submitted || tablet_slow) {
     clean_seconds_ = 0;
     if (++slow_seconds_ < 3) return false;
     slow_seconds_ = 0;
@@ -222,13 +223,15 @@ bool FpsGovernor::Update(uint32_t submitted, uint32_t dropped) {
     return true;
   }
   slow_seconds_ = 0;
-  if (dropped > 0 || fps_ >= target_) {
+  const uint32_t up = StepUp(fps_, target_);
+  const bool tablet_room = !tablet_decode_us || static_cast<uint64_t>(tablet_decode_us) * up < 850'000;
+  if (dropped > 0 || fps_ >= target_ || !tablet_room) {
     clean_seconds_ = 0;
     return false;
   }
   if (++clean_seconds_ < wait_seconds_) return false;
   clean_seconds_ = 0;
-  fps_ = StepUp(fps_, target_);
+  fps_ = up;
   since_up_ = 0;
   return true;
 }

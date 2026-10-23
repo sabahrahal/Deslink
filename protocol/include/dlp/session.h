@@ -126,11 +126,15 @@ class RateController {
 // dice nada de la carga (con él se bajaba a 30 fps sin motivo).
 // Si se descarta más del 10 % durante 3 s, baja un escalón (120, 90, 60, 45, 30). Tras 10 s sin descartes prueba el
 // escalón de arriba; si al subir vuelve a descartar enseguida, la siguiente prueba espera el doble (hasta 160 s).
+// La tablet cuenta igual: si tarda en decodificar más del 90 % del intervalo entre frames, los frames se le apilan en
+// el decodificador (más retardo a cada uno) y se baja como si descartara el PC. Solo se sube si en el escalón de arriba
+// le quedaría al menos un 15 % de holgura.
 class FpsGovernor {
  public:
   void Reset(uint32_t target_fps);
   // Una vez por segundo. Devuelve true si cambian los fps.
-  bool Update(uint32_t submitted, uint32_t dropped);
+  // tablet_decode_us: lo que tarda la tablet en decodificar cada frame (0 si no lo dice).
+  bool Update(uint32_t submitted, uint32_t dropped, uint32_t tablet_decode_us = 0);
   uint32_t fps() const { return fps_; }
   uint32_t target() const { return target_; }
   bool reduced() const { return fps_ < target_; }

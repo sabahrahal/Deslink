@@ -1444,6 +1444,7 @@ int Run(int argc, char** argv) {
         rtt_us = 0;
         tablet_received = tablet_lost = 0;
         tablet_decoded = -1;
+        tablet_decode_x10 = -1;
         tablet_total_x10 = 0;
         std::printf("Cliente desconectado (sin respuesta durante 5 s). Esperando cliente.\n");
       }
@@ -1594,9 +1595,15 @@ int Run(int argc, char** argv) {
         if (udp.has_peer()) {
           UINT new_fps = 0;
           bool slower = false;
+          // La tablet también frena: si decodificar le lleva casi todo el intervalo, los frames se le apilan.
+          const int decode_x10 = tablet_decode_x10.load();
+          const uint32_t decode_us = decode_x10 > 0 ? static_cast<uint32_t>(decode_x10) * 100u : 0u;
+          bool tablet_limit = false;
           {
             std::lock_guard<std::mutex> lock(quality_mutex);
-            if (fps_gov.Update(static_cast<uint32_t>(submitted), static_cast<uint32_t>(dropped))) {
+            const uint32_t before = fps_gov.fps();
+            tablet_limit = decode_us && static_cast<uint64_t>(decode_us) * before > 900'000;
+            if (fps_gov.Update(static_cast<uint32_t>(submitted), static_cast<uint32_t>(dropped), decode_us)) {
               new_fps = Apply(opt, tablet_request, fps_gov.fps()).fps;
               slower = fps_gov.reduced();
               min_interval_us = 1'000'000ull / new_fps;
@@ -1607,7 +1614,10 @@ int Run(int argc, char** argv) {
             const uint64_t fed_n = pipe->encoder->fed_frames - last_fed;
             std::printf("Fluidez: %u fps (%s; último segundo: %llu de %llu frames descartados, total %.1f ms: "
                         "en cola %.1f ms, codificador %.1f ms).\n",
-                        new_fps, slower ? "la gráfica no llega a más" : "vuelve a subir",
+                        new_fps,
+                        !slower         ? "vuelve a subir"
+                        : tablet_limit  ? "la tablet no decodifica a más"
+                                        : "la gráfica no llega a más",
                         static_cast<unsigned long long>(dropped), static_cast<unsigned long long>(submitted),
                         enc ? lat / 1000.0 / enc : 0.0,
                         fed_n ? (pipe->encoder->mailbox_wait_us - last_mailbox) / 1000.0 / fed_n : 0.0,

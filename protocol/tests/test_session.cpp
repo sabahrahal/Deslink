@@ -222,6 +222,32 @@ static void TestFpsGovernor() {
   // Nunca baja de 30.
   for (int i = 0; i < 60; ++i) g.Update(100, 90);
   CHECK(g.fps() == 30);
+
+  // La tablet no da abasto a 120 (HEVC a 14 ms: como mucho ~70 fps): baja aunque el PC no descarte nada.
+  FpsGovernor t;
+  t.Reset(120);
+  CHECK(!t.Update(120, 0, 14'000));
+  CHECK(!t.Update(120, 0, 14'000));
+  CHECK(t.Update(120, 0, 14'000));
+  CHECK(t.fps() == 90);
+  CHECK(!t.Update(90, 0, 14'000));
+  CHECK(!t.Update(90, 0, 14'000));
+  CHECK(t.Update(90, 0, 14'000));
+  CHECK(t.fps() == 60);
+  // A 60 le cabe (14 ms de 16,7) pero a 90 no: no prueba a subir.
+  for (int i = 0; i < 40; ++i) CHECK(!t.Update(60, 0, 14'000));
+  CHECK(t.fps() == 60);
+  // Con H.264 a 9 ms, a 90 iría al 81 %: sube tras 10 s; a 120 iría al 108 %: de ahí no pasa.
+  for (int i = 0; i < 9; ++i) CHECK(!t.Update(60, 0, 9'000));
+  CHECK(t.Update(60, 0, 9'000));
+  CHECK(t.fps() == 90);
+  for (int i = 0; i < 60; ++i) CHECK(!t.Update(90, 0, 9'000));
+  CHECK(t.fps() == 90);
+  // La tablet que dice 0 (no lo mide) no frena nada.
+  FpsGovernor u;
+  u.Reset(120);
+  for (int i = 0; i < 10; ++i) CHECK(!u.Update(120, 0, 0));
+  CHECK(u.fps() == 120);
 }
 
 int main() {
