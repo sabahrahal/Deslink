@@ -1201,7 +1201,10 @@ int Run(int argc, char** argv) {
     uint64_t last_rect_check_us = 0;
     ID3D11Texture2D* last_nv12 = nullptr;
     bool dirty = false;      // la imagen guardada (o el cursor) cambió y aún no se convirtió ni envió
-    uint64_t dirty_since_us = 0;  // cuándo llegó el primer cambio aún sin enviar (lo que espera por el límite de fps)
+    // Cuándo llegó la imagen más reciente aún sin enviar: lo que espera la que de verdad se manda. Contar desde el primer
+    // cambio pendiente exageraba con el escritorio a más Hz que los fps (a 180 imágenes/s y 60 fps salía ~11 ms de
+    // espera aunque la imagen enviada tuviera 0-5 ms).
+    uint64_t dirty_since_us = 0;
     uint64_t capture_wait_us = 0, capture_wait_n = 0, latency_capture_wait = 0, latency_capture_n = 0,
              latency_captured = 0;
     int flush_left = 0;      // repeticiones pendientes para vaciar el codificador
@@ -1452,7 +1455,7 @@ int Run(int argc, char** argv) {
       if (result == DesktopCapture::Result::kFrame) {
         pipe->converter.Store(frame);
         pipe->capture.Release();
-        if (!dirty) dirty_since_us = NowUs();
+        dirty_since_us = NowUs();
         dirty = true;
         ++captured;
       } else {
@@ -1460,7 +1463,7 @@ int Run(int argc, char** argv) {
         // Solo se movió el cursor: se redibujará sobre la última imagen.
         if (result == DesktopCapture::Result::kCursorMoved && opt.cursor && !opt.virtual_display &&
             pipe->converter.has_image()) {
-          if (!dirty) dirty_since_us = NowUs();
+          dirty_since_us = NowUs();
           dirty = true;
         }
       }

@@ -1617,6 +1617,16 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd_line, int) {
                           r.bottom - r.top, nullptr, nullptr, inst, nullptr);
   if (!g.wnd) return 1;
   StyleTitleBar(g.wnd);
+  // El de la clase es de 32 px: la barra de tareas a más del 100 % de escala lo pide más grande y Windows podía
+  // tirar de otro (el de la caché). Se le da el del tamaño justo para el DPI de la ventana.
+  {
+    const UINT dpi = GetDpiForWindow(g.wnd);
+    const int big = MulDiv(GetSystemMetrics(SM_CXICON), static_cast<int>(dpi), 96);
+    if (HICON icon = static_cast<HICON>(LoadImageW(inst, L"APP", IMAGE_ICON, big, big, 0))) {
+      SendMessageW(g.wnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(icon));
+    }
+    SendMessageW(g.wnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(g.app_icon_small));
+  }
 
   // Primera pasada de dibujo fuera de pantalla para saber el alto del contenido y centrar la ventana ya con él.
   {

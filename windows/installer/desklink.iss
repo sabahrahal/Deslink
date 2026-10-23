@@ -78,6 +78,8 @@ Name: "{group}\Desinstalar DeskLink"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\DeskLink"; Filename: "{app}\{#MainExe}"; Parameters: "{#MainArgs}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
+; Windows guarda en caché los iconos de los programas: sin esto la barra de tareas seguía con el logo de antes.
+Filename: "{sys}\ie4uinit.exe"; Parameters: "-show"; Flags: runhidden waituntilterminated skipifdoesntexist
 Filename: "{app}\{#MainExe}"; Parameters: "{#MainArgs}"; WorkingDir: "{app}"; Description: "Abrir DeskLink"; Flags: postinstall nowait skipifsilent unchecked
 
 [UninstallDelete]
