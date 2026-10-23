@@ -1189,6 +1189,11 @@ int Run(int argc, char** argv) {
 
     constexpr uint64_t kRefineIntervalUs = 100'000;  // separación de las repeticiones de afinado
     uint64_t last_submit_us = 0;
+    // Límite de fps por plazos fijos: cada envío corre el plazo un intervalo y se puede mandar hasta 1/4 de intervalo
+    // antes. Contar el intervalo desde el último envío hacía que, con el monitor a los mismos Hz que los fps, una
+    // imagen que llegaba un pelo antes de cumplirse (los vsync bailan décimas de ms) esperase al vsync siguiente:
+    // casi un frame entero (~13 ms de media a 60 Hz) parado en el PC.
+    uint64_t next_due_us = 0;
     uint64_t last_rect_check_us = 0;
     ID3D11Texture2D* last_nv12 = nullptr;
     bool dirty = false;      // la imagen guardada (o el cursor) cambió y aún no se convirtió ni envió
@@ -1346,7 +1351,8 @@ int Run(int argc, char** argv) {
       if (udp.has_peer() && pipe->converter.has_image()) {
         uint64_t due = 0;
         if (dirty || flush_left > 0 || pipe->encoder->keyframe_pending()) {
-          due = last_submit_us + min_interval_us.load();
+          const uint64_t interval = min_interval_us.load();
+          due = next_due_us > interval / 4 ? next_due_us - interval / 4 : 1;
         } else if (refine_left > 0) {
           due = last_submit_us + kRefineIntervalUs;
         }
@@ -1461,7 +1467,7 @@ int Run(int argc, char** argv) {
       // quieta (texto nítido tras desplazar o arrastrar una ventana) en vez de dejarla como salió en movimiento.
       const uint64_t now = NowUs();
       const bool refine_due = refine_left > 0 && now - last_submit_us >= kRefineIntervalUs;
-      if (udp.has_peer() && pipe->converter.has_image() && now - last_submit_us >= min_interval_us.load() &&
+      if (udp.has_peer() && pipe->converter.has_image() && now + min_interval_us.load() / 4 >= next_due_us &&
           (dirty || flush_left > 0 || refine_due || pipe->encoder->keyframe_pending())) {
         if (dirty || !last_nv12) {
           const uint64_t conv_start = NowUs();
@@ -1476,6 +1482,11 @@ int Run(int argc, char** argv) {
         }
         pipe->encoder->Submit(last_nv12, now);
         last_submit_us = now;
+        {
+          // Sin acumular crédito tras estar quieto: como mucho medio intervalo de adelanto respecto a ahora.
+          const uint64_t interval = min_interval_us.load();
+          next_due_us = std::max(next_due_us + interval, now + interval / 2);
+        }
         if (dirty) {
           if (now > dirty_since_us) capture_wait_us += now - dirty_since_us;
           ++capture_wait_n;
