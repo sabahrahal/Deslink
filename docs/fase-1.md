@@ -5,7 +5,7 @@ Objetivo: duplicar un monitor de Windows, codificarlo con la GPU, enviarlo por W
 ## Qué hay
 
 - `protocol/`: formato de paquetes y reensamblado, con pruebas (`ctest`).
-- `windows/host/`: captura DXGI Desktop Duplication, conversión BGRA a NV12 en GPU, codificador por hardware de Media Foundation (NVENC en una RTX) y envío UDP.
+- `windows/host/`: captura DXGI Desktop Duplication, conversión BGRA a NV12 en GPU, codificador por hardware (con NVIDIA, NVENC directo; si no, Media Foundation) y envío UDP.
 - `android/`: app que recibe, reensambla, decodifica por hardware (`MediaCodec` en modo baja latencia) y pinta en una `SurfaceView`.
 
 ## Cómo probarlo

@@ -27,6 +27,7 @@
 #include "encoder.h"
 #include "gpu.h"
 #include "frame_sender.h"
+#include "nvenc_encoder.h"
 #include "history.h"
 #include "touch.h"
 #include "udp.h"
@@ -252,6 +253,7 @@ struct Options {
   bool touch = true;     // --no-touch desactiva el control táctil
   UINT pace_mbps = 100;  // reparte cada frame a esta tasa; 0 = de golpe (el anclaje USB pierde ráfagas)
   UINT fec_group = 10;   // --fec: por WiFi, una paridad cada tantos paquetes (10 % más de datos); 0 = sin FEC
+  int encoder = 0;       // --encoder: 0 auto (NVENC directo si la GPU es NVIDIA), 1 nvenc, 2 mf (Media Foundation)
   bool virtual_display = false;  // --virtual: crea un monitor virtual (driver desklink-idd) y captura ese
   UINT virtual_width = 2944;     // --size: resolución del monitor virtual (por defecto, la Lenovo Idea Tab Pro)
   UINT virtual_height = 1840;
@@ -379,7 +381,7 @@ struct Pipeline {
   Gpu gpu;
   DesktopCapture capture;
   Nv12Converter converter;
-  std::unique_ptr<MfEncoder> encoder;
+  std::unique_ptr<VideoEncoder> encoder;
   UINT w = 0, h = 0;    // tamaño capturado
   UINT ew = 0, eh = 0;  // tamaño codificado (menor con los perfiles de ahorro)
   uint8_t scale_percent = 100;
@@ -419,6 +421,16 @@ bool ParseArgs(int argc, char** argv, Options* o) {
       o->battery_adapt = true;
     } else if (a == "--view-only") {
       o->input_mode = 2;
+    } else if (a == "--encoder") {
+      auto v = next("--encoder"); if (!v) return false;
+      const std::string e = v;
+      if (e == "auto") o->encoder = 0;
+      else if (e == "nvenc") o->encoder = 1;
+      else if (e == "mf") o->encoder = 2;
+      else {
+        std::fprintf(stderr, "--encoder: auto, nvenc o mf\n");
+        return false;
+      }
     } else if (a == "--fec") {
       auto v = next("--fec"); if (!v) return false;
       o->fec_group = static_cast<UINT>(std::atoi(v));
@@ -481,7 +493,7 @@ bool ParseArgs(int argc, char** argv, Options* o) {
       std::fprintf(stderr,
                    "Uso: desklink-host [--port 47800] [--output 0] [--fps auto|60] [--bitrate auto|50] "
                    "[--codec auto|hevc|h264] [--profile alta|equilibrada|ahorro] [--audio-tablet] [--battery-adapt] "
-                   "[--pace Mbps] [--fec 10] [--refine 4] [--no-touch] [--touch|--mouse|--view-only] [--no-cursor] [--no-audio] "
+                   "[--encoder auto|nvenc|mf] [--pace Mbps] [--fec 10] [--refine 4] [--no-touch] [--touch|--mouse|--view-only] [--no-cursor] [--no-audio] "
                    "[--audio-bitrate 128] [--virtual [--size 2944x1840]] [--no-usb] [--no-open-tablet] [--adb ruta\\adb.exe] [--status] "
                    "[--stop-event nombre]\n");
       return false;
@@ -591,7 +603,7 @@ int Run(int argc, char** argv) {
   // El codificador lo toca también el hilo de recepción (tasa, frames clave): su puntero se publica
   // bajo este cerrojo y se retira antes de destruirlo.
   std::mutex enc_mutex;
-  MfEncoder* enc_ptr = nullptr;
+  VideoEncoder* enc_ptr = nullptr;
   auto enc_bitrate = [&](uint32_t bps) {
     std::lock_guard<std::mutex> lock(enc_mutex);
     if (enc_ptr) enc_ptr->SetBitrate(bps);
@@ -763,12 +775,25 @@ int Run(int argc, char** argv) {
     // y a la escala de ese monitor: dibujarlo otra vez salía doble, uno grande y otro pequeño desplazado.
     // Desktop Duplication solo lo deja fuera en un monitor de verdad.
     p->converter.SetDrawCursor(opt.cursor && !opt.virtual_display);
-    p->encoder = std::make_unique<MfEncoder>();
     // El codificador se crea a los fps del host: con menos fps simplemente recibe menos frames (como con el
-    // escritorio quieto), así un cambio de perfil no obliga a rehacerlo.
-    if (!p->encoder->Init(p->gpu, opt.codec, ew, eh, opt.fps, eff.bitrate_mbps_x10 * 100'000u, on_encoded)) {
-      std::fprintf(stderr, "Error: no se pudo iniciar el codificador (arriba está el motivo).\n");
-      return nullptr;
+    // escritorio quieto), así un cambio de perfil no obliga a rehacerlo. Con NVIDIA, NVENC directo (menos
+    // espera que su MFT); si no arranca, Media Foundation, que vale para cualquier GPU.
+    if (opt.encoder != 2 && NvencEncoder::IsNvidia(p->gpu)) {
+      auto nv = std::make_unique<NvencEncoder>();
+      if (nv->Init(p->gpu, opt.codec, ew, eh, opt.fps, eff.bitrate_mbps_x10 * 100'000u, on_encoded)) {
+        p->encoder = std::move(nv);
+      } else {
+        std::printf("NVENC directo no arrancó (arriba está el motivo): se usa el de Media Foundation.\n");
+      }
+    } else if (opt.encoder == 1) {
+      std::printf("--encoder nvenc: la GPU que captura no es de NVIDIA, se usa el de Media Foundation.\n");
+    }
+    if (!p->encoder) {
+      p->encoder = std::make_unique<MfEncoder>();
+      if (!p->encoder->Init(p->gpu, opt.codec, ew, eh, opt.fps, eff.bitrate_mbps_x10 * 100'000u, on_encoded)) {
+        std::fprintf(stderr, "Error: no se pudo iniciar el codificador (arriba está el motivo).\n");
+        return nullptr;
+      }
     }
     dlp::StreamInfo info;
     info.width = static_cast<uint16_t>(ew);
