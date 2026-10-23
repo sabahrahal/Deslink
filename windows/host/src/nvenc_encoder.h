@@ -21,6 +21,7 @@ class NvencEncoder : public VideoEncoder {
             OutputCallback callback) override;
   void Submit(ID3D11Texture2D* nv12, uint64_t timestamp_us) override;
   void Stop() override;
+  bool retains_frames() const override { return false; }  // síncrono: cada frame sale antes del siguiente
 
   // Se puede probar antes de crear nada: la GPU que captura es de NVIDIA.
   static bool IsNvidia(Gpu& gpu);

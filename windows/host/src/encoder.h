@@ -38,6 +38,9 @@ class VideoEncoder {
 
   virtual void Stop() = 0;
 
+  // Si se queda frames dentro hasta recibir otros (el MFT retiene un par): el host le repite el último para vaciarlo.
+  virtual bool retains_frames() const { return true; }
+
   void RequestKeyframe() { keyframe_requested_ = true; }
   // Cambia la tasa en caliente; se aplica antes del siguiente frame.
   void SetBitrate(uint32_t bps) { bitrate_request_ = bps; }

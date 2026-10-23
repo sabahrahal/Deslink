@@ -1491,7 +1491,8 @@ int Run(int argc, char** argv) {
           if (now > dirty_since_us) capture_wait_us += now - dirty_since_us;
           ++capture_wait_n;
           dirty = false;
-          flush_left = 2;
+          // NVENC directo entrega cada frame al momento: repetirlo solo quitaba el hueco al siguiente cambio.
+          flush_left = pipe->encoder->retains_frames() ? 2 : 0;
           refine_left = opt.refine;
         } else if (flush_left > 0) {
           --flush_left;
