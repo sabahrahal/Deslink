@@ -134,13 +134,13 @@ class ChargeGovernor(private val base: PowerProfile, private val adapt: Boolean)
     /** Texto del indicador, p. ej. «Cargando +2,1 W» o «Se descarga con el cable −0,6 W». */
     fun indicator(): String {
         val w = lastNetMw?.let { " ${"%+.1f".format(it / 1000)} W" } ?: ""
-        val profile = if (current != base) " · bajado a ${current.label}" else ""
+        val profile = if (current != base) Strings.get(R.string.charge_lowered_to, current.label) else ""
         return when (state) {
-            ChargeState.MEASURING -> "Midiendo consumo…"
-            ChargeState.ON_BATTERY -> "Batería · consumo neto$w$profile"
-            ChargeState.CHARGING -> "Cargando · neto$w$profile"
-            ChargeState.ADAPTING -> "Se descarga con el cable$w · bajando calidad$profile"
-            ChargeState.DRAINING -> "Se descarga pese al cable$w$profile"
+            ChargeState.MEASURING -> Strings.get(R.string.charge_measuring)
+            ChargeState.ON_BATTERY -> Strings.get(R.string.charge_on_battery, w, profile)
+            ChargeState.CHARGING -> Strings.get(R.string.charge_charging, w, profile)
+            ChargeState.ADAPTING -> Strings.get(R.string.charge_adapting, w, profile)
+            ChargeState.DRAINING -> Strings.get(R.string.charge_draining, w, profile)
         }
     }
 

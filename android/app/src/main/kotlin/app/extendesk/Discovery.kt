@@ -16,7 +16,7 @@ data class Found(val ip: String, val route: Route?, val name: String = "", val a
     val isCable: Boolean get() = ip.equals(Link.CABLE_HOST, ignoreCase = true)
 
     /** Nombre para mostrar: el del PC si lo dio, si no la IP. */
-    val title: String get() = name.ifBlank { if (isCable) "PC por cable USB" else ip }
+    val title: String get() = name.ifBlank { if (isCable) Strings.get(R.string.pc_by_usb_cable) else ip }
 
     companion object {
         fun from(ip: String, route: Route?, info: Dlp.StreamInfo?) =
@@ -120,6 +120,6 @@ object Discovery {
             }
         } catch (_: Exception) {
         }
-        return if (parts.isEmpty()) "ninguna" else parts.joinToString(", ")
+        return if (parts.isEmpty()) Strings.get(R.string.networks_none) else parts.joinToString(", ")
     }
 }

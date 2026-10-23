@@ -74,8 +74,8 @@ object HostGroups {
 
     /** Texto bajo el nombre del PC para el camino elegido. Por anclaje o por depuración USB es el mismo cable. */
     fun describe(f: Found): String = when {
-        f.isCable || isTether(f) -> "Por cable USB · la conexión más estable"
-        f.transport == Transport.ETHERNET -> "Por cable de red · ${f.ip}"
-        else -> "Por Wi-Fi · ${f.ip}"
+        f.isCable || isTether(f) -> Strings.get(R.string.route_cable)
+        f.transport == Transport.ETHERNET -> Strings.get(R.string.route_ethernet, f.ip)
+        else -> Strings.get(R.string.route_wifi, f.ip)
     }
 }

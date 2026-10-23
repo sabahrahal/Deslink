@@ -1,5 +1,6 @@
 package app.extendesk
 
+import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import org.junit.Assert.assertEquals
@@ -7,7 +8,12 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.annotation.Config
 
+// Los textos salen de strings.xml (Robolectric); se comprueban en español.
+@RunWith(AndroidJUnit4::class)
+@Config(sdk = [34], qualifiers = "es")
 class LatencyTest {
     @Test fun clockUsesTheFastestPong() {
         val c = ClockSync()

@@ -20,7 +20,7 @@ import org.robolectric.annotation.Config
 
 /** La guía de inicio enseña cada paso y sus consejos donde deben (Robolectric, sin tablet). */
 @RunWith(AndroidJUnit4::class)
-@Config(sdk = [34])
+@Config(sdk = [34], qualifiers = "es")
 class OnboardingScreenTest {
     @get:Rule val compose = createComposeRule()
 

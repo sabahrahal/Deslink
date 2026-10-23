@@ -33,6 +33,7 @@ using std::min;
 
 #include "direct_wifi.h"
 #include "host_process.h"
+#include "i18n.h"
 #include "logo.h"
 #include "settings.h"
 #include "system_info.h"
@@ -169,33 +170,26 @@ COLORREF ToneColor(Tone t) {
 std::wstring FriendlyError(const std::wstring& line) {
   auto has = [&](const wchar_t* s) { return line.find(s) != std::wstring::npos; };
   if (has(L"driver del monitor virtual no está instalado")) {
-    return L"Falta el driver de la pantalla extra. Pulsa «Instalar la pantalla extra» (Windows pedirá permiso) o "
-           L"elige «Duplicar».";
+    return Tr("err_driver_missing");
   }
   if (has(L"no se pudo abrir el driver")) {
-    return L"Windows no deja abrir el driver de la pantalla extra. Reinstala Extendesk con el instalador de la "
-           L"última versión.";
+    return Tr("err_driver_open");
   }
   if (has(L"no activó el monitor virtual")) {
-    return L"Windows no activó la pantalla extra. En Configuración > Pantalla, elige «Extender estas pantallas».";
+    return Tr("err_not_enabled");
   }
   if (has(L"el driver no pudo crear el monitor")) {
-    return L"El driver no pudo crear la pantalla extra. Prueba otra resolución (en «Resolución») o reinstala el "
-           L"driver.";
+    return Tr("err_driver_create");
   }
   if (has(L"bind al puerto") || has(L"USB: no se pudo escuchar")) {
-    return Format(L"El puerto %d ya está en uso. ¿Hay otro Extendesk abierto (por ejemplo extendesk-host.exe en una "
-                  L"consola)? Ciérralo y pulsa Iniciar.",
-                  g.settings.port);
+    return Tr("err_port", {std::to_wstring(g.settings.port)});
   }
   if (has(L"codificador")) {
-    return L"La tarjeta gráfica no pudo iniciar el codificador de vídeo. Actualiza el driver de la tarjeta gráfica y "
-           L"pulsa Iniciar.";
+    return Tr("err_encoder");
   }
-  if (has(L"No existe la salida")) return L"Ese monitor ya no está conectado. Elige otro en «Monitor».";
+  if (has(L"No existe la salida")) return Tr("err_no_output");
   if (has(L"DuplicateOutput falló") || has(L"no se pudo recuperar la captura")) {
-    return L"Windows no deja capturar la pantalla ahora mismo (pantalla bloqueada, aviso de UAC o un juego a "
-           L"pantalla completa).";
+    return Tr("err_capture");
   }
   return {};
 }
@@ -329,8 +323,8 @@ LRESULT CALLBACK LogProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
       g.log_edit = CreateWindowExW(0, L"EDIT", L"",
                                    WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL,
                                    0, 0, 0, 0, hwnd, reinterpret_cast<HMENU>(kIdLogEdit), g.inst, nullptr);
-      CreateWindowExW(0, L"BUTTON", L"Copiar todo", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 0, 0, 0, 0,
-                      hwnd, reinterpret_cast<HMENU>(kIdLogCopy), g.inst, nullptr);
+      CreateWindowExW(0, L"BUTTON", Tr("copy_all").c_str(), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 0, 0,
+                      0, 0, hwnd, reinterpret_cast<HMENU>(kIdLogCopy), g.inst, nullptr);
       SendMessageW(g.log_edit, WM_SETFONT, reinterpret_cast<WPARAM>(g.mono_font), TRUE);
       SendMessageW(GetDlgItem(hwnd, kIdLogCopy), WM_SETFONT, reinterpret_cast<WPARAM>(g.ui_font), TRUE);
       SendMessageW(g.log_edit, EM_SETLIMITTEXT, 0, 0);
@@ -380,6 +374,15 @@ LRESULT CALLBACK LogProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
   return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
+// El idioma elegido en Configuración avanzada o, en «Automático», el de Windows. Al cambiarlo se ve al momento en la
+// ventana, el menú y el icono junto al reloj; el registro abierto sigue con su título hasta que se vuelva a abrir.
+void ApplyLanguage() {
+  wchar_t system[LOCALE_NAME_MAX_LENGTH] = L"";
+  LCIDToLocaleName(MAKELCID(GetUserDefaultUILanguage(), SORT_DEFAULT), system, LOCALE_NAME_MAX_LENGTH, 0);
+  SetLang(ResolveLang(g.settings.language, system));
+  if (g.wnd) TrayCommand(NIM_MODIFY);
+}
+
 // La resolución de la pantalla extra se cambia donde la de cualquier monitor; el host sigue lo que se elija.
 void OpenDisplaySettings() { ShellExecuteW(nullptr, L"open", L"ms-settings:display", nullptr, nullptr, SW_SHOWNORMAL); }
 
@@ -394,7 +397,7 @@ void ShowLog() {
     SetForegroundWindow(g.log_wnd);
     return;
   }
-  g.log_wnd = CreateWindowExW(0, kLogClass, L"Extendesk: registro", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+  g.log_wnd = CreateWindowExW(0, kLogClass, Tr("log_title").c_str(), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
                               static_cast<int>(F(760)), static_cast<int>(F(440)), nullptr, nullptr, g.inst, nullptr);
   ShowWindow(g.log_wnd, SW_SHOW);
 }
@@ -492,7 +495,7 @@ void RepairDriver() {
   const std::wstring dir = AppDirectory() + L"\\driver";
   const std::wstring exe = dir + L"\\extendesk-driver.exe";
   if (GetFileAttributesW(exe.c_str()) == INVALID_FILE_ATTRIBUTES) {
-    g.error = L"No encuentro el driver junto a Extendesk. Vuelve a instalar Extendesk con Extendesk-Setup.exe.";
+    g.error = Tr("err_no_driver_files");
     g.error_mapped = true;
     SetState(State::kError);
     return;
@@ -511,9 +514,7 @@ void RepairDriver() {
   sei.lpDirectory = dir.c_str();
   sei.nShow = SW_HIDE;
   if (!ShellExecuteExW(&sei) || !sei.hProcess) {
-    g.error = GetLastError() == ERROR_CANCELLED
-                  ? L"Para instalar la pantalla extra hace falta aceptar el permiso de Windows. Vuelve a pulsar el botón."
-                  : L"No se pudo lanzar la instalación de la pantalla extra.";
+    g.error = Tr(GetLastError() == ERROR_CANCELLED ? "err_uac" : "err_install_launch");
     g.error_mapped = true;
     SetState(State::kError);
     return;
@@ -563,10 +564,7 @@ void OnDriverDone(DWORD code) {
     StartHost();
     return;
   }
-  g.error = code == 0 ? L"El driver se instaló pero Windows no arrancó la pantalla extra. Reinicia el PC y pulsa Iniciar."
-                      : Format(L"No se pudo instalar la pantalla extra (código %lu). El detalle está en Configuración "
-                               L"avanzada > Ver registro. Mientras tanto puedes usar «Duplicar».",
-                               code);
+  g.error = code == 0 ? Tr("err_installed_not_started") : Tr("err_install_failed", {std::to_wstring(code)});
   g.error_mapped = true;
   SetState(State::kError);
 }
@@ -632,10 +630,10 @@ void OnHostLine(bool from_stderr, const std::wstring& line) {
     const std::wstring link = g.stats[L"enlace"];
     if (link != g.link && g.state != State::kStopping) {
       if (link == L"ninguno") {
-        Notify(L"Dispositivo desconectado", L"Extendesk sigue esperando a que vuelva a conectarse.");
+        Notify(Tr("n_disconnected"), Tr("n_disconnected_body"));
         AddLog(L"--- Dispositivo desconectado");
       } else {
-        Notify(L"Dispositivo conectado", link == L"usb" ? L"Por cable USB." : L"Por Wi-Fi (" + g.stats[L"ip"] + L").");
+        Notify(Tr("n_connected"), link == L"usb" ? Tr("n_connected_usb") : Tr("n_connected_wifi", {g.stats[L"ip"]}));
         AddLog(L"--- Dispositivo conectado: " + link + (link == L"wifi" ? L" " + g.stats[L"ip"] : L"") + L" · " +
                BuildDiagnostics(g.stats).stats);
         g.diagnostics_at = 0;
@@ -686,16 +684,16 @@ void OnHostExit(DWORD code) {
   }
   AddLog(Format(L"--- extendesk-host.exe terminó (código %lu).", code));
   if (g.error.empty()) {
-    g.error = Format(L"El host se cerró inesperadamente (código %lu). Abre «Ver registro» para el detalle.", code);
+    g.error = Tr("err_host_crash", {std::to_wstring(code)});
   }
   if (ran >= kStableRunMs) {
     // Funcionaba: un fallo pasajero (la GPU se reinició, cambió el modo de pantalla…). Se vuelve a intentar.
-    Notify(L"Extendesk se reinicia", g.error, true);
+    Notify(Tr("n_restarting"), g.error, true);
     SetTimer(g.wnd, kTimerRestart, 3000, nullptr);
     SetState(State::kRestarting);
     return;
   }
-  Notify(L"Extendesk no pudo transmitir", g.error, true);
+  Notify(Tr("n_failed"), g.error, true);
   SetState(State::kError);
 }
 
@@ -973,7 +971,9 @@ void OnSegment(const std::string& id, int i) {
   if (id == "calidad") s.quality = QualityAt(i);
   else if (id == "sonido") s.audio_tablet = i == 1;
   else if (id == "tactil") s.touch = i == 1 ? 2 : 0;
+  else if (id == "idioma") s.language = i == 0 ? L"" : LangCode(static_cast<Lang>(i - 1));
   ChangeSettings(s);
+  if (id == "idioma") ApplyLanguage();
 }
 
 void OnChoice(const std::string& id, float x, float y) {
@@ -1239,7 +1239,7 @@ void Paint(gp::Graphics& gr, float width) {
   const float logo_w = logo_h * logo::kWidth / logo::kHeight + F(10);
   Text(gr, L"Extendesk", gp::RectF(x + logo_w, y, w - logo_w, F(36)), *large, P().accent);
   y += F(36);
-  Text(gr, L"Tu dispositivo como segunda pantalla", gp::RectF(x, y, w, F(18)), *note, P().text_secondary);
+  Text(gr, Tr("tagline"), gp::RectF(x, y, w, F(18)), *note, P().text_secondary);
   y += F(30);
 
   // Estado y botón principal.
@@ -1257,7 +1257,7 @@ void Paint(gp::Graphics& gr, float width) {
   }
   if (v.show_apply) {
     y += F(8);
-    Button(gr, gp::RectF(x, y, w, F(36)), L"Aplicar cambios (reinicia la transmisión)", ButtonKind::kSecondary,
+    Button(gr, gp::RectF(x, y, w, F(36)), Tr("apply"), ButtonKind::kSecondary,
            ApplyChanges);
     y += F(36);
   }
@@ -1281,8 +1281,9 @@ void Paint(gp::Graphics& gr, float width) {
       Redraw();
     });
     const COLORREF c = Hovered(hit) ? P().text : P().accent;
-    Text(gr, L"Configuración avanzada", gp::RectF(x + F(4), y, w - F(30), F(32)), *section, c);
-    Chevron(gr, x + F(4) + TextWidth(gr, L"Configuración avanzada", *section) + F(8), y + F(16), v.advanced_open, c);
+    const std::wstring advanced = Tr("advanced");
+    Text(gr, advanced, gp::RectF(x + F(4), y, w - F(30), F(32)), *section, c);
+    Chevron(gr, x + F(4) + TextWidth(gr, advanced, *section) + F(8), y + F(16), v.advanced_open, c);
     y += F(36);
   }
   g.base_bottom = y + F(16);
@@ -1427,19 +1428,19 @@ void ExitApp() {
 
 void ShowTrayMenu() {
   HMENU m = CreatePopupMenu();
-  AppendMenuW(m, MF_STRING, kMenuOpen, L"Abrir Extendesk");
+  AppendMenuW(m, MF_STRING, kMenuOpen, Tr("menu_open").c_str());
   SetMenuDefaultItem(m, kMenuOpen, FALSE);
   AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
   AppendMenuW(m, MF_STRING | (g.state == State::kStopping ? MF_GRAYED : 0), kMenuToggle,
-              Running() ? L"Detener la transmisión" : L"Iniciar la transmisión");
-  AppendMenuW(m, MF_STRING, kMenuVirtual, L"Pantalla extra");
-  AppendMenuW(m, MF_STRING, kMenuMirror, L"Duplicar un monitor");
+              Tr(Running() ? "menu_stop" : "menu_start").c_str());
+  AppendMenuW(m, MF_STRING, kMenuVirtual, Tr("mode_extend").c_str());
+  AppendMenuW(m, MF_STRING, kMenuMirror, Tr("menu_mirror").c_str());
   CheckMenuRadioItem(m, kMenuVirtual, kMenuMirror, g.settings.virtual_display ? kMenuVirtual : kMenuMirror,
                      MF_BYCOMMAND);
   AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
-  AppendMenuW(m, MF_STRING | (StartsWithWindows() ? MF_CHECKED : 0), kMenuAutostart, L"Abrir al iniciar Windows");
+  AppendMenuW(m, MF_STRING | (StartsWithWindows() ? MF_CHECKED : 0), kMenuAutostart, Tr("menu_autostart").c_str());
   AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
-  AppendMenuW(m, MF_STRING, kMenuExit, L"Salir");
+  AppendMenuW(m, MF_STRING, kMenuExit, Tr("menu_exit").c_str());
   POINT pt;
   GetCursorPos(&pt);
   SetForegroundWindow(g.wnd);  // si no, el menú no se cierra al hacer clic fuera
@@ -1613,7 +1614,7 @@ LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
       ShowWindow(hwnd, SW_HIDE);
       if (!g.tray_hint_shown) {
         g.tray_hint_shown = true;
-        Notify(L"Extendesk sigue abierto", L"Está junto al reloj. Para cerrarlo: clic derecho en el icono > Salir.");
+        Notify(Tr("n_still_open"), Tr("n_still_open_body"));
       }
       return 0;
     case WM_QUERYENDSESSION:
@@ -1708,6 +1709,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd_line, int) {
     g.settings.virtual_display = VirtualDriverInstalled();
     SaveSettings(g.settings);
   }
+  ApplyLanguage();
   g.driver_installed = VirtualDriverInstalled();
   g.autostart = StartsWithWindows();
   g.monitors = MonitorNames();

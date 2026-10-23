@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <string>
 
+#include "../src/i18n.h"
 #include "../src/settings.h"
 #include "../src/view_model.h"
 
@@ -170,13 +171,13 @@ static void TestAdvancedRows() {
   CHECK(!Has(v.advanced, "resolucion") && !Has(v.advanced, "monitor"));
   // Solo lo que casi nadie cambia, en este orden. Fps, Mbps, códec, batería, cable USB, abrir la app de la tablet,
   // transmitir al abrir y el puerto ya no se eligen: son automáticos (o se tocan a mano en el .ini).
-  CHECK((Ids(v.advanced) == std::vector<std::string>{"tactil", "wifi_directo", "autostart", "ayuda", "registro"}));
+  CHECK((Ids(v.advanced) == std::vector<std::string>{"tactil", "wifi_directo", "autostart", "idioma", "ayuda", "registro"}));
   // Táctil y Solo ver: sin «Ratón».
   CHECK(Get(v.advanced, "tactil").options.size() == 2 && Get(v.advanced, "tactil").selected == 0);
   CHECK(Get(v.advanced, "wifi_directo").help == "wifi-propia");
   CHECK(Get(v.advanced, "ayuda").control == Control::kLink);
-  CHECK(HelpUrl() == L"https://extendesk.app/ayuda");
-  CHECK(HelpUrl("calidad") == L"https://extendesk.app/ayuda#calidad");
+  CHECK(HelpUrl() == L"https://www.extendesk.app/es/help");
+  CHECK(HelpUrl("calidad") == L"https://www.extendesk.app/es/help#calidad");
   // El puntero se dibuja siempre: ya no es una opción.
   CHECK(!Has(v.advanced, "puntero"));
   // La resolución solo se cambia en Windows: es un enlace, no un desplegable con otro valor que se pise.
@@ -220,6 +221,65 @@ static void TestAdvancedRows() {
   in.settings.virtual_display = true;
   in.driver_installed = true;
   CHECK(BuildView(in).repair.empty());
+}
+
+// Inglés y español: el de Windows por defecto, o el elegido en Configuración avanzada.
+static void TestLanguages() {
+  // Cada texto está en todos los idiomas.
+  CHECK(MissingTranslations().empty());
+  CHECK(ResolveLang(L"", L"es-ES") == Lang::kEs && ResolveLang(L"", L"es-419") == Lang::kEs);
+  CHECK(ResolveLang(L"", L"en-US") == Lang::kEn);
+  // Un idioma sin traducir aún (portugués) sale en inglés; lo elegido manda sobre Windows.
+  CHECK(ResolveLang(L"", L"pt-BR") == Lang::kEn);
+  CHECK(ResolveLang(L"en", L"es-ES") == Lang::kEn && ResolveLang(L"es", L"en-GB") == Lang::kEs);
+
+  SetLang(Lang::kEn);
+  ViewInput in;
+  in.state = State::kConnected;
+  in.stats = {{L"enlace", L"wifi"}, {L"ip", L"192.168.1.33"}, {L"codificados", L"59.6"}, {L"mbps", L"48.2"}};
+  View v = BuildView(in);
+  CHECK(v.title == L"Connected over Wi-Fi" && v.detail == L"Device 192.168.1.33.");
+  CHECK(v.stats == L"60 fps · 48.2 Mbps");  // punto decimal en inglés
+  CHECK(v.primary == L"Stop");
+  CHECK((Get(v.main, "calidad").options == std::vector<std::wstring>{L"High", L"Balanced", L"Saver"}));
+  CHECK(HelpUrl("calidad") == L"https://www.extendesk.app/en/help#calidad");  // las mismas secciones en cada idioma
+  in.state = State::kWaiting;
+  in.stats.clear();
+  CHECK(BuildView(in).title == L"Waiting for the device");
+  // «Dispositivo», no «tablet», en todo lo que se ve.
+  in.advanced_open = true;
+  in.addresses = L"192.168.1.20";
+  for (State st : {State::kStopped, State::kWaiting, State::kError}) {
+    in.state = st;
+    v = BuildView(in);
+    std::wstring all = v.title + v.detail;
+    for (const auto& l : v.connection) all += l.text;
+    for (const auto* rows : {&v.main, &v.advanced}) {
+      for (const auto& r : *rows) {
+        all += r.label + r.hint + r.value;
+        for (const auto& o : r.options) all += o;
+      }
+    }
+    CHECK(!Contains(all, L"ablet"));
+  }
+
+  // El selector: Automático y cada idioma con su propio nombre.
+  Row lang = Get(v.advanced, "idioma");
+  CHECK((lang.options == std::vector<std::wstring>{L"Automatic", L"English", L"Español"}) && lang.selected == 0);
+  in.settings.language = L"es";
+  SetLang(Lang::kEs);
+  lang = Get(BuildView(in).advanced, "idioma");
+  CHECK(lang.label == L"Idioma" && lang.options[0] == L"Automático" && lang.selected == 2);
+
+  // Un idioma escrito a mano en el .ini que no existe vuelve a automático.
+  Settings bad;
+  bad.language = L"klingon";
+  Sanitize(&bad);
+  CHECK(bad.language.empty());
+  Settings ok;
+  ok.language = L"en";
+  Sanitize(&ok);
+  CHECK(ok.language == L"en");
 }
 
 static void TestHostArguments() {
@@ -280,6 +340,8 @@ static void TestHostArguments() {
 }
 
 int main() {
+  // Las pruebas de la ventana miran los textos en español; TestLanguages, los de inglés.
+  SetLang(Lang::kEs);
   TestMainRowsAlwaysVisible();
   TestUsbAndWifiWhileWaiting();
   TestConnectedShowsStatsAndNotice();
@@ -287,6 +349,7 @@ int main() {
   TestErrorAndButtons();
   TestAdvancedRows();
   TestHostArguments();
+  TestLanguages();
   std::puts("test_view_model: OK");
   return 0;
 }

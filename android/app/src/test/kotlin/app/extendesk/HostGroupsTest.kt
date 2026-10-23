@@ -1,11 +1,17 @@
 package app.extendesk
 
+import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.net.InetAddress
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.annotation.Config
 
+// Los textos salen de strings.xml (Robolectric); se comprueban en español.
+@RunWith(AndroidJUnit4::class)
+@Config(sdk = [34], qualifiers = "es")
 class HostGroupsTest {
     private val wifi = Route("wlan0", InetAddress.getByName("192.168.1.40"), Transport.WIFI)
     private val usbCable = Found(Link.CABLE_HOST, null, "ESCRITORIO", acceptsConfig = true)

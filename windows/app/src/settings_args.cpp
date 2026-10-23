@@ -1,6 +1,7 @@
 // La parte de los ajustes que no depende de Windows: se prueba en tests/test_view_model.cpp.
 #include <cwchar>
 
+#include "i18n.h"
 #include "settings.h"
 
 bool ParseSize(const std::wstring& text, unsigned* w, unsigned* h) {
@@ -26,6 +27,7 @@ void Sanitize(Settings* s) {
   if (s->codec != L"hevc" && s->codec != L"h264") s->codec.clear();
   if (s->port < 1 || s->port > 65535) s->port = 47800;
   if (s->window_w < 300 || s->window_w > 8000 || s->window_h < 200 || s->window_h > 8000) s->window_w = s->window_h = 0;
+  if (!s->language.empty() && !IsLangCode(s->language)) s->language.clear();
   unsigned w, h;
   if (!s->size.empty() && !ParseSize(s->size, &w, &h)) s->size.clear();
 }

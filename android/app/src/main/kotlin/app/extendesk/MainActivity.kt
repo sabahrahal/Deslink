@@ -246,7 +246,6 @@ class MainActivity : ComponentActivity() {
     companion object {
         /** Lo manda el PC (adb shell am start -a …) al ver la tablet enchufada, con la depuración USB aceptada. */
         const val ACTION_USB_ATTACHED = "app.extendesk.action.USB_ATTACHED"
-        const val HELP_URL = "https://extendesk.app/ayuda"
     }
 
     private fun openUsbDebugSettings(hint: UsbDebugHint) {
@@ -274,16 +273,16 @@ class MainActivity : ComponentActivity() {
     /** La ayuda de la web (cada opción explicada); la misma que abren los «?» de la ventana del PC. */
     private fun openHelp() {
         try {
-            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(HELP_URL)))
+            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(getString(R.string.help_url))))
         } catch (_: Exception) {
-            Toast.makeText(this, "Abre $HELP_URL en el navegador", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, getString(R.string.open_url_in_browser, getString(R.string.help_url)), Toast.LENGTH_LONG).show()
         }
     }
 
     private fun openDiagnostics() {
         val host = store.lastHost
         if (host == null) {
-            Toast.makeText(this, "Conéctate primero a un PC", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.connect_to_pc_first), Toast.LENGTH_SHORT).show()
             return
         }
         startActivity(Intent(this, DiagnosticsActivity::class.java).putExtra(StreamActivity.EXTRA_HOST, host))

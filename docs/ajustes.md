@@ -22,7 +22,8 @@ A la vista, lo que casi todo el mundo toca:
 | Sonido | En el PC (de serie) · En la tablet | Dónde suena el PC. En la tablet, los altavoces del PC se silencian mientras dura y vuelven al terminar |
 
 En **Configuración avanzada**: táctil (Táctil de serie, o Solo ver: los toques no llegan al PC), la red Wi-Fi propia
-del PC, abrir con Windows (de serie, sí), «Ayuda» (la página de la web) y el registro. El puntero del ratón siempre se
+del PC, abrir con Windows (de serie, sí), el idioma (Automático, el de Windows, de serie; o English o Español),
+«Ayuda» (la página de la web, en el idioma de la ventana) y el registro. El puntero del ratón siempre se
 dibuja en la imagen.
 
 **Ya no se eligen** (desde que se simplificó la ventana):

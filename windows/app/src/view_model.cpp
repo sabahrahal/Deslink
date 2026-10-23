@@ -3,6 +3,8 @@
 #include <cstdio>
 #include <cwchar>
 
+#include "i18n.h"
+
 namespace {
 
 using Stats = std::map<std::wstring, std::wstring>;
@@ -31,7 +33,7 @@ std::wstring Fmt(const wchar_t* fmt, double v) {
   std::swprintf(buf, 64, fmt, v);
   std::wstring s = buf;
   for (auto& c : s) {
-    if (c == L'.') c = L',';  // coma decimal, como escribe el usuario
+    if (c == L'.') c = DecimalSeparator();  // «48,0» en español, «48.0» en inglés
   }
   return s;
 }
@@ -69,11 +71,12 @@ Row Toggle(const char* id, const std::wstring& label, bool on) {
 std::wstring SizeLabel(const std::wstring& size) {
   unsigned w, h;
   if (ParseSize(size, &w, &h)) return std::to_wstring(w) + L" × " + std::to_wstring(h);
-  return L"Automática (la del dispositivo)";
+  return Tr("size_auto");
 }
 
 std::wstring HelpUrl(const std::string& anchor) {
-  std::wstring url = L"https://extendesk.app/ayuda";
+  // La misma ayuda en cada idioma, con las mismas secciones (anchor).
+  std::wstring url = L"https://www.extendesk.app/" + std::wstring(LangCode(CurrentLang())) + L"/help";
   if (!anchor.empty()) url += L"#" + std::wstring(anchor.begin(), anchor.end());
   return url;
 }
@@ -96,50 +99,49 @@ View BuildView(const ViewInput& in) {
 
   switch (in.state) {
     case State::kStopped:
-      v.title = L"Detenido";
-      v.detail = L"Pulsa Iniciar para usar el dispositivo como pantalla.";
+      v.title = Tr("st_stopped");
+      v.detail = Tr("st_stopped_detail");
       break;
     case State::kStarting:
-      v.title = L"Iniciando…";
-      v.detail = s.virtual_display ? L"Creando la pantalla extra…" : L"Preparando la captura…";
+      v.title = Tr("st_starting");
+      v.detail = Tr(s.virtual_display ? "st_starting_virtual" : "st_starting_mirror");
       v.dot = Tone::kWarning;
       break;
     case State::kWaiting:
       if (const int grace = StatInt(in, L"gracia", 0); grace > 0) {
         // Se cortó sin avisar o se bloqueó: la pantalla extra aguanta un poco para que las ventanas no se muevan.
-        v.title = L"Reconectando…";
-        v.detail = L"Se cortó la conexión. La pantalla extra se queda " + std::to_wstring(grace) +
-                   L" s más por si el dispositivo vuelve.";
+        v.title = Tr("st_reconnecting");
+        v.detail = Tr("st_reconnecting_detail", {std::to_wstring(grace)});
       } else {
-        v.title = L"Esperando al dispositivo";
-        v.detail = L"Abre Extendesk en el dispositivo o enchúfalo por cable. La pantalla extra aparece al conectar.";
+        v.title = Tr("st_waiting");
+        v.detail = Tr("st_waiting_detail");
       }
       v.dot = Tone::kWarning;
       break;
     case State::kConnected:
       // Por cable es lo mismo por anclaje que por depuración USB: el dispositivo elige solo la mejor vía.
       if (link == L"usb" || link == L"anclaje") {
-        v.title = L"Conectado por cable USB";
-        v.detail = L"La conexión más estable.";
+        v.title = Tr("st_usb");
+        v.detail = Tr("st_usb_detail");
       } else {
-        v.title = L"Conectado por Wi-Fi";
-        v.detail = L"Tablet " + Stat(in, L"ip") + L".";
+        v.title = Tr("st_wifi");
+        v.detail = Tr("st_wifi_detail", {Stat(in, L"ip")});
       }
       v.dot = Tone::kSuccess;
       break;
     case State::kStopping:
-      v.title = L"Deteniendo…";
-      v.detail = L"Quitando la pantalla extra y el túnel USB…";
+      v.title = Tr("st_stopping");
+      v.detail = Tr("st_stopping_detail");
       v.dot = Tone::kWarning;
       break;
     case State::kRestarting:
-      v.title = L"Reiniciando…";
-      v.detail = L"Se cerró la transmisión; vuelvo a arrancarla.";
+      v.title = Tr("st_restarting");
+      v.detail = Tr("st_restarting_detail");
       v.dot = Tone::kWarning;
       break;
     case State::kError:
-      v.title = L"No se pudo transmitir";
-      v.detail = L"Corrige esto y pulsa Iniciar:";
+      v.title = Tr("st_error");
+      v.detail = Tr("st_error_detail");
       v.dot = Tone::kError;
       break;
   }
@@ -147,52 +149,51 @@ View BuildView(const ViewInput& in) {
 
   if (connected) {
     const double fps = StatNum(in, L"codificados");
-    v.stats = fps < 1 ? std::wstring(L"Imagen quieta") : Fmt(L"%.0f fps", fps);
+    v.stats = fps < 1 ? Tr("still_image") : Fmt(L"%.0f fps", fps);
     v.stats += L" · " + Fmt(L"%.1f Mbps", StatNum(in, L"mbps"));
     if (StatNum(in, L"rtt_ms") > 0) v.stats += L" · " + Fmt(L"%.0f ms", StatNum(in, L"rtt_ms"));
     // Lo que el usuario puede entender y le explica por qué baja la imagen. Los fps de cada etapa y el aviso del
     // decodificador del dispositivo van al registro (BuildDiagnostics).
     const std::wstring reduced = Stat(in, L"reducido");
-    if (reduced == L"wifi") v.notice = {L"Calidad reducida un momento: el Wi-Fi va justo.", Tone::kWarning};
-    else if (reduced == L"bateria") v.notice = {L"Fluidez reducida: la batería del dispositivo no aguanta.", Tone::kWarning};
-    else if (reduced == L"carga") v.notice = {L"Fluidez reducida: la gráfica del PC va cargada.", Tone::kWarning};
+    if (reduced == L"wifi") v.notice = {Tr("notice_wifi"), Tone::kWarning};
+    else if (reduced == L"bateria") v.notice = {Tr("notice_battery"), Tone::kWarning};
+    else if (reduced == L"carga") v.notice = {Tr("notice_load"), Tone::kWarning};
   }
 
   // Por dónde puede llegar la tablet: el cable USB y el Wi-Fi, los dos a la vez si los hay.
   if (in.state == State::kWaiting || in.state == State::kStarting || in.state == State::kStopped ||
       in.state == State::kError) {
     if (in.state != State::kWaiting || in.stats.find(L"adb") == in.stats.end()) {
-      v.connection.push_back({L"Cable USB: se activa al iniciar.", Tone::kSecondary});
+      v.connection.push_back({Tr("usb_on_start"), Tone::kSecondary});
     } else {
       const int ready = StatInt(in, L"adb", 0);
       const int pending = StatInt(in, L"adb_pendientes", 0);
       if (ready < 0) {
-        v.connection.push_back({L"Cable USB: falta adb.exe junto a extendesk.exe.", Tone::kWarning});
+        v.connection.push_back({Tr("usb_no_adb"), Tone::kWarning});
       } else if (pending > 0) {
-        v.connection.push_back({L"Cable USB: acepta «¿Permitir depuración USB?» en el dispositivo.", Tone::kWarning});
+        v.connection.push_back({Tr("usb_accept"), Tone::kWarning});
       } else if (ready > 0) {
-        v.connection.push_back({L"Cable USB: dispositivo enchufado y listo.", Tone::kSuccess});
+        v.connection.push_back({Tr("usb_ready"), Tone::kSuccess});
       } else {
-        v.connection.push_back({L"Cable USB: enchufa el dispositivo y sigue el aviso que sale en él.", Tone::kSecondary});
+        v.connection.push_back({Tr("usb_plug"), Tone::kSecondary});
       }
     }
     v.connection.push_back(in.addresses.empty()
-                               ? Line{L"Wi-Fi: este PC no tiene red.", Tone::kWarning}
-                               : Line{L"Wi-Fi: misma red que el dispositivo (IP de este PC: " + in.addresses + L").",
-                                      Tone::kSecondary});
+                               ? Line{Tr("wifi_no_network"), Tone::kWarning}
+                               : Line{Tr("wifi_same", {in.addresses}), Tone::kSecondary});
   }
 
   switch (in.state) {
     case State::kStopped:
     case State::kError:
-      v.primary = L"Iniciar";
+      v.primary = Tr("start");
       break;
     case State::kStopping:
-      v.primary = L"Deteniendo…";
+      v.primary = Tr("st_stopping");
       v.primary_enabled = false;
       break;
     default:
-      v.primary = L"Detener";
+      v.primary = Tr("stop");
       v.primary_stop = true;
       break;
   }
@@ -200,14 +201,13 @@ View BuildView(const ViewInput& in) {
 
   // A la vista: lo que casi todo el mundo toca.
   // Cada opción con una línea que dice qué gana el usuario; lo largo, en la ayuda de la web («?»).
-  Row mode = Segmented("modo", L"Modo", {L"Pantalla extra", L"Duplicar"}, s.virtual_display ? 0 : 1);
+  Row mode = Segmented("modo", Tr("mode"), {Tr("mode_extend"), Tr("mode_mirror")}, s.virtual_display ? 0 : 1);
   mode.help = "modo";
-  mode.hint = s.virtual_display ? L"El dispositivo es un monitor más, a su medida."
-                                : L"El dispositivo muestra lo mismo que un monitor del PC.";
+  mode.hint = Tr(s.virtual_display ? "mode_extend_hint" : "mode_mirror_hint");
   if (s.virtual_display && !in.driver_installed) {
-    mode.hint = L"Falta el driver de la pantalla extra";
+    mode.hint = Tr("driver_missing");
     mode.hint_tone = Tone::kWarning;
-    v.repair = in.repairing_driver ? L"Instalando la pantalla extra…" : L"Instalar la pantalla extra";
+    v.repair = Tr(in.repairing_driver ? "driver_installing" : "driver_install");
   }
   v.main.push_back(mode);
   if (s.virtual_display) {
@@ -215,63 +215,69 @@ View BuildView(const ViewInput& in) {
     Row resolution;
     resolution.id = "resolucion";
     resolution.control = Control::kLink;
-    resolution.label = L"Resolución";
+    resolution.label = Tr("resolution");
     const std::wstring size = Stat(in, L"size");
-    resolution.value = connected && !size.empty() ? SizeLabel(size) : L"Cambiar en Windows";
-    resolution.hint = L"Se cambia en Windows con el dispositivo conectado. Para ver todo más grande, sube la «Escala»: "
-                      L"se ve más nítido.";
+    resolution.value = connected && !size.empty() ? SizeLabel(size) : Tr("resolution_change");
+    resolution.hint = Tr("resolution_hint");
     v.main.push_back(resolution);
   } else {
     const std::wstring monitor = s.output < static_cast<int>(in.monitors.size())
                                      ? in.monitors[s.output]
-                                     : std::to_wstring(s.output + 1) + L": (no conectado)";
-    v.main.push_back(Choice("monitor", L"Monitor", monitor));
+                                     : Tr("monitor_missing", {std::to_wstring(s.output + 1)});
+    v.main.push_back(Choice("monitor", Tr("monitor"), monitor));
   }
   // La única perilla de imagen: los fps, la tasa y el códec los elige el host para este dispositivo.
-  Row quality = Segmented("calidad", L"Calidad", {L"Alta", L"Equilibrada", L"Ahorro"}, QualityIndex(s.quality));
+  Row quality = Segmented("calidad", Tr("quality"), {Tr("q_high"), Tr("q_balanced"), Tr("q_saver")}, QualityIndex(s.quality));
   quality.help = "calidad";
-  const wchar_t* quality_hints[] = {L"La imagen más fluida y nítida. Casi siempre, la mejor.",
-                                    L"Hasta 60 fps: para un Wi-Fi que da tirones.",
-                                    L"30 fps: dura más la batería del dispositivo."};
-  quality.hint = quality_hints[quality.selected];
+  const char* quality_hints[] = {"q_high_hint", "q_balanced_hint", "q_saver_hint"};
+  quality.hint = Tr(quality_hints[quality.selected]);
   v.main.push_back(quality);
-  Row sound = Segmented("sonido", L"Sonido", {L"En el PC", L"En el dispositivo"}, s.audio_tablet ? 1 : 0);
-  sound.hint = L"Dónde suena el PC mientras está conectado.";
+  Row sound = Segmented("sonido", Tr("sound"), {Tr("sound_pc"), Tr("sound_device")}, s.audio_tablet ? 1 : 0);
+  sound.hint = Tr("sound_hint");
   v.main.push_back(sound);
 
   // Configuración avanzada, plegada: lo que casi nadie cambia.
   v.advanced_open = in.advanced_open;
   if (in.advanced_open) {
-    // Sin «Ratón»: en una tablet se toca. Si Windows rechaza los toques, el host pasa solo a ratón por debajo.
-    Row touch = Segmented("tactil", L"Táctil", {L"Táctil", L"Solo ver"}, s.touch == 2 ? 1 : 0);
-    touch.hint = s.touch == 2 ? L"Los toques no llegan al PC: solo se mira." : L"Toca y escribe como en una pantalla táctil.";
+    // Sin «Ratón»: en un dispositivo táctil se toca. Si Windows rechaza los toques, el host pasa solo a ratón por debajo.
+    Row touch = Segmented("tactil", Tr("touch"), {Tr("touch_on"), Tr("touch_view")}, s.touch == 2 ? 1 : 0);
+    touch.hint = Tr(s.touch == 2 ? "touch_view_hint" : "touch_on_hint");
     v.advanced.push_back(touch);
-    Row direct = Toggle("wifi_directo", L"Red Wi-Fi propia del PC", in.direct_wifi_on);
+    Row direct = Toggle("wifi_directo", Tr("direct"), in.direct_wifi_on);
     direct.help = "wifi-propia";
     if (in.direct_wifi_busy) {
-      direct.hint = L"Cambiando…";
+      direct.hint = Tr("direct_busy");
     } else if (!in.direct_wifi_error.empty()) {
       direct.hint = in.direct_wifi_error;
       direct.hint_tone = Tone::kWarning;
     } else if (in.direct_wifi_on) {
-      direct.hint = L"Conecta el dispositivo a la red «" + in.direct_wifi_ssid + L"», contraseña «" + in.direct_wifi_pass +
-                    L"». El vídeo va directo, sin pasar por el router.";
+      direct.hint = Tr("direct_on_hint", {in.direct_wifi_ssid, in.direct_wifi_pass});
     } else {
-      direct.hint = L"Sin router de por medio: menos retardo y menos tirones por Wi-Fi. Hace falta Wi-Fi en el PC.";
+      direct.hint = Tr("direct_off_hint");
     }
     v.advanced.push_back(direct);
-    Row autostart = Toggle("autostart", L"Abrir Extendesk al iniciar Windows", in.autostart);
-    autostart.hint = L"Así el dispositivo conecta sin tocar el PC.";
+    Row autostart = Toggle("autostart", Tr("autostart"), in.autostart);
+    autostart.hint = Tr("autostart_hint");
     v.advanced.push_back(autostart);
+    // Automático (el de Windows) y cada idioma con su nombre en ese idioma.
+    std::vector<std::wstring> langs = {Tr("language_auto")};
+    int lang_selected = 0;
+    for (int i = 0; i < kLangCount; ++i) {
+      langs.push_back(LangName(static_cast<Lang>(i)));
+      if (s.language == LangCode(static_cast<Lang>(i))) lang_selected = i + 1;
+    }
+    Row language = Segmented("idioma", Tr("language"), std::move(langs), lang_selected);
+    language.hint = Tr("language_hint");
+    v.advanced.push_back(language);
     Row help;
     help.id = "ayuda";
     help.control = Control::kLink;
-    help.label = L"Ayuda: cada opción explicada";
+    help.label = Tr("help_link");
     v.advanced.push_back(help);
     Row log;
     log.id = "registro";
     log.control = Control::kLink;
-    log.label = L"Ver registro";
+    log.label = Tr("view_log");
     v.advanced.push_back(log);
   }
   return v;

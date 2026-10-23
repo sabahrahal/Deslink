@@ -60,7 +60,7 @@ struct View {
   std::wstring stats;  // «120 fps · 48,0 Mbps · 4 ms», solo conectado
   Line notice;         // por qué la imagen va por debajo de lo elegido (Wi-Fi, batería, gráfica), si es así
   std::wstring error;
-  std::vector<Line> connection;  // por dónde puede conectar la tablet (cable USB y Wi-Fi)
+  std::vector<Line> connection;  // por dónde puede conectar el dispositivo (cable USB y Wi-Fi)
   std::wstring primary;          // «Iniciar», «Detener»…
   bool primary_enabled = true;
   bool primary_stop = false;
@@ -85,7 +85,8 @@ Diagnostics BuildDiagnostics(const std::map<std::wstring, std::wstring>& stats);
 // «2944 × 1840» para la resolución que dice el host.
 std::wstring SizeLabel(const std::wstring& size);
 
-// Página de ayuda de la web; con anchor, en su sección («calidad», «cable-usb»…). La ventana la abre con «?» y «Ayuda».
+// Página de ayuda de la web en el idioma de la ventana; con anchor, en su sección («calidad», «cable-usb»…). La ventana
+// la abre con «?» y «Ayuda».
 std::wstring HelpUrl(const std::string& anchor = "");
 
 // Calidad, sonido y táctil como índice de su control y al revés.

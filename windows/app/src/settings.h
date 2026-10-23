@@ -7,7 +7,7 @@
 // (antes %APPDATA%\DeskLink\desklink.ini: se pasa sola la primera vez).
 //
 // A la vista en la ventana: modo, resolución (o el monitor que se duplica), calidad y dónde suena el sonido. En
-// «Configuración avanzada»: el táctil, la red Wi-Fi propia del PC y abrir con Windows. Lo demás es automático y ya no
+// «Configuración avanzada»: el táctil, la red Wi-Fi propia del PC, abrir con Windows y el idioma. Lo demás es automático y ya no
 // se elige (docs/ajustes.md): el cable USB siempre está listo, la app de la tablet se abre al enchufarla, se
 // transmite nada más abrir y la fluidez baja sola si la batería de la tablet no aguanta. fps, Mbps, códec y puerto
 // solo se cambian a mano en el .ini (vacío o 0 = automático: lo decide el host con lo que dice la tablet).
@@ -25,6 +25,7 @@ struct Settings {
   int port = 47800;             // solo en el .ini
   std::wstring adb;             // ruta de adb.exe; vacía = la busca el host
   std::wstring extra;           // opciones extra para extendesk-host.exe
+  std::wstring language;        // idioma de la ventana («en», «es»); vacío = el de Windows (i18n.h)
   int window_w = 0;             // tamaño del área de la ventana que dejó el usuario, a 96 ppp; 0 = el del contenido
   int window_h = 0;
 };

@@ -145,14 +145,14 @@ class StreamSession(
                 link = l
             } catch (e: IOException) {
                 if (!cable) {
-                    setPhase(Phase.FAILED, "No se pudo conectar con $host (${e.message}). Revisa la dirección.")
+                    setPhase(Phase.FAILED, Strings.get(R.string.session_connect_failed, host, e.message.orEmpty()))
                     return
                 }
                 // Por cable, el host o adb pueden tardar en volver (p. ej. al reiniciar extendesk-host.exe).
                 if (!reported) {
                     setPhase(
                         if (streamInfo == null) Phase.NO_ANSWER else Phase.RECONNECTING,
-                        "Esperando al PC por el cable USB. Comprueba que Extendesk está abierto en el PC.",
+                        Strings.get(R.string.session_waiting_cable),
                     )
                 }
                 reported = true
@@ -178,7 +178,7 @@ class StreamSession(
                 val length = try {
                     l.receive(buf, waitMs)
                 } catch (e: IOException) {
-                    if (running && !cable) setPhase(Phase.FAILED, "Se perdió la conexión: ${e.message}")
+                    if (running && !cable) setPhase(Phase.FAILED, Strings.get(R.string.session_lost, e.message.orEmpty()))
                     break
                 }
                 if (length < 0) {
@@ -212,14 +212,14 @@ class StreamSession(
                         // Detener o Salir en el PC: se avisa y se espera un poco por si vuelve (al aplicar cambios
                         // el PC se reinicia en un par de segundos).
                         hostByeUs = nowUs()
-                        setPhase(Phase.HOST_STOPPED, "Si vuelve a transmitir en unos segundos, la imagen sigue sola.")
+                        setPhase(Phase.HOST_STOPPED, Strings.get(R.string.session_host_stopped_detail))
                     }
                 }
             }
             l.close()
             if (!cable || !running) return
             // El cable se cortó (host cerrado, cable desenchufado): se reintenta solo.
-            setPhase(Phase.RECONNECTING, "Se cortó el cable USB o se cerró Extendesk en el PC. Reconectando…")
+            setPhase(Phase.RECONNECTING, Strings.get(R.string.session_cable_cut))
             if (!sleepWhileRunning(1000)) return
         }
     }
@@ -287,7 +287,7 @@ class StreamSession(
             listener.onStreamInfo(info)
             setPhase(Phase.STREAMING)
         } catch (e: Exception) {
-            setPhase(Phase.FAILED, "Este dispositivo no pudo abrir el vídeo (${e.message}). Reinícialo y vuelve a intentarlo.")
+            setPhase(Phase.FAILED, Strings.get(R.string.session_video_failed, e.message.orEmpty()))
         }
     }
 
@@ -422,11 +422,9 @@ class StreamSession(
                     setPhase(
                         Phase.NO_ANSWER,
                         if (isCable) {
-                            "El PC no responde por el cable USB. Comprueba que Extendesk está abierto en el PC " +
-                                "y que la depuración USB está aceptada."
+                            Strings.get(R.string.session_no_answer_cable)
                         } else {
-                            "El PC ($host) no responde. Comprueba que Extendesk está abierto en el PC, que el " +
-                                "cortafuegos de Windows lo permite y que los dos estáis en la misma red."
+                            Strings.get(R.string.session_no_answer_wifi, host)
                         },
                     )
                 }
@@ -447,19 +445,20 @@ class StreamSession(
             val mbps = (bytesReceived - lastBytes) * 8 / secs / 1e6
             val rtt = rttUs
             val lat = latency.take()
-            val target = sessionConfig?.let { " · objetivo ${it.fps} fps ${"%.0f".format(it.bitrateX100kbps / 10.0)} Mbps" } ?: ""
+            val target = sessionConfig?.let { Strings.get(R.string.stats_target, it.fps, "%.0f".format(it.bitrateX100kbps / 10.0)) } ?: ""
             listener.onStats(
-                "$routeLabel${info.width}x${info.height}$target · recibidos ${"%.0f".format((framesReceived - lastFrames) / secs)}/s" +
-                    " · mostrados ${"%.0f".format((decoded - lastDecoded) / secs)}/s" +
+                "$routeLabel${info.width}x${info.height}$target" +
+                    Strings.get(R.string.stats_received, "%.0f".format((framesReceived - lastFrames) / secs)) +
+                    Strings.get(R.string.stats_shown, "%.0f".format((decoded - lastDecoded) / secs)) +
                     " · ${"%.1f".format(mbps)} Mbps" +
                     (if (rtt >= 0) " · RTT ${"%.1f".format(rtt / 1000.0)} ms" else "") +
-                    (if (lat.frames > 0) " · ${lat.text()}" else if (decodeMs >= 0) " · decodificar ${"%.1f".format(decodeMs)} ms" else "") +
-                    " · perdidos ${reassembler.framesDropped + decoderDrops}" +
-                    " · reclamados ${reassembler.packetsRequested}" +
-                    (if (reassembler.packetsRecovered > 0) " · rehechos ${reassembler.packetsRecovered}" else "") +
+                    (if (lat.frames > 0) " · ${lat.text()}" else if (decodeMs >= 0) Strings.get(R.string.stats_decode, "%.1f".format(decodeMs)) else "") +
+                    Strings.get(R.string.stats_lost, reassembler.framesDropped + decoderDrops) +
+                    Strings.get(R.string.stats_requested, reassembler.packetsRequested) +
+                    (if (reassembler.packetsRecovered > 0) Strings.get(R.string.stats_recovered, reassembler.packetsRecovered) else "") +
                     when (inputMode?.active) {
-                        Dlp.INPUT_TOUCH -> " · táctil directo"
-                        Dlp.INPUT_MOUSE -> " · táctil como ratón"
+                        Dlp.INPUT_TOUCH -> Strings.get(R.string.stats_touch_direct)
+                        Dlp.INPUT_MOUSE -> Strings.get(R.string.stats_touch_mouse)
                         else -> ""
                     } +
                     (audio?.let { " · ${it.statsText()}" } ?: ""),
