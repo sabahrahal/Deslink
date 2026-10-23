@@ -142,16 +142,19 @@ void VirtualDisplay::EnsureMode(UINT width, UINT height, UINT refresh_hz) {
   DEVMODEW dm{};
   dm.dmSize = sizeof(dm);
   if (!EnumDisplaySettingsW(gdi_name_.c_str(), ENUM_CURRENT_SETTINGS, &dm)) return;
-  if (dm.dmPelsWidth == width && dm.dmPelsHeight == height) return;
-  std::printf("Windows puso el monitor virtual a %lux%lu: lo cambio a %ux%u.\n", dm.dmPelsWidth, dm.dmPelsHeight,
-              width, height);
+  if (dm.dmPelsWidth == width && dm.dmPelsHeight == height && dm.dmDisplayFrequency == refresh_hz) return;
+  std::printf("El monitor virtual está a %lux%lu a %lu Hz: lo cambio a %ux%u a %u Hz.\n", dm.dmPelsWidth,
+              dm.dmPelsHeight, dm.dmDisplayFrequency, width, height, refresh_hz);
   dm.dmPelsWidth = width;
   dm.dmPelsHeight = height;
   dm.dmDisplayFrequency = refresh_hz;
   dm.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY;
   LONG r = ChangeDisplaySettingsExW(gdi_name_.c_str(), &dm, nullptr, CDS_UPDATEREGISTRY, nullptr);
   if (r != DISP_CHANGE_SUCCESSFUL) {
-    dm.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT;  // por si no acepta esos Hz
+    // Por si no acepta esos Hz (un driver anterior solo ofrecía 60 Hz en las resoluciones pequeñas).
+    std::printf("Aviso: el monitor virtual no admite %u Hz a %ux%u; se queda a los Hz que tenga.\n", refresh_hz,
+                width, height);
+    dm.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT;
     r = ChangeDisplaySettingsExW(gdi_name_.c_str(), &dm, nullptr, CDS_UPDATEREGISTRY, nullptr);
   }
   if (r != DISP_CHANGE_SUCCESSFUL) {

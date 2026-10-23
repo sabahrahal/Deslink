@@ -226,21 +226,50 @@ object Dlp {
     /**
      * Informe de calidad: frames recibidos, perdidos y mostrados (los que sacó el decodificador) en el último
      * segundo, y lo que tardó de media cada frame desde que llegó entero hasta salir del decodificador, en décimas de
-     * ms. Un host antiguo lee solo los dos primeros campos.
+     * ms. Con [latency] añade el retardo por etapas ([LatencyStats]). Un host antiguo lee solo los dos primeros campos.
      */
-    fun rateReport(received: Int, lost: Int, decoded: Int, decodeMsX10: Int, timestampUs: Long): ByteArray {
-        val b = ByteBuffer.allocate(HEADER_SIZE + 8).order(ByteOrder.LITTLE_ENDIAN)
+    fun rateReport(
+        received: Int,
+        lost: Int,
+        decoded: Int,
+        decodeMsX10: Int,
+        timestampUs: Long,
+        latency: LatencyStats.Snapshot? = null,
+    ): ByteArray {
+        val size = if (latency != null) RATE_REPORT_LATENCY_SIZE else 8
+        val b = ByteBuffer.allocate(HEADER_SIZE + size).order(ByteOrder.LITTLE_ENDIAN)
         b.putShort(0, MAGIC.toShort())
         b.put(2, VERSION.toByte())
         b.put(3, TYPE_RATE_REPORT.toByte())
         b.putShort(12, 1)
         b.putLong(14, timestampUs)
-        b.putShort(22, 8)
+        b.putShort(22, size.toShort())
         b.putShort(HEADER_SIZE, received.coerceIn(0, 0xFFFF).toShort())
         b.putShort(HEADER_SIZE + 2, lost.coerceIn(0, 0xFFFF).toShort())
         b.putShort(HEADER_SIZE + 4, decoded.coerceIn(0, 0xFFFF).toShort())
         b.putShort(HEADER_SIZE + 6, decodeMsX10.coerceIn(0, 0xFFFF).toShort())
+        if (latency != null) {
+            // Retardo por etapas en décimas de ms; 0 = no se sabe (sin hora del PC o sin aviso de pantalla).
+            fun x10(us: Long) = if (us < 0) 0 else (us / 100).coerceIn(1, 0xFFFF)
+            b.putShort(HEADER_SIZE + 8, x10(latency.totalUs).toInt().toShort())
+            b.putShort(HEADER_SIZE + 10, x10(latency.arriveUs).toInt().toShort())
+            b.putShort(HEADER_SIZE + 12, x10(latency.holdUs).toInt().toShort())
+            b.putShort(HEADER_SIZE + 14, x10(latency.screenUs).toInt().toShort())
+            b.putShort(HEADER_SIZE + 16, x10(if (latency.hasTotal) latency.maxTotalUs else -1L).toInt().toShort())
+        }
         return b.array()
+    }
+
+    /** RATE_REPORT con el retardo por etapas: los 8 bytes de siempre más 5 u16 (ver docs/protocol-dlp.md). */
+    const val RATE_REPORT_LATENCY_SIZE = 18
+
+    /**
+     * Hora del PC (su reloj, µs) que trae el PONG de un host nuevo, para [ClockSync]; null si el host es antiguo y el
+     * PONG viene vacío.
+     */
+    fun parsePongHostUs(data: ByteArray, header: Header): Long? {
+        if (header.payloadSize < 8) return null
+        return ByteBuffer.wrap(data, HEADER_SIZE, 8).order(ByteOrder.LITTLE_ENDIAN).getLong()
     }
 
     /** Reclama al host los paquetes [indices] del frame [frameId] (como mucho 128). */

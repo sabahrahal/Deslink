@@ -8,6 +8,8 @@ class Frame(
     val timestampUs: Long,
     val data: ByteArray,
     val size: Int,
+    /** Cuándo llegó su último paquete (reloj de la tablet, µs), para medir el retardo ([LatencyStats]). */
+    val completeUs: Long = 0L,
 )
 
 /** Paquetes que faltan de un frame, para reclamarlos al host. */
@@ -117,6 +119,7 @@ class FrameReassembler {
                 timestampUs = p.timestampUs,
                 data = p.data,
                 size = (p.packetCount - 1) * Dlp.MAX_PAYLOAD + p.lastPayload,
+                completeUs = p.lastRxUs,
             )
             // Huecos de numeración (frames de los que nunca llegó nada) también cuentan como pérdidas.
             val last = lastDelivered

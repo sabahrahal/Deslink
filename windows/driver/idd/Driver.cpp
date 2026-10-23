@@ -61,15 +61,23 @@ IDDCX_TARGET_MODE MakeTargetMode(const Mode& m) {
   return mode;
 }
 
-// Modos que ofrece el monitor: el pedido primero (el preferido) y, por si el usuario quiere menos
-// resolución en Configuración de pantalla, algunos estándar más pequeños.
+// Frecuencias que ofrece cada resolución. Todas desde el principio: así el host cambia los Hz (p. ej. a 120 fps)
+// con un cambio de modo normal, sin quitar el monitor. Al quitarlo Windows lo tomaba por otro y se perdían su
+// resolución, su escala y su posición.
+constexpr uint32_t kRefreshRates[] = {60, 90, 120, 144};
+
+// Modos que ofrece el monitor: el tamaño pedido primero (el preferido, a 60 Hz) y, por si el usuario quiere menos
+// resolución en Configuración de pantalla, algunos estándar más pequeños; cada uno con todas las frecuencias.
 std::vector<Mode> ModeList(const Mode& preferred) {
-  std::vector<Mode> modes{preferred};
-  if (preferred.refresh != 60) modes.push_back({preferred.width, preferred.height, 60});
-  const Mode standard[] = {{2560, 1600, 60}, {2560, 1440, 60}, {1920, 1200, 60}, {1920, 1080, 60},
-                           {1680, 1050, 60}, {1280, 800, 60}};
+  std::vector<Mode> sizes{{preferred.width, preferred.height, 0}};
+  const Mode standard[] = {{2560, 1600, 0}, {2560, 1440, 0}, {1920, 1200, 0}, {1920, 1080, 0},
+                           {1680, 1050, 0}, {1280, 800, 0}};
   for (const auto& s : standard) {
-    if (s.width < preferred.width && s.height < preferred.height) modes.push_back(s);
+    if (s.width < preferred.width && s.height < preferred.height) sizes.push_back(s);
+  }
+  std::vector<Mode> modes;
+  for (const auto& s : sizes) {
+    for (uint32_t hz : kRefreshRates) modes.push_back({s.width, s.height, hz});
   }
   return modes;
 }
@@ -249,13 +257,15 @@ class DeviceContext {
     std::lock_guard<std::mutex> lock(mutex_);
     last_ping_ms_ = GetTickCount64();
     if (!adapter_ready_) return STATUS_DEVICE_NOT_READY;
-    if (monitor_ && current_.width == mode.width && current_.height == mode.height &&
-        current_.refresh == mode.refresh) {
+    // Solo cuenta el tamaño: los Hz los cambia el host con un cambio de modo (todos están en ModeList).
+    if (monitor_ && current_.width == mode.width && current_.height == mode.height) {
+      current_.refresh = mode.refresh;
       return STATUS_SUCCESS;
     }
     UnplugLocked();
 
-    const desklink::Edid edid = desklink::BuildEdid(mode);
+    // El EDID siempre a 60 Hz: si cambiara con los Hz, Windows lo vería como otro monitor y no recordaría sus ajustes.
+    const desklink::Edid edid = desklink::BuildEdid({mode.width, mode.height, 60});
     WDF_OBJECT_ATTRIBUTES attr;
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attr, MonitorContextWrapper);
     attr.EvtCleanupCallback = [](WDFOBJECT object) {

@@ -18,7 +18,7 @@ class VirtualDisplay {
 
   bool Plug(UINT width, UINT height, UINT refresh_hz, UINT mode_w, UINT mode_h);
   void Unplug();
-  // Cambia la resolución del monitor ya enchufado (sin quitarlo: Windows conserva su posición y su escala).
+  // Cambia la resolución o los Hz del monitor ya enchufado (sin quitarlo: Windows conserva su posición y su escala).
   void SetMode(UINT width, UINT height, UINT refresh_hz) { EnsureMode(width, height, refresh_hz); }
   const std::wstring& gdi_name() const { return gdi_name_; }
 

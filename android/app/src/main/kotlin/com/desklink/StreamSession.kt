@@ -55,6 +55,8 @@ class StreamSession(
         private set
     /** Perfil que pide la tablet para no gastar batería; null = no pide nada (lo que decida el PC). */
     @Volatile private var batteryProfile: PowerProfile? = null
+    /** Decodificador a velocidad máxima (lo decide el perfil de batería de la tablet, ver [setFastDecode]). */
+    @Volatile private var fastDecode = true
     @Volatile var sessionConfig: Dlp.SessionConfig? = null
         private set
 
@@ -63,6 +65,9 @@ class StreamSession(
     private var receiveThread: Thread? = null
     private var controlThread: Thread? = null
     private val reassembler = FrameReassembler()
+    /** Reloj del PC y retardo de punta a punta por etapas (ver [LatencyStats]). */
+    private val clock = ClockSync()
+    private val latency = LatencyStats(clock)
 
     private val touchExecutor = Executors.newSingleThreadExecutor { Thread(it, "desklink-touch") }
     private var bytesReceived = 0L
@@ -108,6 +113,7 @@ class StreamSession(
                 l = Link.open(host)
                 routeLabel = l.route?.let { "[${it.transport.label}] " } ?: ""
                 listener.onRoute(l.route)
+                clock.reset()
                 link = l
             } catch (e: IOException) {
                 if (!cable) {
@@ -157,7 +163,12 @@ class StreamSession(
                 when (header.type) {
                     Dlp.TYPE_VIDEO -> onVideo(buf, length)
                     Dlp.TYPE_STREAM_INFO -> onStreamInfo(buf, header)
-                    Dlp.TYPE_PONG -> rttUs = nowUs() - header.timestampUs
+                    Dlp.TYPE_PONG -> {
+                        val now = nowUs()
+                        rttUs = now - header.timestampUs
+                        // Un host nuevo devuelve también su hora: así se sabe cuánto tarda cada frame de punta a punta.
+                        Dlp.parsePongHostUs(buf, header)?.let { clock.onPong(header.timestampUs, it, now) }
+                    }
                     // El host también mide el retardo (bandeja de Windows): se le devuelve su marca de tiempo.
                     Dlp.TYPE_PING -> send(Dlp.controlPacket(Dlp.TYPE_PONG, header.timestampUs))
                     Dlp.TYPE_INPUT_MODE -> Dlp.parseInputMode(buf, header)?.let {
@@ -201,6 +212,13 @@ class StreamSession(
         }
     }
 
+    /** Decodificador a velocidad máxima o a la justa para los fps (perfiles de ahorro). */
+    fun setFastDecode(fast: Boolean) {
+        if (fast == fastDecode) return
+        fastDecode = fast
+        decoder?.setPace(fast, streamInfo?.fps ?: 0)
+    }
+
     private fun onSessionConfig(config: Dlp.SessionConfig) {
         val previous = sessionConfig
         sessionConfig = config
@@ -219,7 +237,7 @@ class StreamSession(
         ) {
             // Solo cambian los fps (perfil de batería): el decodificador sigue, sin esperar a otro frame clave.
             if (current.fps != info.fps) {
-                decoder?.setOperatingRate(info.fps)
+                decoder?.setPace(fastDecode, info.fps)
                 streamInfo = info
                 listener.onStreamInfo(info)
             }
@@ -227,7 +245,7 @@ class StreamSession(
         }
         try {
             decoder?.release()
-            decoder = VideoDecoder(surface, info) { listener.onError(it) }
+            decoder = VideoDecoder(surface, info, latency, fastDecode) { listener.onError(it) }
             streamInfo = info
             listener.onStreamInfo(info)
             setPhase(Phase.STREAMING)
@@ -374,13 +392,14 @@ class StreamSession(
             lastDecodeCount = decodeN
             val mbps = (bytesReceived - lastBytes) * 8 / secs / 1e6
             val rtt = rttUs
+            val lat = latency.take()
             val target = sessionConfig?.let { " · objetivo ${it.fps} fps ${"%.0f".format(it.bitrateX100kbps / 10.0)} Mbps" } ?: ""
             listener.onStats(
                 "$routeLabel${info.width}x${info.height}$target · recibidos ${"%.0f".format((framesReceived - lastFrames) / secs)}/s" +
                     " · mostrados ${"%.0f".format((decoded - lastDecoded) / secs)}/s" +
                     " · ${"%.1f".format(mbps)} Mbps" +
                     (if (rtt >= 0) " · RTT ${"%.1f".format(rtt / 1000.0)} ms" else "") +
-                    (if (decodeMs >= 0) " · decodificar ${"%.1f".format(decodeMs)} ms" else "") +
+                    (if (lat.frames > 0) " · ${lat.text()}" else if (decodeMs >= 0) " · decodificar ${"%.1f".format(decodeMs)} ms" else "") +
                     " · perdidos ${reassembler.framesDropped + decoderDrops}" +
                     " · reclamados ${reassembler.packetsRequested}" +
                     when (inputMode?.active) {
@@ -394,7 +413,7 @@ class StreamSession(
             send(
                 Dlp.rateReport(
                     (framesReceived - lastFrames).toInt(), (lost - lastLost).toInt(), (decoded - lastDecoded).toInt(),
-                    if (decodeMs >= 0) (decodeMs * 10).toInt() else 0, now,
+                    if (decodeMs >= 0) (decodeMs * 10).toInt() else 0, now, lat.takeIf { it.frames > 0 },
                 ),
             )
             // Cada 5 s, qué tablet y qué decodificador, para que salga en el log del PC.

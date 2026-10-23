@@ -30,12 +30,12 @@ activado en la Configuración avanzada del PC (de serie, no), la tablet puede pe
 `QUALITY_REQUEST` (ver [protocolo](protocol-dlp.md)); el PC lo atiende bajando antes los fps, nunca la resolución ni
 la tasa por debajo del 60 % de la elegida. Sin esa opción, la batería de la tablet no cambia la imagen.
 
-| Perfil | fps | Mbps | Resolución codificada | Brillo | WiFi | Pantalla |
-| --- | --- | --- | --- | --- | --- | --- |
-| Alta (Máxima calidad) | automáticos | automáticos | 100 % | sin tocar | baja latencia | frecuencia libre, rendimiento sostenido |
-| **Equilibrado (recomendado)** | 60 | 30 | 100 % | sin tocar | baja latencia | modo de 60 Hz |
-| Ahorro | 30 | 12 | 75 % (2208x1380 en la Idea Tab Pro) | tope 50 % | alto rendimiento (deja dormir la radio) | modo de 60 Hz |
-| Mínimo (solo automático) | 30 | 8 | 60 % | tope 35 % | alto rendimiento | modo de 60 Hz |
+| Perfil | fps | Mbps | Resolución codificada | Brillo | WiFi | Pantalla | Decodificador |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Alta (Máxima calidad) | automáticos | automáticos | 100 % | sin tocar | baja latencia | frecuencia libre, rendimiento sostenido | velocidad máxima |
+| **Equilibrado (recomendado)** | 60 | 30 | 100 % | sin tocar | baja latencia | modo de 60 Hz | velocidad máxima |
+| Ahorro | 30 | 12 | 75 % (2208x1380 en la Idea Tab Pro) | tope 50 % | alto rendimiento (deja dormir la radio) | modo de 60 Hz | ritmo justo para los fps |
+| Mínimo (solo automático) | 30 | 8 | 60 % | tope 35 % | alto rendimiento | modo de 60 Hz | ritmo justo para los fps |
 
 - **De serie: Alta, sin bajar por batería.** Es lo que se pidió: la imagen más fluida. Equilibrada o la opción de
   batería son para quien prefiera que la tablet aguante más.
@@ -105,6 +105,7 @@ no de un medidor externo.
 | 144 Hz → 60 Hz | 0,3–0,8 W | Menos refrescos del panel y de la composición |
 | 60 → 30 fps y 75 % de resolución | 0,2–0,6 W | El decodificador trabaja con ~4 veces menos píxeles por segundo |
 | 30 → 12 Mbps | 0,1–0,4 W por WiFi; casi nada por cable | La radio pasa más tiempo dormida |
+| Decodificador al ritmo justo en vez de a velocidad máxima | sin medir | A velocidad máxima tarda ~12 ms por frame en vez de ~20 (Lenovo TB373FU), pero no deja bajar sus frecuencias |
 | WiFi de alto rendimiento en vez de baja latencia | 0,1–0,5 W | Sin modo de baja latencia la radio puede dormir entre ráfagas |
 
 En el PC el perfil también reduce trabajo: menos frames convertidos y codificados y, con escala, menos píxeles.

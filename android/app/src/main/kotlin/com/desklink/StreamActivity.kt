@@ -192,6 +192,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         profile = p
         val adapt = config?.batteryAdapt == true
         session?.setBatteryProfile(if (adapt && p != governorBase()) p else null)
+        session?.setFastDecode(p.fastDecode)
         // Rendimiento sostenido: frecuencias estables (sin tirones por calor) a costa de no dejar bajar del todo.
         window.setSustainedPerformanceMode(p.sustainedPerformance)
         val lp = window.attributes
@@ -516,7 +517,10 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         val audioManager = getSystemService(AudioManager::class.java)
         session = StreamSession(host, s, this, helloConfig) {
             "${audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)}/${audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)}"
-        }.also { it.start() }
+        }.also {
+            it.setFastDecode(profile.fastDecode)
+            it.start()
+        }
     }
 
     private fun stopSession() {
