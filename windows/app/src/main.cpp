@@ -62,7 +62,11 @@ enum ChildId { kIdLogEdit = 100, kIdLogCopy };
 
 gp::Color C(COLORREF c, BYTE alpha = 255) { return gp::Color(alpha, GetRValue(c), GetGValue(c), GetBValue(c)); }
 
-constexpr int kClientW = 540;  // ancho del área cliente a 96 ppp; el alto sale del contenido
+constexpr int kClientW = 540;  // ancho del área cliente a 96 ppp al abrirla por primera vez; el alto sale del contenido
+constexpr int kMinClientW = 480;  // lo menos que se puede estrechar o encoger la ventana
+constexpr int kMinClientH = 360;
+constexpr float kMaxColumn = 760;  // más ancha, la columna se queda en el centro (ventana maximizada)
+constexpr ULONGLONG kDiagnosticsEveryMs = 10000;  // cada cuánto van al registro los fps por etapa
 constexpr float kMargin = 24;
 constexpr float kPad = 16;  // relleno dentro de las tarjetas
 
@@ -102,6 +106,7 @@ struct App {
   float scroll = 0;           // desplazamiento vertical cuando el contenido no cabe en la pantalla
   float advanced_top = 0;     // dónde empieza «Configuración avanzada» (para llevarla a la vista al abrirla)
   bool reveal_advanced = false;
+  bool user_sized = false;    // el usuario cambió el tamaño: ya no se ajusta sola al contenido
 
   // Datos
   Settings settings;
@@ -115,6 +120,8 @@ struct App {
   std::map<std::wstring, std::wstring> stats;  // última línea «@estado»
   std::wstring link = L"ninguno";
   std::deque<std::wstring> log;
+  std::wstring logged_notice;       // último aviso técnico que fue al registro (BuildDiagnostics)
+  ULONGLONG diagnostics_at = 0;     // cuándo fueron al registro los últimos fps por etapa
   bool dirty = false;               // ajustes que piden reiniciar la transmisión
   bool advanced_open = false;       // «Configuración avanzada» desplegada
   bool tray_hint_shown = false;
@@ -173,8 +180,8 @@ std::wstring FriendlyError(const std::wstring& line) {
     return L"Windows no activó la pantalla extra. En Configuración > Pantalla, elige «Extender estas pantallas».";
   }
   if (has(L"el driver no pudo crear el monitor")) {
-    return L"El driver no pudo crear la pantalla extra. Prueba otra resolución en Configuración avanzada o "
-           L"reinstala el driver.";
+    return L"El driver no pudo crear la pantalla extra. Prueba otra resolución (en «Resolución») o reinstala el "
+           L"driver.";
   }
   if (has(L"bind al puerto") || has(L"USB: no se pudo escuchar")) {
     return Format(L"El puerto %d ya está en uso. ¿Hay otro Extendesk abierto (por ejemplo extendesk-host.exe en una "
@@ -182,10 +189,10 @@ std::wstring FriendlyError(const std::wstring& line) {
                   g.settings.port);
   }
   if (has(L"codificador")) {
-    return L"La tarjeta gráfica no pudo iniciar el codificador de vídeo. Prueba el códec H.264 en Configuración "
-           L"avanzada, o actualiza el driver de la GPU.";
+    return L"La tarjeta gráfica no pudo iniciar el codificador de vídeo. Actualiza el driver de la tarjeta gráfica y "
+           L"pulsa Iniciar.";
   }
-  if (has(L"No existe la salida")) return L"Ese monitor ya no está conectado. Elige otro en Configuración avanzada.";
+  if (has(L"No existe la salida")) return L"Ese monitor ya no está conectado. Elige otro en «Monitor».";
   if (has(L"DuplicateOutput falló") || has(L"no se pudo recuperar la captura")) {
     return L"Windows no deja capturar la pantalla ahora mismo (pantalla bloqueada, aviso de UAC o un juego a "
            L"pantalla completa).";
@@ -306,7 +313,7 @@ void Notify(const std::wstring& title, const std::wstring& text, bool warning = 
 
 void AddLog(const std::wstring& line) {
   g.log.push_back(line);
-  if (g.log.size() > 2000) g.log.pop_front();
+  if (g.log.size() > 5000) g.log.pop_front();  // con los fps por etapa cada 10 s caben unas horas
   if (g.log_edit) {
     const std::wstring text = line + L"\r\n";
     const int len = GetWindowTextLengthW(g.log_edit);
@@ -375,6 +382,11 @@ LRESULT CALLBACK LogProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
 // La resolución de la pantalla extra se cambia donde la de cualquier monitor; el host sigue lo que se elija.
 void OpenDisplaySettings() { ShellExecuteW(nullptr, L"open", L"ms-settings:display", nullptr, nullptr, SW_SHOWNORMAL); }
+
+// La ayuda de la web, en la sección de una opción si se da (los «?» de la ventana).
+void OpenHelp(const std::string& anchor) {
+  ShellExecuteW(nullptr, L"open", HelpUrl(anchor).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+}
 
 void ShowLog() {
   if (g.log_wnd) {
@@ -569,6 +581,27 @@ std::wstring Field(const std::wstring& line, const wchar_t* key) {
   return line.substr(start, end == std::wstring::npos ? std::wstring::npos : end - start);
 }
 
+// Lo técnico que no sale en la ventana va al registro: los fps de cada etapa cada 10 s y los avisos del dispositivo
+// (que no decodifica a tiempo) al aparecer y al irse, con los fps de ese momento.
+void LogDiagnostics(const std::wstring& link) {
+  if (link.empty() || link == L"ninguno") {
+    g.logged_notice.clear();
+    return;
+  }
+  const Diagnostics d = BuildDiagnostics(g.stats);
+  const std::wstring detail = (d.fluency.empty() ? std::wstring(L"Imagen quieta") : d.fluency) + L" · " + d.stats;
+  if (d.notice != g.logged_notice) {
+    AddLog(d.notice.empty() ? L"Aviso resuelto: " + g.logged_notice + L" (" + detail + L")"
+                            : L"Aviso: " + d.notice + L" (" + detail + L")");
+    g.logged_notice = d.notice;
+  }
+  const ULONGLONG now = GetTickCount64();
+  if (!d.fluency.empty() && (g.diagnostics_at == 0 || now - g.diagnostics_at >= kDiagnosticsEveryMs)) {
+    AddLog(L"Fluidez: " + detail);
+    g.diagnostics_at = now;
+  }
+}
+
 void OnHostLine(bool from_stderr, const std::wstring& line) {
   if (line.rfind(L"@listo", 0) == 0) {
     if (g.state == State::kStarting) SetState(State::kWaiting);
@@ -600,11 +633,16 @@ void OnHostLine(bool from_stderr, const std::wstring& line) {
     if (link != g.link && g.state != State::kStopping) {
       if (link == L"ninguno") {
         Notify(L"Dispositivo desconectado", L"Extendesk sigue esperando a que vuelva a conectarse.");
+        AddLog(L"--- Dispositivo desconectado");
       } else {
         Notify(L"Dispositivo conectado", link == L"usb" ? L"Por cable USB." : L"Por Wi-Fi (" + g.stats[L"ip"] + L").");
+        AddLog(L"--- Dispositivo conectado: " + link + (link == L"wifi" ? L" " + g.stats[L"ip"] : L"") + L" · " +
+               BuildDiagnostics(g.stats).stats);
+        g.diagnostics_at = 0;
       }
       g.link = link;
     }
+    LogDiagnostics(link);
     if (g.state == State::kStarting || g.state == State::kWaiting || g.state == State::kConnected) {
       const State next = link == L"ninguno" ? State::kWaiting : State::kConnected;
       if (next != g.state) {
@@ -923,19 +961,6 @@ int PickFromMenu(float x, float y, const std::vector<std::wstring>& items, int c
   return cmd >= kMenuPick ? cmd - kMenuPick : -1;
 }
 
-template <typename T, typename Label>
-void PickValue(float x, float y, const std::vector<T>& values, const T& current, Label label,
-               const std::function<void(const T&)>& apply) {
-  std::vector<std::wstring> items;
-  int checked = -1;
-  for (size_t i = 0; i < values.size(); ++i) {
-    items.push_back(label(values[i]));
-    if (values[i] == current) checked = static_cast<int>(i);
-  }
-  const int pick = PickFromMenu(x, y, items, checked);
-  if (pick >= 0 && values[pick] != current) apply(values[pick]);
-}
-
 // ---------------------------------------------------------------------------------------------------------------
 // Qué hace cada fila al pulsarla.
 
@@ -960,24 +985,6 @@ void OnChoice(const std::string& id, float x, float y) {
       s.output = pick;
       ChangeSettings(s);
     }
-  } else if (id == "fps") {
-    PickValue<int>(x, y, FpsChoices(), g.settings.fps, FpsLabel, [](const int& v) {
-      Settings s = g.settings;
-      s.fps = v;
-      ChangeSettings(s);
-    });
-  } else if (id == "mbps") {
-    PickValue<int>(x, y, BitrateChoices(), g.settings.bitrate, BitrateLabel, [](const int& v) {
-      Settings s = g.settings;
-      s.bitrate = v;
-      ChangeSettings(s);
-    });
-  } else if (id == "codec") {
-    PickValue<std::wstring>(x, y, CodecChoices(), g.settings.codec, CodecLabel, [](const std::wstring& v) {
-      Settings s = g.settings;
-      s.codec = v;
-      ChangeSettings(s);
-    });
   }
 }
 
@@ -993,7 +1000,6 @@ void RefreshDirectWifi(int action) {  // 0 consultar, 1 encender, 2 apagar
 }
 
 void OnToggle(const std::string& id) {
-  Settings s = g.settings;
   if (id == "wifi_directo") {
     RefreshDirectWifi(g.direct_wifi.on ? 2 : 1);
     if (g.direct_wifi_busy) AddLog(g.direct_wifi.on ? L"--- apagando la red Wi-Fi del PC" : L"--- creando la red Wi-Fi del PC");
@@ -1004,13 +1010,7 @@ void OnToggle(const std::string& id) {
     SetStartWithWindows(!g.autostart);
     g.autostart = StartsWithWindows();
     Redraw();
-    return;
   }
-  if (id == "bateria") s.battery_adapt = !s.battery_adapt;
-  else if (id == "usb") s.usb = !s.usb;
-  else if (id == "abrir") s.stream_on_open = !s.stream_on_open;
-  else if (id == "abrir_tablet") s.open_tablet = !s.open_tablet;
-  ChangeSettings(s);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1042,9 +1042,11 @@ float StatusContent(gp::Graphics& gr, const View& v, bool draw, float x, float t
     const BYTE alpha = waiting ? static_cast<BYTE>(140 + 115 * (0.5f + 0.5f * std::sin(g.pulse))) : 255;
     gp::SolidBrush dot_brush(C(ToneColor(v.dot), alpha));
     gr.FillEllipse(&dot_brush, dot_rect);
-    Text(gr, v.title, gp::RectF(ix + F(20), y, iw - F(20), F(26)), *title, P().text);
   }
-  y += F(30);
+  // El título entero, en dos líneas si no cabe (antes se cortaba con «…»).
+  const float th = std::max(F(26), TextHeight(gr, v.title, *title, iw - F(20)));
+  if (draw) Text(gr, v.title, gp::RectF(ix + F(20), y, iw - F(20), th + F(2)), *title, P().text, Align::kLeft, th > F(30));
+  y += th + F(4);
 
   const float dh = TextHeight(gr, v.detail, *body, iw);
   if (draw) Text(gr, v.detail, gp::RectF(ix, y, iw, dh + F(2)), *body, P().text_secondary, Align::kLeft, true);
@@ -1054,10 +1056,6 @@ float StatusContent(gp::Graphics& gr, const View& v, bool draw, float x, float t
     y += F(4);
     if (draw) Text(gr, v.stats, gp::RectF(ix, y, iw, F(22)), *body, P().text);
     y += F(24);
-  }
-  if (!v.fluency.empty()) {
-    if (draw) Text(gr, v.fluency, gp::RectF(ix, y, iw, F(20)), *note, P().text_secondary);
-    y += F(22);
   }
   if (!v.notice.text.empty()) {
     const float nh = TextHeight(gr, v.notice.text, *note, iw);
@@ -1091,6 +1089,17 @@ float StatusContent(gp::Graphics& gr, const View& v, bool draw, float x, float t
   return y + F(kPad) - F(4) - top;
 }
 
+// «?» junto al nombre de una opción (centrado en cy): abre su sección de la ayuda en la web.
+constexpr float kHelpMarkPx = 16;
+void HelpMark(gp::Graphics& gr, float x, float cy, const std::string& anchor) {
+  const float d = F(kHelpMarkPx);
+  const gp::RectF r(x, cy - d / 2, d, d);
+  const int hit = AddHit(gp::RectF(r.X - F(4), r.Y - F(4), d + F(8), d + F(8)), [anchor] { OpenHelp(anchor); });
+  FillRound(gr, r, d / 2, Hovered(hit) ? P().separator : P().surface_secondary);
+  auto font = MakeFont(tokens::kNotePx, true);
+  Text(gr, L"?", r, *font, Hovered(hit) ? P().text : P().text_secondary, Align::kCenter);
+}
+
 // Filas de una tarjeta de ajustes, separadas por una línea fina.
 float RowsContent(gp::Graphics& gr, const std::vector<Row>& rows, bool draw, float x, float top, float w) {
   const float ix = x + F(kPad), iw = w - F(2 * kPad);
@@ -1108,10 +1117,14 @@ float RowsContent(gp::Graphics& gr, const std::vector<Row>& rows, bool draw, flo
     switch (r.control) {
       case Control::kSegmented: {
         const float seg_w = std::min(iw * 0.66f, F(118) * r.options.size());
-        const float label_w = iw - seg_w - F(12);
+        const float mark_w = r.help.empty() ? 0 : F(kHelpMarkPx + 6);
+        const float label_w = iw - seg_w - F(12) - mark_w;
         const float lh = std::max(F(30), TextHeight(gr, r.label, *body, label_w));
         if (draw) {
           Text(gr, r.label, gp::RectF(ix, y, label_w, lh), *body, P().text);
+          if (!r.help.empty()) {
+            HelpMark(gr, ix + std::min(TextWidth(gr, r.label, *body), label_w) + F(6), y + lh / 2, r.help);
+          }
           const std::string id = r.id;
           Segmented(gr, gp::RectF(ix + iw - seg_w, y, seg_w, F(30)), r.options, r.selected,
                     [id](int k) { OnSegment(id, k); });
@@ -1142,14 +1155,26 @@ float RowsContent(gp::Graphics& gr, const std::vector<Row>& rows, bool draw, flo
         break;
       }
       case Control::kToggle: {
-        const float lh = std::max(F(32), TextHeight(gr, r.label, *body, iw - F(54)));
+        const float mark_w = r.help.empty() ? 0 : F(kHelpMarkPx + 6);
+        const float label_w = iw - F(54) - mark_w;
+        const float lh = std::max(F(32), TextHeight(gr, r.label, *body, label_w));
         if (draw) {
           const std::string id = r.id;
           const int hit = AddHit(gp::RectF(x, row_top, w, lh + F(20)), [id] { OnToggle(id); });
-          Text(gr, r.label, gp::RectF(ix, y, iw - F(54), lh), *body, P().text, Align::kLeft, lh > F(32));
+          Text(gr, r.label, gp::RectF(ix, y, label_w, lh), *body, P().text, Align::kLeft, lh > F(32));
+          // El «?» se añade después que la fila: HitAt le da preferencia.
           Switch(gr, ix + iw - F(38), y + (lh - F(22)) / 2, r.on, Hovered(hit));
+          if (!r.help.empty() && lh <= F(32)) {
+            HelpMark(gr, ix + std::min(TextWidth(gr, r.label, *body), label_w) + F(6), y + lh / 2, r.help);
+          }
         }
         y += lh;
+        if (!r.hint.empty()) {
+          y += F(4);
+          const float hh = TextHeight(gr, r.hint, *note, iw - F(54));
+          if (draw) Text(gr, r.hint, gp::RectF(ix, y, iw - F(54), hh + F(2)), *note, ToneColor(r.hint_tone), Align::kLeft, true);
+          y += hh;
+        }
         break;
       }
       case Control::kInfo: {
@@ -1164,8 +1189,17 @@ float RowsContent(gp::Graphics& gr, const std::vector<Row>& rows, bool draw, flo
         if (draw) {
           const int hit = AddHit(gp::RectF(x, row_top, w, F(52)),
                                  r.id == "resolucion" ? std::function<void()>(OpenDisplaySettings)
+                                 : r.id == "ayuda"    ? std::function<void()>([] { OpenHelp(""); })
                                                       : std::function<void()>(ShowLog));
-          Text(gr, r.label, gp::RectF(ix, y, iw, F(32)), *body, Hovered(hit) ? P().text : P().accent);
+          if (r.value.empty()) {
+            Text(gr, r.label, gp::RectF(ix, y, iw, F(32)), *body, Hovered(hit) ? P().text : P().accent);
+          } else {
+            // Como una fila de ajuste: nombre a la izquierda y lo de ahora a la derecha, en el acento (se pulsa).
+            if (Hovered(hit)) FillRound(gr, gp::RectF(x + F(4), row_top + F(3), w - F(8), F(46)), F(6), P().surface_secondary);
+            const float value_w = std::min(iw * 0.55f, TextWidth(gr, r.value, *body) + F(4));
+            Text(gr, r.label, gp::RectF(ix, y, iw - value_w - F(28), F(32)), *body, P().text);
+            Text(gr, r.value, gp::RectF(ix + iw - value_w - F(18), y, value_w, F(32)), *body, P().accent, Align::kRight);
+          }
           Chevron(gr, ix + iw - F(5), y + F(16), false, P().text_secondary);
         }
         y += F(32);
@@ -1192,7 +1226,8 @@ void Paint(gp::Graphics& gr, float width) {
   gr.TranslateTransform(0.0f, -g.scroll);
 
   const View v = BuildView(Input());
-  const float x = F(kMargin), w = width - F(2 * kMargin);
+  const float w = std::min(width - F(2 * kMargin), F(kMaxColumn));
+  const float x = std::floor((width - w) / 2);
   float y = F(20);
 
   auto large = MakeFont(tokens::kLargeTitlePx, true, tokens::kLargeTitleBrand, tokens::kLargeTitleWeight);
@@ -1317,7 +1352,10 @@ void OnPaint(HWND hwnd) {
 
   // La ventana toma el alto del contenido sin lo avanzado, sin pasar del alto de la pantalla: al abrir «Configuración
   // avanzada» no crece ni se mueve (antes saltaba hacia arriba); se desplaza con la rueda hasta ella.
-  const int want = std::min(static_cast<int>(std::ceil(g.base_bottom)), MaxClientHeight(hwnd));
+  // Si el usuario le cambió el tamaño (o está maximizada), se queda con el suyo y el contenido se desplaza.
+  const int want = g.user_sized || IsZoomed(hwnd)
+                       ? h
+                       : std::min(static_cast<int>(std::ceil(g.base_bottom)), MaxClientHeight(hwnd));
   if (want > 0 && std::abs(want - h) > 1) {
     RECT wr{0, 0, w, want};
     AdjustWindowRectEx(&wr, GetWindowLongW(hwnd, GWL_STYLE), FALSE, GetWindowLongW(hwnd, GWL_EXSTYLE));
@@ -1346,8 +1384,9 @@ void ScrollBy(float dy) {
   }
 }
 
+// La última que se añadió gana: va pintada encima (el «?» de una fila sobre la fila entera).
 int HitAt(int x, int y) {
-  for (size_t i = 0; i < g.hits.size(); ++i) {
+  for (size_t i = g.hits.size(); i-- > 0;) {
     if (g.hits[i].rect.Contains(static_cast<float>(x), static_cast<float>(y) + g.scroll)) return static_cast<int>(i);
   }
   return -1;
@@ -1420,6 +1459,30 @@ LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
       return 0;
     case WM_ERASEBKGND:
       return 1;
+    case WM_GETMINMAXINFO: {
+      RECT r{0, 0, static_cast<LONG>(F(kMinClientW)), static_cast<LONG>(F(kMinClientH))};
+      AdjustWindowRectEx(&r, GetWindowLongW(hwnd, GWL_STYLE), FALSE, GetWindowLongW(hwnd, GWL_EXSTYLE));
+      auto* mmi = reinterpret_cast<MINMAXINFO*>(lp);
+      mmi->ptMinTrackSize = {r.right - r.left, r.bottom - r.top};
+      return 0;
+    }
+    case WM_SIZING:  // solo llega cuando el usuario arrastra un borde
+      g.user_sized = true;
+      break;
+    case WM_EXITSIZEMOVE:
+      // Se recuerda el tamaño que dejó el usuario (a 96 ppp) para la próxima vez.
+      if (g.user_sized && !IsZoomed(hwnd)) {
+        RECT rc;
+        GetClientRect(hwnd, &rc);
+        g.settings.window_w = static_cast<int>(std::lround(rc.right / g.scale));
+        g.settings.window_h = static_cast<int>(std::lround(rc.bottom / g.scale));
+        SaveSettings(g.settings);
+      }
+      return 0;
+    case WM_SIZE:
+      ClampScroll(static_cast<float>(HIWORD(lp)));
+      Redraw();
+      return 0;
     case WM_MOUSEMOVE: {
       if (!g.mouse_tracked) {
         TRACKMOUSEEVENT tme{sizeof(tme), TME_LEAVE, hwnd, 0};
@@ -1649,7 +1712,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd_line, int) {
   g.autostart = StartsWithWindows();
   g.monitors = MonitorNames();
 
-  const DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+  // Se puede agrandar y maximizar; el contenido se adapta al ancho y se desplaza si no cabe de alto.
+  const DWORD style = WS_OVERLAPPEDWINDOW;
   RECT r{0, 0, static_cast<LONG>(F(kClientW)), static_cast<LONG>(F(640))};
   AdjustWindowRectEx(&r, style, FALSE, 0);
   g.wnd = CreateWindowExW(0, kMainClass, kAppName, style, CW_USEDEFAULT, CW_USEDEFAULT, r.right - r.left,
@@ -1681,8 +1745,15 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd_line, int) {
     DeleteObject(bmp);
     DeleteDC(mem);
     ReleaseDC(g.wnd, screen);
-    RECT wr{0, 0, static_cast<LONG>(F(kClientW)),
-            static_cast<LONG>(std::min(static_cast<int>(std::ceil(g.base_bottom)), MaxClientHeight(g.wnd)))};
+    // El tamaño que dejó el usuario la última vez o, si no hay, el del contenido.
+    g.user_sized = g.settings.window_w > 0 && g.settings.window_h > 0;
+    const int client_w = g.user_sized ? std::max(static_cast<int>(F(static_cast<float>(g.settings.window_w))),
+                                                 static_cast<int>(F(kMinClientW)))
+                                      : static_cast<int>(F(kClientW));
+    const int client_h = std::min(g.user_sized ? static_cast<int>(F(static_cast<float>(g.settings.window_h)))
+                                               : static_cast<int>(std::ceil(g.base_bottom)),
+                                  MaxClientHeight(g.wnd));
+    RECT wr{0, 0, static_cast<LONG>(std::min(client_w, GetSystemMetrics(SM_CXFULLSCREEN))), static_cast<LONG>(client_h)};
     AdjustWindowRectEx(&wr, style, FALSE, 0);
     SetWindowPos(g.wnd, nullptr, 0, 0, wr.right - wr.left, wr.bottom - wr.top, SWP_NOMOVE | SWP_NOZORDER);
     CenterOnWorkArea(g.wnd);
@@ -1692,7 +1763,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd_line, int) {
   TrayCommand(NIM_ADD);
   SetTimer(g.wnd, kTimerRefresh, 5000, nullptr);
   if (!tray_only) ShowMain();
-  if (g.settings.stream_on_open) StartHost();
+  StartHost();  // siempre escucha: la pantalla extra solo aparece cuando un dispositivo se conecta
 
   MSG msg;
   while (GetMessageW(&msg, nullptr, 0, 0) > 0) {

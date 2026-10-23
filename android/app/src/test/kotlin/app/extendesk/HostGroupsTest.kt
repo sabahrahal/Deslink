@@ -2,7 +2,6 @@ package app.extendesk
 
 import java.net.InetAddress
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -21,10 +20,8 @@ class HostGroupsTest {
         assertEquals(1, pcs.size)
         val pc = pcs[0]
         assertEquals("ESCRITORIO", pc.name)
-        assertTrue(pc.hasBoth)
-        // De serie, el cable; si se elige Wi-Fi, la IP.
+        // Se conecta sola por el cable: no hay nada que elegir.
         assertEquals(Link.CABLE_HOST, pc.route().ip)
-        assertEquals("192.168.1.20", pc.route(preferUsb = false).ip)
         assertTrue(pc.matches(Link.CABLE_HOST) && pc.matches("192.168.1.20"))
     }
 
@@ -32,17 +29,16 @@ class HostGroupsTest {
     fun differentPcsAreDifferentCardsWithCableFirst() {
         val pcs = HostGroups.group(listOf(laptop, pcWifi, usbCable))
         assertEquals(listOf("ESCRITORIO", "PORTATIL"), pcs.map { it.name })
-        assertFalse(pcs[1].hasBoth)
         assertNull(pcs[1].usb)
         assertEquals("192.168.1.31", pcs[1].route().ip)
     }
 
     @Test
-    fun onlyWifiUsesWifiEvenIfUsbIsPreferred() {
+    fun onlyWifiUsesWifi() {
         val pc = HostGroups.group(listOf(pcWifi)).single()
-        assertEquals("192.168.1.20", pc.route(preferUsb = true).ip)
+        assertEquals("192.168.1.20", pc.route().ip)
         assertEquals("Por Wi-Fi · 192.168.1.20", HostGroups.describe(pc.route()))
-        assertEquals("Por cable USB · la conexión más rápida", HostGroups.describe(usbCable))
+        assertEquals("Por cable USB · la conexión más estable", HostGroups.describe(usbCable))
     }
 
     @Test
@@ -57,9 +53,9 @@ class HostGroupsTest {
         // El anclaje de red por USB va como opción de cable; la lista de red queda solo con el Wi-Fi.
         assertEquals("192.168.42.10", pc.usb?.ip)
         assertEquals(listOf("192.168.1.20"), pc.network.map { it.ip })
-        assertTrue(pc.hasBoth)
         assertEquals("192.168.42.10", pc.route().ip)
-        assertEquals("Por cable USB (anclaje de red) · el más estable · 192.168.42.10", HostGroups.describe(pcTether))
+        // Para el usuario es el mismo cable USB, venga por el anclaje o por la depuración.
+        assertEquals("Por cable USB · la conexión más estable", HostGroups.describe(pcTether))
     }
 
     @Test

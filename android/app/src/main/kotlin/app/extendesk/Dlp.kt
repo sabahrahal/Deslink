@@ -47,6 +47,13 @@ object Dlp {
     /** Paridad de un grupo de paquetes de vídeo (dlp::AddFec): payload = u16 XOR de longitudes + XOR de datos. */
     const val TYPE_VIDEO_FEC = 19
     const val MAX_FEC_PAYLOAD = MAX_PAYLOAD + 2
+
+    /** Los dos sentidos: «me voy», u8 motivo. Se manda 3 veces por si se pierde alguno (ver docs/protocol-dlp.md). */
+    const val TYPE_BYE = 20
+    /** Desconectar a propósito (tablet: Desconectar, Atrás o cerrar la app; PC: Detener o Salir). */
+    const val BYE_LEAVE = 0
+    /** Solo la tablet: se bloqueó o pasó a segundo plano y vuelve al desbloquearla. */
+    const val BYE_PAUSE = 1
     const val INPUT_VIEW_ONLY = 2
 
     /** [HelloConfig.codec] en el HELLO: qué puede decodificar la tablet. */
@@ -214,6 +221,14 @@ object Dlp {
         val bytes = text.toByteArray(Charsets.UTF_8)
         return controlPacket(TYPE_CLIENT_INFO, timestampUs, if (bytes.size > 1176) bytes.copyOf(1176) else bytes)
     }
+
+    /** BYE con su motivo ([BYE_LEAVE] o [BYE_PAUSE]). */
+    fun bye(reason: Int, timestampUs: Long): ByteArray =
+        controlPacket(TYPE_BYE, timestampUs, byteArrayOf(reason.toByte()))
+
+    /** Motivo de un BYE recibido; sin payload cuenta como [BYE_LEAVE]. */
+    fun parseByeReason(data: ByteArray, header: Header): Int =
+        if (header.payloadSize >= 1) data[HEADER_SIZE].toInt() and 0xFF else BYE_LEAVE
 
     /** HELLO con la configuración que pide la tablet (o vacío si [config] es null). */
     fun hello(config: HelloConfig?, timestampUs: Long): ByteArray =

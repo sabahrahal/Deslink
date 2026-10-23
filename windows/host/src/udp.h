@@ -41,6 +41,8 @@ class UdpEndpoint {
   // Olvida al cliente si lleva más de timeout sin enviar nada (la tablet manda PING cada segundo).
   // Devuelve true si lo olvidó.
   bool ExpirePeer(std::chrono::milliseconds timeout);
+  // El cliente dijo adiós (BYE): el próximo ExpirePeer lo olvida sin esperar.
+  void ForgetPeer();
   bool has_peer() const;
   bool peer_is_usb() const;
   void SendToPeer(const std::vector<uint8_t>& packet);
@@ -64,7 +66,7 @@ class UdpEndpoint {
   bool has_peer_ = false;
   std::atomic<uint64_t> send_errors_{0};
   std::chrono::steady_clock::time_point last_rx_{};
-  bool peer_lost_ = false;  // el cable USB se cerró: se olvida al cliente sin esperar
+  bool peer_lost_ = false;  // el cable USB se cerró o el cliente dijo adiós: se olvida sin esperar
   UsbLink usb_;
 
   // Prioridad de vídeo en el Wi-Fi (qWAVE): los paquetes al cliente salen marcados como audio/vídeo (DSCP 40), y el

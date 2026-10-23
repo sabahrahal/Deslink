@@ -94,17 +94,11 @@ class SettingsStore(context: Context) {
         get() = prefs.getBoolean(K_ONBOARDING, lastHost != null)
         set(v) = prefs.edit().putBoolean(K_ONBOARDING, v).apply()
 
-    /** El usuario cerró el aviso «¿Necesitas más velocidad por USB?». */
-    var usbTipDismissed: Boolean
-        get() = prefs.getBoolean(K_USB_TIP, false)
-        set(v) = prefs.edit().putBoolean(K_USB_TIP, v).apply()
-
     private companion object {
         const val K_HOST = "host" // la misma clave que usaban las versiones anteriores
         const val K_HOST_NAME = "host_name"
         const val K_STATS = "show_stats"
         const val K_AUTO = "auto_connect"
         const val K_ONBOARDING = "onboarding_done"
-        const val K_USB_TIP = "usb_tip_dismissed"
     }
 }

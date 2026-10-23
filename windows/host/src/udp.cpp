@@ -243,6 +243,11 @@ bool UdpEndpoint::ExpirePeer(std::chrono::milliseconds timeout) {
   return true;
 }
 
+void UdpEndpoint::ForgetPeer() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (has_peer_) peer_lost_ = true;
+}
+
 bool UdpEndpoint::has_peer() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return has_peer_;

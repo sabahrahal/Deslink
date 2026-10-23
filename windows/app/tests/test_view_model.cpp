@@ -41,11 +41,12 @@ static void TestMainRowsAlwaysVisible() {
     ViewInput in;
     in.state = st;
     const View v = BuildView(in);
-    // A la vista, siempre los cuatro y en este orden; nada más.
-    CHECK((Ids(v.main) == std::vector<std::string>{"modo", "calidad", "sonido", "tactil"}));
+    // A la vista y en este orden; nada más. La resolución, arriba junto al modo: es lo que más se cambia.
+    CHECK((Ids(v.main) == std::vector<std::string>{"modo", "resolucion", "calidad", "sonido"}));
     CHECK(Get(v.main, "calidad").options.size() == 3);
-    // Táctil y Solo ver: sin «Ratón».
-    CHECK(Get(v.main, "tactil").options.size() == 2);
+    // Cada opción a la vista explica qué hace, y las que tienen más que contar llevan su «?» a la ayuda.
+    for (const auto& r : v.main) CHECK(!r.hint.empty());
+    CHECK(Get(v.main, "modo").help == "modo" && Get(v.main, "calidad").help == "calidad");
     // Lo avanzado no aparece plegado.
     CHECK(v.advanced.empty());
   }
@@ -63,6 +64,18 @@ static void TestUsbAndWifiWhileWaiting() {
   CHECK(v.connection.size() == 2);
   CHECK(Contains(v.connection[0].text, L"Cable USB") && v.connection[0].tone == Tone::kSuccess);
   CHECK(Contains(v.connection[1].text, L"Wi-Fi") && Contains(v.connection[1].text, L"192.168.1.20"));
+  // Sin dispositivo enchufado: un solo paso, el que diga el dispositivo (no «anclaje» ni «depuración»).
+  in.stats[L"adb"] = L"0";
+  CHECK(Contains(BuildView(in).connection[0].text, L"enchufa el dispositivo"));
+  CHECK(!Contains(BuildView(in).connection[0].text, L"depuración"));
+  in.stats[L"adb"] = L"1";
+  // Se cortó sin avisar: la pantalla extra aguanta unos segundos y la ventana lo cuenta.
+  {
+    ViewInput g = in;
+    g.stats[L"gracia"] = L"12";
+    const View gv = BuildView(g);
+    CHECK(gv.title == L"Reconectando…" && Contains(gv.detail, L"12 s"));
+  }
 
   // Falta aceptar la depuración USB: aviso en ámbar.
   in.stats[L"adb_pendientes"] = L"1";
@@ -92,34 +105,43 @@ static void TestConnectedShowsStatsAndNotice() {
   CHECK(Contains(v.notice.text, L"Wi-Fi") && v.notice.tone == Tone::kWarning);
   in.stats[L"reducido"] = L"carga";
   CHECK(Contains(BuildView(in).notice.text, L"gráfica"));
+  // Que el dispositivo decodifica lento es técnico: no sale en la ventana, va al registro.
   in.stats[L"reducido"] = L"tablet";
-  CHECK(Contains(BuildView(in).notice.text, L"dispositivo") && !Contains(BuildView(in).notice.text, L"gráfica"));
+  CHECK(BuildView(in).notice.text.empty());
+  CHECK(Contains(BuildDiagnostics(in.stats).notice, L"dispositivo"));
 
   // El anclaje USB de la tablet no es Wi-Fi: va por el cable, como red.
   in.stats[L"enlace"] = L"anclaje";
   in.stats[L"reducido"] = L"no";
   v = BuildView(in);
-  CHECK(v.title == L"Conectado por cable USB (anclaje de red)" && Contains(v.detail, L"depuración USB"));
+  // Por anclaje o por depuración USB es el mismo «cable USB»: nada que elegir ni que activar.
+  CHECK(v.title == L"Conectado por cable USB" && !Contains(v.detail, L"depuración") && !Contains(v.detail, L"anclaje"));
+  // La resolución no se repite en el texto del estado: está en su fila, a la vista.
+  CHECK(!Contains(v.detail, L"2944"));
+  CHECK(Get(v.main, "resolucion").value == L"2944 × 1840");
 }
 
-static void TestFluencyShowsEachStage() {
+static void TestDiagnosticsGoToTheLog() {
   ViewInput in;
   in.state = State::kConnected;
   in.stats = {{L"enlace", L"usb"}, {L"capturados", L"60.2"}, {L"codificados", L"59.8"}, {L"mbps", L"40"},
-              {L"reducido", L"no"}, {L"tablet_fps", L"58"}};
-  View v = BuildView(in);
-  CHECK(v.fluency == L"Captura 60 · Codificación 60 · Dispositivo 58 fps");
-  CHECK(v.notice.text.empty());
-  // La tablet se queda atrás: se dice dónde.
+              {L"rtt_ms", L"3.4"}, {L"size", L"2944x1840"}, {L"codec", L"hevc"}, {L"reducido", L"no"},
+              {L"tablet_fps", L"58"}};
+  Diagnostics d = BuildDiagnostics(in.stats);
+  CHECK(d.fluency == L"Captura 60 · Codificación 60 · Dispositivo 58 fps");
+  CHECK(d.stats == L"40,0 Mbps · RTT 3 ms · 2944x1840 · hevc");
+  CHECK(d.notice.empty());
+  // La tablet se queda atrás: se dice dónde, en el registro y no en la ventana.
   in.stats[L"tablet_fps"] = L"21";
-  v = BuildView(in);
-  CHECK(Contains(v.notice.text, L"dispositivo") && v.notice.tone == Tone::kWarning);
+  d = BuildDiagnostics(in.stats);
+  CHECK(Contains(d.notice, L"decodificador"));
+  CHECK(BuildView(in).notice.text.empty());
   // Tablet antigua (no lo cuenta) o imagen quieta: sin cifra de la tablet, sin aviso, o sin línea.
   in.stats[L"tablet_fps"] = L"-";
-  v = BuildView(in);
-  CHECK(v.fluency == L"Captura 60 · Codificación 60 fps" && v.notice.text.empty());
+  d = BuildDiagnostics(in.stats);
+  CHECK(d.fluency == L"Captura 60 · Codificación 60 fps" && d.notice.empty());
   in.stats[L"codificados"] = L"0";
-  CHECK(BuildView(in).fluency.empty());
+  CHECK(BuildDiagnostics(in.stats).fluency.empty());
 }
 
 static void TestErrorAndButtons() {
@@ -144,18 +166,24 @@ static void TestAdvancedRows() {
   in.advanced_open = true;
   in.settings.virtual_display = true;
   View v = BuildView(in);
-  CHECK(Has(v.advanced, "resolucion") && !Has(v.advanced, "monitor"));
-  for (const char* id :
-       {"fps", "mbps", "codec", "bateria", "usb", "abrir_tablet", "autostart", "abrir", "registro"}) {
-    CHECK(Has(v.advanced, id));
-  }
+  // La resolución y el monitor ya no están aquí: van a la vista.
+  CHECK(!Has(v.advanced, "resolucion") && !Has(v.advanced, "monitor"));
+  // Solo lo que casi nadie cambia, en este orden. Fps, Mbps, códec, batería, cable USB, abrir la app de la tablet,
+  // transmitir al abrir y el puerto ya no se eligen: son automáticos (o se tocan a mano en el .ini).
+  CHECK((Ids(v.advanced) == std::vector<std::string>{"tactil", "wifi_directo", "autostart", "ayuda", "registro"}));
+  // Táctil y Solo ver: sin «Ratón».
+  CHECK(Get(v.advanced, "tactil").options.size() == 2 && Get(v.advanced, "tactil").selected == 0);
+  CHECK(Get(v.advanced, "wifi_directo").help == "wifi-propia");
+  CHECK(Get(v.advanced, "ayuda").control == Control::kLink);
+  CHECK(HelpUrl() == L"https://extendesk.app/ayuda");
+  CHECK(HelpUrl("calidad") == L"https://extendesk.app/ayuda#calidad");
   // El puntero se dibuja siempre: ya no es una opción.
   CHECK(!Has(v.advanced, "puntero"));
   // La resolución solo se cambia en Windows: es un enlace, no un desplegable con otro valor que se pise.
-  CHECK(Get(v.advanced, "resolucion").control == Control::kLink);
-  CHECK(Contains(Get(v.advanced, "resolucion").label, L"Windows"));
+  CHECK(Get(v.main, "resolucion").control == Control::kLink);
+  CHECK(Contains(Get(v.main, "resolucion").value, L"Windows"));  // sin conectar, no hay resolución que enseñar
   // El consejo de la escala va junto al enlace: más grande sin perder nitidez.
-  CHECK(Contains(Get(v.advanced, "resolucion").hint, L"Escala"));
+  CHECK(Contains(Get(v.main, "resolucion").hint, L"Escala"));
   CHECK(Has(v.advanced, "wifi_directo") && !Get(v.advanced, "wifi_directo").on);
   {
     ViewInput w = in;
@@ -168,27 +196,15 @@ static void TestAdvancedRows() {
     w.direct_wifi_error = L"Este PC no puede crear su propia red Wi-Fi";
     CHECK(Get(BuildView(w).advanced, "wifi_directo").hint_tone == Tone::kWarning);
   }
-  CHECK(Get(v.advanced, "abrir_tablet").on);  // de serie, la app de la tablet se abre al enchufarla
-  in.settings.usb = false;
-  CHECK(!Has(BuildView(in).advanced, "abrir_tablet"));  // sin cable no tiene sentido
-  in.settings.usb = true;
-  CHECK(Contains(Get(v.advanced, "fps").value, L"Automática"));
-  CHECK(!Get(v.advanced, "bateria").on);  // de serie, la batería no baja la calidad
 
   // Duplicar: se elige el monitor y no hay resolución de pantalla extra.
   in.settings.virtual_display = false;
   in.monitors = {L"1: DELL U2720Q"};
   v = BuildView(in);
-  CHECK(Has(v.advanced, "monitor") && !Has(v.advanced, "resolucion"));
-  CHECK(Get(v.advanced, "monitor").value == L"1: DELL U2720Q");
+  CHECK(Has(v.main, "monitor") && !Has(v.main, "resolucion") && !Has(v.advanced, "monitor"));
+  CHECK(Get(v.main, "monitor").value == L"1: DELL U2720Q");
+  CHECK(Ids(v.main)[1] == "monitor");
 
-  in.settings.fps = 90;
-  in.settings.bitrate = 50;
-  in.settings.codec = L"h264";
-  v = BuildView(in);
-  CHECK(Get(v.advanced, "fps").value == L"90 fps");
-  CHECK(Get(v.advanced, "mbps").value == L"50 Mbps");
-  CHECK(Get(v.advanced, "codec").value == L"H.264");
 
   // Sin driver con pantalla extra: el aviso va en el modo, a la vista.
   in.settings.virtual_display = true;
@@ -208,35 +224,34 @@ static void TestAdvancedRows() {
 
 static void TestHostArguments() {
   Settings s;
-  CHECK(HostArguments(s) == L"--port 47800 --profile alta --fps auto --bitrate auto --codec auto --touch --virtual");
+  // La batería y abrir la app de la tablet al enchufarla van siempre; el cable USB también (sin --no-usb).
+  CHECK(HostArguments(s) ==
+        L"--port 47800 --profile alta --fps auto --bitrate auto --codec auto --touch --battery-adapt --virtual");
   CHECK(LiveSettingsLine(s) ==
-        L"@ajustes calidad=alta fps=auto mbps=auto codec=auto sonido=pc tactil=tactil bateria=0 abrir_tablet=1");
+        L"@ajustes calidad=alta fps=auto mbps=auto codec=auto sonido=pc tactil=tactil bateria=1 abrir_tablet=1");
   s.quality = L"equilibrada";
   s.audio_tablet = true;
   s.touch = 2;
-  s.battery_adapt = true;
-  s.fps = 120;
+  s.fps = 120;  // fps, Mbps y códec solo desde el .ini
   s.bitrate = 50;
   s.codec = L"hevc";
   s.size = L"2560 × 1600";  // de un .ini viejo: ya no se pasa, la resolución la decide Windows
-  s.open_tablet = false;
   CHECK(HostArguments(s) ==
         L"--port 47800 --profile equilibrada --fps 120 --bitrate 50 --codec hevc --audio-tablet --view-only "
-        L"--battery-adapt --virtual --no-open-tablet");
+        L"--battery-adapt --virtual");
   CHECK(LiveSettingsLine(s) ==
-        L"@ajustes calidad=equilibrada fps=120 mbps=50 codec=hevc sonido=tablet tactil=solo-ver bateria=1 abrir_tablet=0");
+        L"@ajustes calidad=equilibrada fps=120 mbps=50 codec=hevc sonido=tablet tactil=solo-ver bateria=1 abrir_tablet=1");
   s.virtual_display = false;
   s.output = 1;
   CHECK(HostArguments(s).find(L"--output 1") != std::wstring::npos);
   CHECK(HostArguments(s).find(L"--no-cursor") == std::wstring::npos);
 
-  // Calidad, sonido, táctil y demás se aplican en marcha; el modo o el USB reinician.
+  // Calidad, sonido, táctil y demás se aplican en marcha; el modo o el monitor reinician.
   Settings a, b;
   b.quality = L"ahorro";
   b.audio_tablet = true;
   b.touch = 2;
   b.fps = 60;
-  b.open_tablet = false;
   CHECK(!NeedsRestart(a, b));
   b.virtual_display = false;
   CHECK(NeedsRestart(a, b));
@@ -247,7 +262,15 @@ static void TestHostArguments() {
   bad.fps = 999;
   bad.codec = L"av1";
   bad.size = L"10x10";
+  bad.window_w = 120;  // tamaño de ventana imposible: vuelve al del contenido
+  bad.window_h = 900;
   Sanitize(&bad);
+  CHECK(bad.window_w == 0 && bad.window_h == 0);
+  Settings sized;
+  sized.window_w = 720;
+  sized.window_h = 860;
+  Sanitize(&sized);
+  CHECK(sized.window_w == 720 && sized.window_h == 860);
   CHECK(bad.quality == L"alta" && bad.touch == 0 && bad.fps == 0 && bad.codec.empty() && bad.size.empty());
   // «Ratón» (1) de un .ini viejo vuelve a táctil.
   Settings old;
@@ -260,7 +283,7 @@ int main() {
   TestMainRowsAlwaysVisible();
   TestUsbAndWifiWhileWaiting();
   TestConnectedShowsStatsAndNotice();
-  TestFluencyShowsEachStage();
+  TestDiagnosticsGoToTheLog();
   TestErrorAndButtons();
   TestAdvancedRows();
   TestHostArguments();

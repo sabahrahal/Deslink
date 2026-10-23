@@ -25,6 +25,7 @@ void Sanitize(Settings* s) {
   if (s->bitrate < 0 || s->bitrate > 1000) s->bitrate = 0;
   if (s->codec != L"hevc" && s->codec != L"h264") s->codec.clear();
   if (s->port < 1 || s->port > 65535) s->port = 47800;
+  if (s->window_w < 300 || s->window_w > 8000 || s->window_h < 200 || s->window_h > 8000) s->window_w = s->window_h = 0;
   unsigned w, h;
   if (!s->size.empty() && !ParseSize(s->size, &w, &h)) s->size.clear();
 }
@@ -43,15 +44,13 @@ std::wstring HostArguments(const Settings& s) {
   a += L" --codec " + (s.codec.empty() ? std::wstring(L"auto") : s.codec);
   if (s.audio_tablet) a += L" --audio-tablet";
   a += s.touch == 2 ? L" --view-only" : L" --touch";
-  if (s.battery_adapt) a += L" --battery-adapt";
+  a += L" --battery-adapt";  // siempre: la fluidez baja sola si la batería de la tablet no aguanta
   // Sin --size: la resolución de la pantalla extra es la de la tablet o la que el usuario deje en Windows.
   if (s.virtual_display) {
     a += L" --virtual";
   } else {
     a += L" --output " + std::to_wstring(s.output);
   }
-  if (!s.usb) a += L" --no-usb";
-  if (!s.open_tablet) a += L" --no-open-tablet";
   if (!s.adb.empty()) a += L" --adb \"" + s.adb + L"\"";
   if (!s.extra.empty()) a += L" " + s.extra;
   return a;
@@ -64,12 +63,11 @@ std::wstring LiveSettingsLine(const Settings& s) {
   l += L" codec=" + (s.codec.empty() ? std::wstring(L"auto") : s.codec);
   l += L" sonido=" + std::wstring(s.audio_tablet ? L"tablet" : L"pc");
   l += L" tactil=" + std::wstring(TouchArg(s.touch));
-  l += L" bateria=" + std::wstring(s.battery_adapt ? L"1" : L"0");
-  l += L" abrir_tablet=" + std::wstring(s.open_tablet ? L"1" : L"0");
+  l += L" bateria=1 abrir_tablet=1";  // ya no se eligen: el host los tiene siempre activados
   return l;
 }
 
 bool NeedsRestart(const Settings& a, const Settings& b) {
   return a.virtual_display != b.virtual_display || (!a.virtual_display && a.output != b.output) ||
-         a.usb != b.usb || a.port != b.port || a.adb != b.adb || a.extra != b.extra;
+         a.port != b.port || a.adb != b.adb || a.extra != b.extra;
 }

@@ -10,26 +10,38 @@ de `src/view_model.cpp`, sin Windows, y lo prueba `tests/test_view_model.cpp`.
 
 ## Qué hace
 
-- **Estado**: conectado por cable USB o por Wi-Fi (con la IP de la tablet), fps, Mbps y retardo, y por qué la imagen
-  va reducida si es así. Esperando, enseña las dos formas de conectar: el cable USB (enchufada y lista, o qué falta)
-  y el Wi-Fi (la IP de este PC).
+- **Estado**: conectado por cable USB (por anclaje o por depuración, es el mismo «cable») o por Wi-Fi (con la IP de
+  la tablet), fps, Mbps y retardo, y por qué la imagen va reducida si es por algo que el usuario entiende (Wi-Fi,
+  batería, gráfica). Esperando, enseña las dos formas de conectar: el cable USB (enchufada y lista, o qué falta) y el
+  Wi-Fi (la IP de este PC). Tras un corte, «Reconectando…» con los segundos que la pantalla extra espera.
+- **Al registro, no a la ventana**: los fps de cada etapa («Fluidez: Captura · Codificación · Dispositivo fps» con
+  Mbps, RTT, resolución y códec, cada 10 s conectado), los avisos técnicos del dispositivo («Aviso: …» al aparecer y
+  «Aviso resuelto: …» al irse) y cada conexión y desconexión. Se ven en **Ver registro**.
+- **La ventana se puede agrandar** (y maximizar; la columna se queda centrada). Mientras no se toque, toma el alto del
+  contenido; si se cambia el tamaño, se recuerda en el `.ini` (`window_w`, `window_h`, a 96 ppp).
 - **Iniciar / Detener** la transmisión, desde la ventana o desde el menú del icono (clic derecho).
-- **Ajustes a la vista**: modo (pantalla extra o duplicar), calidad (Alta, Equilibrada, Ahorro), sonido (en el PC o
-  en la tablet) y táctil (táctil, ratón o solo ver). El PC manda: la tablet usa lo que se elija aquí (ver
-  [ajustes](../../docs/ajustes.md)).
-- **Configuración avanzada**, plegada: resolución, fluidez (fps), calidad de vídeo (Mbps), códec, monitor que se
-  duplica, bajar la calidad si la batería de la tablet no aguanta, puntero, cable USB, abrir con Windows,
-  transmitir al abrir, el puerto y **Ver registro** (la salida completa del host, con «Copiar todo»).
-- Casi todo se aplica en marcha: la app manda al host una línea `@ajustes …` por su entrada. El monitor, el puntero
-  y el cable USB necesitan reiniciar la transmisión: aparece **Aplicar cambios**. El modo reinicia solo.
+- **Ajustes a la vista**: modo (pantalla extra o duplicar), la resolución (abre la de Windows; con duplicar, el
+  monitor que se duplica), calidad (Alta, Equilibrada, Ahorro) y sonido (en el PC o en la tablet), cada uno con una
+  línea que dice qué hace. El PC manda: la tablet usa lo que se elija aquí (ver [ajustes](../../docs/ajustes.md)).
+- **Configuración avanzada**, plegada: táctil (táctil o solo ver), red Wi-Fi del PC, abrir con Windows, **Ayuda** y
+  **Ver registro** (la salida completa del host, con «Copiar todo»).
+- **Ayuda**: un «?» junto a Modo, Calidad y Red Wi-Fi del PC abre su sección de `https://extendesk.app/ayuda`
+  (`HelpUrl`); «Ayuda» en avanzada abre la página entera.
+- Siempre escucha nada más abrirse (ya no es una opción): la pantalla extra solo aparece cuando un dispositivo se
+  conecta, así que no cuesta nada. El cable USB, abrir la app de la tablet al enchufarla y bajar la fluidez si la
+  batería de la tablet no aguanta también van siempre.
+- Casi todo se aplica en marcha: la app manda al host una línea `@ajustes …` por su entrada. El monitor necesita
+  reiniciar la transmisión: aparece **Aplicar cambios**. El modo reinicia solo.
 - Se guarda en `%APPDATA%\Extendesk\extendesk.ini` (`config=3`; los `.ini` anteriores, también el `%APPDATA%\DeskLink\desklink.ini`
   de antes del nombre Extendesk, se pasan solos).
 - **Errores en claro**: falta el driver, puerto ocupado, la GPU no puede codificar, el monitor ya no existe…
 - Si el host se cae después de funcionar un rato, se vuelve a arrancar solo. Al cerrar la ventana la app sigue en la
   bandeja; para cerrarla del todo: clic derecho en el icono > **Salir** (quita el monitor virtual y el túnel de adb).
 
-Opciones que solo están en el `.ini`: `port`, `adb` (ruta de adb.exe) y `extra` (opciones más para el host, p. ej.
-`--refine 0 --pace 80`).
+Opciones que solo están en el `.ini`: `fps`, `bitrate` (Mbps) y `codec` (`hevc` o `h264`; 0 o vacío = automático),
+`port`, `adb` (ruta de adb.exe) y `extra` (opciones más para el host, p. ej. `--refine 0 --pace 80`, o `--no-usb` para
+no abrir el túnel del cable). Las claves `usb`, `open_tablet`, `stream_on_open` y `battery_adapt` de `.ini` viejos ya no
+se leen.
 
 ## Cómo se habla con el host
 

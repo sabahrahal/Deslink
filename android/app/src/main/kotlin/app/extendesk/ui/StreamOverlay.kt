@@ -23,7 +23,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.extendesk.StreamSession.Phase
 
-/** Pantalla de estado sobre el vídeo mientras no hay imagen: conectando, sin respuesta, reconectando o error. */
+/**
+ * Pantalla de estado sobre el vídeo mientras no hay imagen: conectando, sin respuesta, reconectando, el PC se detuvo o
+ * error.
+ */
 @Composable
 fun StreamOverlay(phase: Phase, detail: String, hostName: String, onRetry: () -> Unit, onBack: () -> Unit) {
     Box(Modifier.fillMaxSize().background(palette.background), contentAlignment = Alignment.Center) {
@@ -44,6 +47,7 @@ fun StreamOverlay(phase: Phase, detail: String, hostName: String, onRetry: () ->
                         Phase.CONNECTING -> "Conectando con $hostName"
                         Phase.NO_ANSWER -> "El PC no responde"
                         Phase.RECONNECTING -> "Reconectando…"
+                        Phase.HOST_STOPPED -> "Extendesk se detuvo en $hostName"
                         Phase.FAILED -> "No se pudo conectar"
                         Phase.STREAMING -> ""
                     },
@@ -59,7 +63,7 @@ fun StreamOverlay(phase: Phase, detail: String, hostName: String, onRetry: () ->
                 )
                 VSpace(20.dp)
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    SecondaryButton(if (phase == Phase.FAILED) "Volver" else "Cancelar", onBack)
+                    SecondaryButton(if (phase == Phase.FAILED || phase == Phase.HOST_STOPPED) "Volver" else "Cancelar", onBack)
                     if (phase == Phase.FAILED || phase == Phase.NO_ANSWER) PrimaryButton("Reintentar", onRetry)
                 }
             }

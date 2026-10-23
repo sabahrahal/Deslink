@@ -36,6 +36,13 @@ enum class PacketType : uint8_t {
   kSessionConfig = 17,   // host -> cliente: lo que eligió el PC (ver dlp/session.h); tras STREAM_INFO, al cambiar y cada 2 s
   kClientInfo = 18,      // cliente -> host: texto UTF-8 para el log del PC (modelo y decodificador de la tablet)
   kVideoFec = 19,        // host -> cliente: paridad de un grupo de paquetes VIDEO (ver AddFec)
+  kBye = 20,             // los dos sentidos: me voy (u8 ByeReason); se manda 3 veces por si se pierde alguno
+};
+
+// Por qué se va el que manda BYE. Sin payload cuenta como kByeLeave.
+enum ByeReason : uint8_t {
+  kByeLeave = 0,  // desconectar a propósito (tablet: Desconectar, Atrás, cerrar la app; PC: Detener o Salir)
+  kByePause = 1,  // solo la tablet: se bloqueó o pasó a segundo plano y volverá en cuanto la desbloqueen
 };
 
 enum Flags : uint8_t {

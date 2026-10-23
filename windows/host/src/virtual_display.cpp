@@ -72,6 +72,8 @@ bool VirtualDisplay::Ioctl(DWORD code, const void* in, DWORD in_size) {
   return DeviceIoControl(device_, code, const_cast<void*>(in), in_size, nullptr, 0, &returned, nullptr) != FALSE;
 }
 
+bool VirtualDisplay::Installed() { return !FindDevicePath().empty(); }
+
 bool VirtualDisplay::Plug(UINT width, UINT height, UINT refresh_hz, UINT mode_w, UINT mode_h) {
   const std::wstring path = FindDevicePath();
   if (path.empty()) {

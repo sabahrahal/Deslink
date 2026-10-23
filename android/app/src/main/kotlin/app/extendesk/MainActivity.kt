@@ -50,7 +50,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         store = SettingsStore(this)
         settings = store.load()
-        home = home.copy(lastHost = store.lastHost, lastHostName = store.lastHostName, usbTipDismissed = store.usbTipDismissed)
+        home = home.copy(lastHost = store.lastHost, lastHostName = store.lastHostName)
         val display = Device.display(this)
         val version = try {
             packageManager.getPackageInfo(packageName, 0).versionName ?: ""
@@ -106,7 +106,6 @@ class MainActivity : ComponentActivity() {
                             networks = withContext(Dispatchers.IO) { Discovery.describeNetworks() },
                             usbDebug = UsbDebug.read(this@MainActivity),
                             cableExpected = UsbDebug.cableExpected(this@MainActivity),
-                            debugOff = !UsbDebug.debuggingOn(this@MainActivity),
                         )
                         // Por el cable: el anclaje USB si está activo (sin los picos del túnel de adb), si no adb.
                         val cable = hosts.firstOrNull { HostGroups.isTether(it) && hosts.any { c -> c.isCable } }
@@ -171,6 +170,7 @@ class MainActivity : ComponentActivity() {
                                         showSettings = false
                                         showGuide = true
                                     },
+                                    onOpenHelp = { openHelp() },
                                 )
                             } else {
                                 HomeScreen(
@@ -194,10 +194,6 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onOpenUsbDebug = { openUsbDebugSettings(home.usbDebug) },
                                     onOpenTether = { openTetherSettings() },
-                                    onDismissUsbTip = {
-                                        store.usbTipDismissed = true
-                                        home = home.copy(usbTipDismissed = true)
-                                    },
                                 )
                             }
                         }
@@ -248,8 +244,9 @@ class MainActivity : ComponentActivity() {
     }
 
     companion object {
-        /** Lo manda el PC (adb shell am start -a …) al ver la tablet enchufada, si el usuario lo activó. */
+        /** Lo manda el PC (adb shell am start -a …) al ver la tablet enchufada, con la depuración USB aceptada. */
         const val ACTION_USB_ATTACHED = "app.extendesk.action.USB_ATTACHED"
+        const val HELP_URL = "https://extendesk.app/ayuda"
     }
 
     private fun openUsbDebugSettings(hint: UsbDebugHint) {
@@ -271,6 +268,15 @@ class MainActivity : ComponentActivity() {
             } catch (_: Exception) {
                 startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
             }
+        }
+    }
+
+    /** La ayuda de la web (cada opción explicada); la misma que abren los «?» de la ventana del PC. */
+    private fun openHelp() {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(HELP_URL)))
+        } catch (_: Exception) {
+            Toast.makeText(this, "Abre $HELP_URL en el navegador", Toast.LENGTH_LONG).show()
         }
     }
 

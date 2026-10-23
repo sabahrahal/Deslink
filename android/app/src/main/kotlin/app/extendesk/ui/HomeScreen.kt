@@ -20,9 +20,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -34,7 +32,6 @@ import app.extendesk.Found
 import app.extendesk.HostGroups
 import app.extendesk.Link
 import app.extendesk.PcEntry
-import app.extendesk.Transport
 import app.extendesk.UsbDebugHint
 
 /** Lo que muestra la pantalla de inicio; lo calcula MainActivity con cada búsqueda. */
@@ -47,17 +44,13 @@ data class HomeState(
     val networks: String = "",
     /** PC al que se va a conectar solo (se puede cancelar). */
     val autoConnecting: Found? = null,
-    /** Enchufada por USB sin depuración USB: qué falta para que el cable funcione sin elegir nada. */
+    /** Enchufada por USB sin depuración USB: falta activar el anclaje para que el cable funcione. */
     val usbDebug: UsbDebugHint = UsbDebugHint.NONE,
     /** Enchufada con la depuración USB activa: el cable aparece en unos segundos, cuando el PC lo prepara. */
     val cableExpected: Boolean = false,
-    /** La depuración USB está apagada (enchufada o no): se puede ofrecer el cable más rápido. */
-    val debugOff: Boolean = false,
-    /** El usuario ya dijo que no quiere ver el aviso del cable más rápido. */
-    val usbTipDismissed: Boolean = false,
 ) {
-    /** Aviso «¿Necesitas más velocidad por USB?»: sin cable ahora, depuración apagada y sin el de «enchufada». */
-    val showUsbTip: Boolean get() = debugOff && !usbTipDismissed && usbDebug == UsbDebugHint.NONE && hosts.none { it.isCable }
+    /** Enchufada pero el PC aún no llega por el cable: un solo paso, activar el anclaje USB. */
+    val showCableStep: Boolean get() = usbDebug != UsbDebugHint.NONE && pcs.none { it.usb != null }
 
     /** El PC ya responde por la red pero el cable aún no: se avisa de que espere. */
     val waitingCable: Boolean get() =
@@ -68,8 +61,8 @@ data class HomeState(
 }
 
 /**
- * Inicio: el nombre de la app, una tarjeta por PC encontrado (con «Cable USB» y «Wi-Fi» como dos opciones de la
- * misma tarjeta) y un enlace a Configuración avanzada. Nada más: calidad, sonido y táctil se eligen en el PC.
+ * Inicio: el nombre de la app, una tarjeta por PC encontrado (conecta por cable USB si llega por él, si no por Wi-Fi:
+ * no hay nada que elegir) y un enlace a Configuración avanzada. Nada más: calidad y sonido se eligen en el PC.
  */
 @Composable
 fun HomeScreen(
@@ -80,10 +73,7 @@ fun HomeScreen(
     onOpenAdvanced: () -> Unit,
     onOpenUsbDebug: () -> Unit = {},
     onOpenTether: () -> Unit = {},
-    onDismissUsbTip: () -> Unit = {},
 ) {
-    // Camino elegido en cada tarjeta (true = cable USB). De serie, el cable.
-    val preferUsb = remember { mutableStateMapOf<String, Boolean>() }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         Column(
             Modifier
@@ -129,13 +119,8 @@ fun HomeScreen(
                 VSpace(12.dp)
             }
 
-            if (state.usbDebug != UsbDebugHint.NONE) {
-                UsbDebugCard(state.usbDebug, onOpenUsbDebug)
-                VSpace(12.dp)
-            }
-
-            if (state.showUsbTip) {
-                UsbSpeedCard(onOpenTether, onOpenUsbDebug, onDismissUsbTip)
+            if (state.showCableStep) {
+                CableStepCard(state.usbDebug, onOpenTether, onOpenUsbDebug)
                 VSpace(12.dp)
             }
 
@@ -144,14 +129,7 @@ fun HomeScreen(
             } else {
                 SectionHeader(if (pcs.size == 1) "Tu PC" else "Tus PC")
                 for (pc in pcs) {
-                    val usb = preferUsb[pc.key] ?: true
-                    PcCard(
-                        pc = pc,
-                        isLast = pc.matches(state.lastHost),
-                        useUsb = usb,
-                        onChooseUsb = { preferUsb[pc.key] = it },
-                        onConnect = { onConnect(pc.route(usb)) },
-                    )
+                    PcCard(pc = pc, isLast = pc.matches(state.lastHost), onConnect = { onConnect(pc.route()) })
                     VSpace(12.dp)
                 }
             }
@@ -168,65 +146,39 @@ fun HomeScreen(
     }
 }
 
-/** Enchufada al PC sin depuración USB: cómo dejar el cable funcionando sin elegir «Anclaje USB» cada vez. */
+/**
+ * Enchufada al PC y el cable aún no va: un solo paso, activar «Anclaje USB» (sin modo desarrollador). La depuración
+ * USB queda como consejo opcional, plegado: con ella el cable conecta solo al enchufarlo, sin repetir el paso.
+ */
 @Composable
-private fun UsbDebugCard(hint: UsbDebugHint, onOpen: () -> Unit) {
-    DlCard(Modifier.testTag("usb-debug")) {
+private fun CableStepCard(hint: UsbDebugHint, onOpenTether: () -> Unit, onOpenUsbDebug: () -> Unit) {
+    var more by rememberSaveable { mutableStateOf(false) }
+    DlCard(Modifier.testTag("cable-step")) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Para más fluidez por cable: depuración USB", style = DlText.Headline)
+            Text("Activa la conexión por cable", style = DlText.Headline)
             Text(
-                "Opcional. Por Wi-Fi funciona sin tocar nada. Con la depuración USB el cable va solo al enchufarlo, sin activar «Anclaje USB» cada vez. Se hace una sola vez.",
+                "En los ajustes del dispositivo, activa «Anclaje USB». Es la conexión más estable.",
                 style = DlText.Body,
                 color = palette.textSecondary,
-            )
-            if (hint == UsbDebugHint.ENABLE_DEVELOPER) {
-                Text("1. En Información del dispositivo, toca 7 veces «Número de compilación».", style = DlText.Body)
-                Text("2. Vuelve atrás, entra en «Opciones de desarrollador» y activa «Depuración USB».", style = DlText.Body)
-            } else {
-                Text("1. En «Opciones de desarrollador», activa «Depuración USB».", style = DlText.Body)
-            }
-            Text(
-                "${if (hint == UsbDebugHint.ENABLE_DEVELOPER) 3 else 2}. Al enchufar al PC, marca «Permitir siempre desde este ordenador» y acepta.",
-                style = DlText.Body,
             )
             VSpace(4.dp)
-            PrimaryButton("Abrir ajustes", onOpen)
-        }
-    }
-}
-
-/** «¿Necesitas más velocidad por USB?»: por si se pasó la guía de inicio deprisa, con los pasos y los accesos directos. */
-@Composable
-private fun UsbSpeedCard(onOpenTether: () -> Unit, onOpenUsbDebug: () -> Unit, onDismiss: () -> Unit) {
-    var open by rememberSaveable { mutableStateOf(false) }
-    DlCard(Modifier.testTag("usb-speed")) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("¿Necesitas más velocidad por USB?", style = DlText.Headline)
-            Text(
-                "Por Wi-Fi funciona sin tocar nada. Por cable la imagen llega más rápido y con menos retardo.",
-                style = DlText.Body,
-                color = palette.textSecondary,
-            )
-            if (!open) {
-                VSpace(4.dp)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    SecondaryButton("Ver cómo", { open = true })
-                    Spacer(Modifier.width(12.dp))
-                    LinkText("No mostrar más", onDismiss)
-                }
-            }
-            AnimatedVisibility(open) {
+            PrimaryButton("Abrir «Anclaje USB»", onOpenTether)
+            VSpace(4.dp)
+            LinkText(if (more) "Ocultar" else "Que conecte solo al enchufar (opcional)", { more = !more })
+            AnimatedVisibility(more) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Fácil: enchufa el dispositivo al PC y activa «Anclaje USB» en sus ajustes. Hay que repetirlo en cada enchufe.", style = DlText.Body)
-                    SecondaryButton("Abrir «Anclaje USB»", onOpenTether)
-                    VSpace(4.dp)
-                    Text("Más rápido y automático (una sola vez):", style = DlText.Body)
-                    Text("1. En Información del dispositivo, toca 7 veces «Número de compilación».", style = DlText.Body)
-                    Text("2. En «Opciones de desarrollador», activa «Depuración USB».", style = DlText.Body)
-                    Text("3. Al enchufar al PC, marca «Permitir siempre desde este ordenador» y acepta.", style = DlText.Body)
+                    Text("Con la depuración USB no hay que activar el anclaje en cada enchufe. Se hace una sola vez:", style = DlText.Body)
+                    if (hint == UsbDebugHint.ENABLE_DEVELOPER) {
+                        Text("1. En Información del dispositivo, toca 7 veces «Número de compilación».", style = DlText.Body)
+                        Text("2. Vuelve atrás, entra en «Opciones de desarrollador» y activa «Depuración USB».", style = DlText.Body)
+                    } else {
+                        Text("1. En «Opciones de desarrollador», activa «Depuración USB».", style = DlText.Body)
+                    }
+                    Text(
+                        "${if (hint == UsbDebugHint.ENABLE_DEVELOPER) 3 else 2}. Al enchufar al PC, marca «Permitir siempre desde este ordenador» y acepta.",
+                        style = DlText.Body,
+                    )
                     SecondaryButton("Abrir ajustes de depuración USB", onOpenUsbDebug)
-                    VSpace(4.dp)
-                    LinkText("No mostrar más", onDismiss)
                 }
             }
         }
@@ -253,7 +205,7 @@ private fun Searching(state: HomeState) {
                     Column(Modifier.padding(start = 8.dp, top = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("1. Abre Extendesk en el PC y pulsa Iniciar.", style = DlText.Body)
                         Text("2. Por Wi-Fi: PC y dispositivo en la misma red, y Extendesk permitido en el cortafuegos de Windows.", style = DlText.Body)
-                        Text("3. Por cable: conecta el USB y activa «Anclaje USB» en el dispositivo, o activa la depuración USB y acepta «Permitir depuración USB».", style = DlText.Body)
+                        Text("3. Por cable: enchufa el dispositivo al PC y sigue el aviso que sale aquí.", style = DlText.Body)
                         Text("Redes de este dispositivo: ${state.networks}", style = DlText.Note, color = palette.textSecondary)
                     }
                 }
@@ -263,35 +215,23 @@ private fun Searching(state: HomeState) {
 }
 
 @Composable
-private fun PcCard(pc: PcEntry, isLast: Boolean, useUsb: Boolean, onChooseUsb: (Boolean) -> Unit, onConnect: () -> Unit) {
-    val route = pc.route(useUsb)
+private fun PcCard(pc: PcEntry, isLast: Boolean, onConnect: () -> Unit) {
+    val route = pc.route()
     DlCard(Modifier.testTag("pc:${pc.key}")) {
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(pc.name, style = DlText.Headline, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        HostGroups.describe(route) + if (isLast) " · el último que usaste" else "",
-                        style = DlText.Note,
-                        color = palette.textSecondary,
-                    )
-                    if (!route.acceptsConfig) {
-                        Text("El Extendesk del PC es antiguo: actualízalo.", style = DlText.Note, color = palette.warning)
-                    }
-                }
-                Spacer(Modifier.width(12.dp))
-                PrimaryButton("Conectar", onConnect)
-            }
-            if (pc.hasBoth) {
-                VSpace(12.dp)
-                val network = pc.network.first().transport
-                Segmented(
-                    options = listOf("Cable USB", if (network == Transport.WIFI) "Wi-Fi" else "Red"),
-                    selected = if (useUsb) 0 else 1,
-                    onSelect = { onChooseUsb(it == 0) },
-                    modifier = Modifier.fillMaxWidth(),
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(pc.name, style = DlText.Headline, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    HostGroups.describe(route) + if (isLast) " · el último que usaste" else "",
+                    style = DlText.Note,
+                    color = palette.textSecondary,
                 )
+                if (!route.acceptsConfig) {
+                    Text("El Extendesk del PC es antiguo: actualízalo.", style = DlText.Note, color = palette.warning)
+                }
             }
+            Spacer(Modifier.width(12.dp))
+            PrimaryButton("Conectar", onConnect)
         }
     }
 }

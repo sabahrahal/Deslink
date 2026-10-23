@@ -6,9 +6,11 @@
 // hacer y enseña lo que el PC decide. Se guardan en %APPDATA%\Extendesk\extendesk.ini
 // (antes %APPDATA%\DeskLink\desklink.ini: se pasa sola la primera vez).
 //
-// A la vista en la ventana: modo, calidad, dónde suena el sonido y el táctil. En «Configuración avanzada»: fps, Mbps,
-// códec, monitor que se duplica, bajar la calidad si la batería de la tablet no aguanta, cable USB, abrir la
-// app de la tablet al enchufarla y el arranque. Vacío o 0 = automático (lo decide el host con lo que dice la tablet).
+// A la vista en la ventana: modo, resolución (o el monitor que se duplica), calidad y dónde suena el sonido. En
+// «Configuración avanzada»: el táctil, la red Wi-Fi propia del PC y abrir con Windows. Lo demás es automático y ya no
+// se elige (docs/ajustes.md): el cable USB siempre está listo, la app de la tablet se abre al enchufarla, se
+// transmite nada más abrir y la fluidez baja sola si la batería de la tablet no aguanta. fps, Mbps, códec y puerto
+// solo se cambian a mano en el .ini (vacío o 0 = automático: lo decide el host con lo que dice la tablet).
 // La resolución de la pantalla extra se cambia en Configuración de pantalla de Windows; el host la recuerda.
 struct Settings {
   bool virtual_display = true;  // monitor virtual (driver) o duplicar un monitor existente
@@ -17,16 +19,14 @@ struct Settings {
   bool audio_tablet = false;    // el sonido del PC suena en la tablet (si no, en el PC)
   int touch = 0;                // 0 táctil, 2 solo ver (el 1, ratón, ya no se elige)
   std::wstring size;            // ya no se usa (la resolución se elige en Windows); se conserva para leer .ini viejos
-  int fps = 0;                  // 0 = automático (según la pantalla de la tablet y lo que aguante la gráfica)
-  int bitrate = 0;              // Mbps; 0 = automático
-  std::wstring codec;           // «hevc» o «h264»; vacío = automático
-  bool battery_adapt = false;   // la tablet puede pedir bajar fps y tasa si su batería no aguanta
-  bool usb = true;              // cable USB por adb reverse
-  bool open_tablet = true;      // abrir Extendesk en la tablet al enchufarla por USB
-  bool stream_on_open = true;   // empezar a transmitir al abrir la app (y al arrancar con Windows)
-  int port = 47800;
+  int fps = 0;                  // solo en el .ini; 0 = automático (según la pantalla de la tablet y la gráfica)
+  int bitrate = 0;              // solo en el .ini; Mbps, 0 = automático
+  std::wstring codec;           // solo en el .ini; «hevc» o «h264», vacío = automático (H.264 si decodifica antes)
+  int port = 47800;             // solo en el .ini
   std::wstring adb;             // ruta de adb.exe; vacía = la busca el host
   std::wstring extra;           // opciones extra para extendesk-host.exe
+  int window_w = 0;             // tamaño del área de la ventana que dejó el usuario, a 96 ppp; 0 = el del contenido
+  int window_h = 0;
 };
 
 std::wstring SettingsPath();
@@ -45,9 +45,9 @@ void Sanitize(Settings* s);
 // Opciones de línea de comandos de extendesk-host.exe para estos ajustes (sin --status ni --stop-event).
 std::wstring HostArguments(const Settings& s);
 
-// Línea «@ajustes ...» con lo que el host puede cambiar en marcha (calidad, fps, Mbps, códec, sonido, táctil,
-// batería y abrir la app de la tablet); se le manda por la entrada estándar al cambiar algo en la ventana.
+// Línea «@ajustes ...» con lo que el host puede cambiar en marcha (calidad, fps, Mbps, códec, sonido y táctil); se
+// le manda por la entrada estándar al cambiar algo en la ventana.
 std::wstring LiveSettingsLine(const Settings& s);
 
-// Lo que solo se aplica reiniciando el host (modo, monitor, puntero, cable USB, puerto): distinto entre a y b.
+// Lo que solo se aplica reiniciando el host (modo, monitor, puerto): distinto entre a y b.
 bool NeedsRestart(const Settings& a, const Settings& b);
