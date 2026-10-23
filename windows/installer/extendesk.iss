@@ -52,13 +52,31 @@ UninstallDisplayName=Extendesk
 CloseApplications=yes
 RestartApplications=no
 SetupLogging=yes
+ShowLanguageDialog=no
 
 [Languages]
+; Inglés y español, según el idioma de Windows y sin preguntar (ShowLanguageDialog=no); en cualquier otro idioma, el
+; inglés. Para añadir otro: su línea aquí y su versión de cada texto de [CustomMessages].
+Name: "en"; MessagesFile: "compiler:Default.isl"
 Name: "es"; MessagesFile: "compiler:Languages\Spanish.isl"
 
+[CustomMessages]
+en.DesktopIcon=Create a desktop shortcut
+es.DesktopIcon=Crear un acceso directo en el escritorio
+en.ReinstallDriver=Reinstall the virtual monitor even if it hasn't changed
+es.ReinstallDriver=Reinstalar el monitor virtual aunque no haya cambiado
+en.OpenApp=Open Extendesk
+es.OpenApp=Abrir Extendesk
+en.RemovingDriver=Removing the previous virtual monitor...
+es.RemovingDriver=Quitando el monitor virtual anterior...
+en.InstallingDriver=Installing the virtual monitor...
+es.InstallingDriver=Instalando el monitor virtual...
+en.DriverFailed=Couldn't install the virtual monitor (code %1).%nExtendesk still works by mirroring the screen. The details are in:%n%2
+es.DriverFailed=No se pudo instalar el monitor virtual (código %1).%nExtendesk funciona igual duplicando la pantalla. El detalle está en:%n%2
+
 [Tasks]
-Name: "desktopicon"; Description: "Crear un acceso directo en el escritorio"; Flags: unchecked
-Name: "reinstalardriver"; Description: "Reinstalar el monitor virtual aunque no haya cambiado"; Flags: unchecked; Check: DriverIsCurrent
+Name: "desktopicon"; Description: "{cm:DesktopIcon}"; Flags: unchecked
+Name: "reinstalardriver"; Description: "{cm:ReinstallDriver}"; Flags: unchecked; Check: DriverIsCurrent
 
 [InstallDelete]
 ; Los ejecutables de antes del nombre Extendesk (desklink*.exe): ahora son extendesk*.exe.
@@ -92,7 +110,7 @@ Filename: "{sys}\ie4uinit.exe"; Parameters: "-show"; Flags: runhidden waituntilt
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""DeskLink"""; Flags: runhidden waituntilterminated
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Extendesk"""; Flags: runhidden waituntilterminated
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""Extendesk"" dir=in action=allow program=""{app}\{#HostExe}"" protocol=udp profile=any enable=yes"; Flags: runhidden waituntilterminated
-Filename: "{app}\{#MainExe}"; Parameters: "{#MainArgs}"; WorkingDir: "{app}"; Description: "Abrir Extendesk"; Flags: postinstall nowait skipifsilent unchecked
+Filename: "{app}\{#MainExe}"; Parameters: "{#MainArgs}"; WorkingDir: "{app}"; Description: "{cm:OpenApp}"; Flags: postinstall nowait skipifsilent unchecked
 
 [UninstallRun]
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Extendesk"""; Flags: runhidden waituntilterminated; RunOnceId: "ExtendeskFirewall"
@@ -182,7 +200,7 @@ begin
   StopExtendesk();
   // Driver nuevo: primero se quita el anterior con su propia herramienta (dispositivo, paquete y certificado).
   if DriverNeedsInstall() and (DriverTool() <> '') then begin
-    WizardForm.PreparingLabel.Caption := 'Quitando el monitor virtual anterior...';
+    WizardForm.PreparingLabel.Caption := CustomMessage('RemovingDriver');
     RunDriverTool('desinstalar', Log);
     RegDeleteValue(HKLM, RegKey, 'DriverId');
   end;
@@ -206,14 +224,12 @@ begin
   if (CurStep = ssPostInstall) and not DriverNeedsInstall() then
     Reinstall := RunDriverTool('estado', Log) <> 0;
   if (CurStep = ssPostInstall) and (DriverNeedsInstall() or Reinstall) then begin
-    WizardForm.StatusLabel.Caption := 'Instalando el monitor virtual...';
+    WizardForm.StatusLabel.Caption := CustomMessage('InstallingDriver');
     Code := RunDriverTool('instalar', Log);
     if Code = 0 then
       RegWriteStringValue(HKLM, RegKey, 'DriverId', NewDriverId)
     else
-      SuppressibleMsgBox('No se pudo instalar el monitor virtual (código ' + IntToStr(Code) + ').' + #13#10 +
-                         'Extendesk funciona igual duplicando la pantalla. El detalle está en:' + #13#10 + Log,
-                         mbError, MB_OK, IDOK);
+      SuppressibleMsgBox(FmtMessage(CustomMessage('DriverFailed'), [IntToStr(Code), Log]), mbError, MB_OK, IDOK);
   end;
 end;
 

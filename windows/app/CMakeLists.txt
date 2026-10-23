@@ -8,14 +8,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if(NOT WIN32)
   project(extendesk_app_tests CXX)
   enable_testing()
-  add_executable(test_view_model tests/test_view_model.cpp src/view_model.cpp src/settings_args.cpp)
+  add_executable(test_view_model tests/test_view_model.cpp src/i18n.cpp src/view_model.cpp src/settings_args.cpp)
   add_test(NAME test_view_model COMMAND test_view_model)
   return()
 endif()
 
 project(extendesk_app CXX RC)
 enable_testing()
-add_executable(test_view_model tests/test_view_model.cpp src/view_model.cpp src/settings_args.cpp)
+add_executable(test_view_model tests/test_view_model.cpp src/i18n.cpp src/view_model.cpp src/settings_args.cpp)
 target_compile_definitions(test_view_model PRIVATE NOMINMAX)
 if(MSVC)
   target_compile_options(test_view_model PRIVATE /utf-8)
@@ -29,6 +29,7 @@ add_executable(extendesk WIN32
   src/main.cpp
   src/direct_wifi.cpp
   src/host_process.cpp
+  src/i18n.cpp
   src/settings.cpp
   src/settings_args.cpp
   src/system_info.cpp
