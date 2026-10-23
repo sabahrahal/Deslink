@@ -1193,12 +1193,17 @@ int Run(int argc, char** argv) {
     // antes. Contar el intervalo desde el último envío hacía que, con el monitor a los mismos Hz que los fps, una
     // imagen que llegaba un pelo antes de cumplirse (los vsync bailan décimas de ms) esperase al vsync siguiente:
     // casi un frame entero (~13 ms de media a 60 Hz) parado en el PC.
+    // El intervalo es un 5 % más corto que el de los fps: el monitor (sobre todo el virtual) puede ir a 60,0x Hz y,
+    // con el límite exacto a 60, las imágenes llegaban algo más deprisa de lo que se dejaban salir y cada una acababa
+    // esperando casi un intervalo (~11 ms de «espera de captura» aunque la gráfica sobraba).
     uint64_t next_due_us = 0;
+    auto pace_interval = [&] { return min_interval_us.load() * 95 / 100; };
     uint64_t last_rect_check_us = 0;
     ID3D11Texture2D* last_nv12 = nullptr;
     bool dirty = false;      // la imagen guardada (o el cursor) cambió y aún no se convirtió ni envió
     uint64_t dirty_since_us = 0;  // cuándo llegó el primer cambio aún sin enviar (lo que espera por el límite de fps)
-    uint64_t capture_wait_us = 0, capture_wait_n = 0, latency_capture_wait = 0, latency_capture_n = 0;
+    uint64_t capture_wait_us = 0, capture_wait_n = 0, latency_capture_wait = 0, latency_capture_n = 0,
+             latency_captured = 0;
     int flush_left = 0;      // repeticiones pendientes para vaciar el codificador
     UINT refine_left = 0;    // repeticiones lentas pendientes para afinar la calidad de la imagen quieta
     uint64_t captured = 0, composed = 0, last_composed = 0, last_stats_us = NowUs();
@@ -1351,7 +1356,7 @@ int Run(int argc, char** argv) {
       if (udp.has_peer() && pipe->converter.has_image()) {
         uint64_t due = 0;
         if (dirty || flush_left > 0 || pipe->encoder->keyframe_pending()) {
-          const uint64_t interval = min_interval_us.load();
+          const uint64_t interval = pace_interval();
           due = next_due_us > interval / 4 ? next_due_us - interval / 4 : 1;
         } else if (refine_left > 0) {
           due = last_submit_us + kRefineIntervalUs;
@@ -1467,7 +1472,7 @@ int Run(int argc, char** argv) {
       // quieta (texto nítido tras desplazar o arrastrar una ventana) en vez de dejarla como salió en movimiento.
       const uint64_t now = NowUs();
       const bool refine_due = refine_left > 0 && now - last_submit_us >= kRefineIntervalUs;
-      if (udp.has_peer() && pipe->converter.has_image() && now + min_interval_us.load() / 4 >= next_due_us &&
+      if (udp.has_peer() && pipe->converter.has_image() && now + pace_interval() / 4 >= next_due_us &&
           (dirty || flush_left > 0 || refine_due || pipe->encoder->keyframe_pending())) {
         if (dirty || !last_nv12) {
           const uint64_t conv_start = NowUs();
@@ -1484,7 +1489,7 @@ int Run(int argc, char** argv) {
         last_submit_us = now;
         {
           // Sin acumular crédito tras estar quieto: como mucho medio intervalo de adelanto respecto a ahora.
-          const uint64_t interval = min_interval_us.load();
+          const uint64_t interval = pace_interval();
           next_due_us = std::max(next_due_us + interval, now + interval / 2);
         }
         if (dirty) {
@@ -1543,7 +1548,9 @@ int Run(int argc, char** argv) {
                         "ida y vuelta %.1f ms",
                         capture_ms, mailbox_ms, encode_ms, send_ms, rtt_us.load() / 1000.0);
             if (tablet_decode_x10 >= 0) std::printf(" · decodificar en la tablet %.1f ms", tablet_decode_x10 / 10.0);
-            std::printf(" (%llu frames en 5 s).\n", static_cast<unsigned long long>(sent));
+            // Imágenes nuevas que dio Windows: si pasan de los fps, el monitor va más rápido que el límite.
+            std::printf(" (%llu frames en 5 s, %llu imágenes nuevas del escritorio).\n", static_cast<unsigned long long>(sent),
+                        static_cast<unsigned long long>(captured - latency_captured));
             // La tablet mide desde que el frame entra al codificador (con la hora del PC del PONG) hasta que se enciende
             // en su pantalla. La red es lo que queda de «llegar» al quitar lo que el PC tarda en cola, codificar y enviar.
             if (const uint32_t total = tablet_total_x10.load()) {
@@ -1558,6 +1565,7 @@ int Run(int argc, char** argv) {
           }
           latency_capture_wait = capture_wait_us;
           latency_capture_n = capture_wait_n;
+          latency_captured = captured;
           // Con el sonido en la tablet, cuánto se le manda y cuánto suena de verdad en el PC.
           if (audio.running()) {
             std::printf("Sonido: enviados %llu trozos de 10 ms en 5 s, %llu con algo audible.\n",
