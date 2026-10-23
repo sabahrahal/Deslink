@@ -23,7 +23,8 @@ enum SessionFlags : uint8_t {
 };
 
 // Por qué la imagen va ahora por debajo de lo elegido (para avisar al usuario).
-enum class Reduced : uint8_t { kNone = 0, kWifi = 1, kBattery = 2, kLoad = 3 };
+// kTablet: los fps bajan porque la tablet no decodifica a más (no es la gráfica del PC).
+enum class Reduced : uint8_t { kNone = 0, kWifi = 1, kBattery = 2, kLoad = 3, kTablet = 4 };
 
 struct SessionConfig {
   Profile profile = Profile::kMaxQuality;  // calidad elegida en el PC

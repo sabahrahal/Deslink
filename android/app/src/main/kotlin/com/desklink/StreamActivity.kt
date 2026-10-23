@@ -380,6 +380,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
                 Dlp.REDUCED_WIFI -> "Calidad reducida un momento: el Wi-Fi va justo"
                 Dlp.REDUCED_BATTERY -> "Fluidez reducida para no gastar la batería"
                 Dlp.REDUCED_LOAD -> "Fluidez reducida: la gráfica del PC va cargada"
+                Dlp.REDUCED_TABLET -> "Fluidez ajustada a lo que esta tablet decodifica a tiempo"
                 else -> ""
             }
             summary = SessionSummary(

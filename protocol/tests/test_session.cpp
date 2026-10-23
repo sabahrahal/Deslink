@@ -40,6 +40,8 @@ static void TestSessionConfigRoundtrip() {
   CHECK(o && o->profile == Profile::kBalanced && o->input == SessionInput::kTouch && o->reduced == Reduced::kNone &&
         o->fps == 60 && !o->audio_on_tablet());
   CHECK(!DecodeSessionConfig(odd, kSessionConfigSize - 1));
+  const uint8_t tablet[kSessionConfigSize] = {0, 0, 0, 4, 90, 0, 0, 0, 0, 0};
+  CHECK(DecodeSessionConfig(tablet, sizeof(tablet))->reduced == Reduced::kTablet);
 }
 
 static void TestAutoValues() {

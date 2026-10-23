@@ -52,7 +52,7 @@ std::optional<SessionConfig> DecodeSessionConfig(const uint8_t* p, size_t size) 
   c.profile = p[0] <= static_cast<uint8_t>(Profile::kMinimum) ? static_cast<Profile>(p[0]) : Profile::kBalanced;
   c.flags = p[1];
   c.input = p[2] <= static_cast<uint8_t>(SessionInput::kViewOnly) ? static_cast<SessionInput>(p[2]) : SessionInput::kTouch;
-  c.reduced = p[3] <= static_cast<uint8_t>(Reduced::kLoad) ? static_cast<Reduced>(p[3]) : Reduced::kNone;
+  c.reduced = p[3] <= static_cast<uint8_t>(Reduced::kTablet) ? static_cast<Reduced>(p[3]) : Reduced::kNone;
   c.fps = Get16(p + 4);
   c.bitrate_x100kbps = Get16(p + 6);
   c.max_bitrate_x100kbps = Get16(p + 8);

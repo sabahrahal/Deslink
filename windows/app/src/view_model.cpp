@@ -180,6 +180,7 @@ View BuildView(const ViewInput& in) {
     if (reduced == L"wifi") v.notice = {L"Calidad reducida un momento: el Wi-Fi va justo.", Tone::kWarning};
     else if (reduced == L"bateria") v.notice = {L"Fluidez reducida: la batería del dispositivo no aguanta.", Tone::kWarning};
     else if (reduced == L"carga") v.notice = {L"Fluidez reducida: la gráfica del PC va cargada.", Tone::kWarning};
+    else if (reduced == L"tablet") v.notice = {L"Fluidez ajustada a lo que el dispositivo decodifica a tiempo.", Tone::kSecondary};
     const std::wstring tablet = Stat(in, L"tablet_fps");
     if (v.notice.text.empty() && fps >= 20 && !tablet.empty() && tablet != L"-" &&
         StatNum(in, L"tablet_fps") < 0.8 * fps) {

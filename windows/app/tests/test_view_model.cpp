@@ -92,6 +92,8 @@ static void TestConnectedShowsStatsAndNotice() {
   CHECK(Contains(v.notice.text, L"Wi-Fi") && v.notice.tone == Tone::kWarning);
   in.stats[L"reducido"] = L"carga";
   CHECK(Contains(BuildView(in).notice.text, L"gráfica"));
+  in.stats[L"reducido"] = L"tablet";
+  CHECK(Contains(BuildView(in).notice.text, L"dispositivo") && !Contains(BuildView(in).notice.text, L"gráfica"));
 
   // El anclaje USB de la tablet no es Wi-Fi: va por el cable, como red.
   in.stats[L"enlace"] = L"anclaje";

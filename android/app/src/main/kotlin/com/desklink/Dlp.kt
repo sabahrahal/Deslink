@@ -60,6 +60,7 @@ object Dlp {
     const val REDUCED_WIFI = 1
     const val REDUCED_BATTERY = 2
     const val REDUCED_LOAD = 3
+    const val REDUCED_TABLET = 4
 
     const val FLAG_KEYFRAME = 1
     const val FLAG_LAST_PACKET = 2
@@ -164,7 +165,7 @@ object Dlp {
             profile = u8(0).takeIf { it <= 3 } ?: 1,
             flags = u8(1),
             input = u8(2).takeIf { it <= INPUT_VIEW_ONLY } ?: INPUT_TOUCH,
-            reduced = u8(3).takeIf { it <= REDUCED_LOAD } ?: REDUCED_NONE,
+            reduced = u8(3).takeIf { it <= REDUCED_TABLET } ?: REDUCED_NONE,
             fps = u16(4),
             bitrateX100kbps = u16(6),
             maxBitrateX100kbps = u16(8),

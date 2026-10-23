@@ -646,6 +646,7 @@ int Run(int argc, char** argv) {
   std::atomic<bool> view_only{opt.input_mode == 2};
   std::atomic<uint32_t> rate_bps{0};
   std::atomic<bool> rate_reduced{false};
+  std::atomic<bool> fps_by_tablet{false};  // la última bajada de fps fue porque la tablet no decodifica a más
   if (opt.status) {
     // Ajustes en vivo desde la ventana del PC. Sin la app (consola) la entrada no trae nada y el hilo termina.
     std::thread([&config_mutex, &pending_settings, &config_seq] {
@@ -718,7 +719,7 @@ int Run(int argc, char** argv) {
               : touch_ready && touch.requested() == TouchInjector::Mode::kMouse ? dlp::SessionInput::kMouse
                                                                                  : dlp::SessionInput::kTouch;
     c.reduced = eff.battery_reduced ? dlp::Reduced::kBattery
-                : fps_gov.reduced()  ? dlp::Reduced::kLoad
+                : fps_gov.reduced()  ? (fps_by_tablet ? dlp::Reduced::kTablet : dlp::Reduced::kLoad)
                 : rate_reduced       ? dlp::Reduced::kWifi
                                      : dlp::Reduced::kNone;
     c.fps = static_cast<uint16_t>(eff.fps);
@@ -1617,6 +1618,8 @@ int Run(int argc, char** argv) {
             if (fps_gov.Update(static_cast<uint32_t>(submitted), static_cast<uint32_t>(dropped), decode_us)) {
               new_fps = Apply(opt, tablet_request, fps_gov.fps()).fps;
               slower = fps_gov.reduced();
+              if (!slower) fps_by_tablet = false;
+              else if (fps_gov.fps() < before) fps_by_tablet = tablet_limit;
               min_interval_us = 1'000'000ull / new_fps;
             }
           }
@@ -1659,6 +1662,7 @@ int Run(int argc, char** argv) {
           const char* reduced = session.reduced == dlp::Reduced::kWifi      ? "wifi"
                                 : session.reduced == dlp::Reduced::kBattery ? "bateria"
                                 : session.reduced == dlp::Reduced::kLoad    ? "carga"
+                                : session.reduced == dlp::Reduced::kTablet  ? "tablet"
                                                                             : "no";
           std::printf("@estado enlace=%s ip=%s capturados=%.1f codificados=%.1f mbps=%.1f cod_ms=%.1f rtt_ms=%.1f "
                       "recibidos=%u perdidos=%u reenvios=%llu size=%ux%u fps_max=%u fps_obj=%u mbps_obj=%.1f "
