@@ -247,6 +247,9 @@ View BuildView(const ViewInput& in) {
       direct.hint = Tr("direct_off_hint");
     }
     v.advanced.push_back(direct);
+    Row battery = Toggle("bateria", Tr("battery"), s.battery_adapt);
+    battery.hint = Tr("battery_hint");
+    v.advanced.push_back(battery);
     Row autostart = Toggle("autostart", Tr("autostart"), in.autostart);
     autostart.hint = Tr("autostart_hint");
     v.advanced.push_back(autostart);
@@ -292,7 +295,9 @@ Diagnostics BuildDiagnostics(const std::map<std::wstring, std::wstring>& stats) 
   if (!Stat(stats, L"codec").empty()) d.stats += L" · " + Stat(stats, L"codec");
   if (Stat(stats, L"reducido") == L"tablet") {
     d.notice = L"Fluidez ajustada a lo que el dispositivo decodifica a tiempo.";
-  } else if (fps >= 20 && has_tablet && StatNum(stats, L"tablet_fps") < 0.8 * fps) {
+  } else if (fps >= 20 && has_tablet && StatNum(stats, L"tablet_fps") >= 1 && StatNum(stats, L"tablet_fps") < 0.8 * fps) {
+    // 0 no es «decodifica lento»: el dispositivo enseñaba la imagen (y recibía toques) con la cifra a 0, que es que
+    // aún no la ha medido. Solo cuenta una cifra que se queda corta.
     d.notice = L"El dispositivo muestra menos imágenes de las que recibe: su decodificador no da abasto.";
   }
   return d;

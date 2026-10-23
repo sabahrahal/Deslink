@@ -25,11 +25,13 @@ gráfica va cargada», «la batería no aguanta»).
 ## Perfiles
 
 La calidad se elige en el PC (Alta, Equilibrada, Ahorro) y viaja a la tablet en `SESSION_CONFIG`; la tablet aplica
-su parte (brillo, Wi-Fi, frecuencia de pantalla). **Bajar si la batería no aguanta** va siempre (antes era una
-opción de la Configuración avanzada del PC, apagada de serie): la tablet puede pedir un perfil menor con
+su parte (brillo, Wi-Fi, frecuencia de pantalla). **Bajar si la batería no aguanta** es una opción de la
+Configuración avanzada del PC, **apagada de serie**. Una versión la dejó siempre activa y una tablet en un puerto USB
+del PC (que da menos de lo que gasta) bajaba sola a Ahorro y Mínimo, con menos fps y menos brillo, aunque se hubiera
+elegido Equilibrada; por eso vuelve a ser opcional. Encendida, la tablet puede pedir un perfil menor con
 `QUALITY_REQUEST` (ver [protocolo](protocol-dlp.md)) cuando, sin cargador, baja del 20 % o, con cable, la batería baja
 igualmente; el PC lo atiende bajando antes los fps, nunca la resolución ni la tasa por debajo del 60 % de la elegida, y
-la ventana del PC lo dice («Fluidez reducida: la batería del dispositivo no aguanta»).
+la ventana del PC lo dice. Al recuperarse, la tablet vuelve a mandar el perfil del PC para que deje de bajar.
 
 | Perfil | fps | Mbps | Resolución codificada | Brillo | WiFi | Pantalla | Decodificador |
 | --- | --- | --- | --- | --- | --- | --- | --- |

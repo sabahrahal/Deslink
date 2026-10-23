@@ -69,7 +69,8 @@ constexpr int kMinClientH = 360;
 // Lo más ancha que se puede hacer: más, las filas se separan tanto que cuesta leerlas. De alto, como mucho lo que
 // mide el contenido (no queda hueco vacío debajo) y la pantalla.
 constexpr int kMaxClientW = 720;
-constexpr ULONGLONG kDiagnosticsEveryMs = 10000;  // cada cuánto van al registro los fps por etapa
+constexpr ULONGLONG kDiagnosticsEveryMs = 10000;
+constexpr int kNoticeSeconds = 5;  // segundos que tiene que durar un aviso técnico para ir al registro  // cada cuánto van al registro los fps por etapa
 constexpr float kMargin = 24;
 constexpr float kPad = 16;  // relleno dentro de las tarjetas
 
@@ -124,6 +125,7 @@ struct App {
   std::wstring link = L"ninguno";
   std::deque<std::wstring> log;
   std::wstring logged_notice;       // último aviso técnico que fue al registro (BuildDiagnostics)
+  int notice_streak = 0;            // segundos seguidos con un aviso distinto del registrado
   ULONGLONG diagnostics_at = 0;     // cuándo fueron al registro los últimos fps por etapa
   bool dirty = false;               // ajustes que piden reiniciar la transmisión
   bool advanced_open = false;       // «Configuración avanzada» desplegada
@@ -608,7 +610,10 @@ void LogDiagnostics(const std::wstring& link) {
   }
   const Diagnostics d = BuildDiagnostics(g.stats);
   const std::wstring detail = (d.fluency.empty() ? std::wstring(L"Imagen quieta") : d.fluency) + L" · " + d.stats;
-  if (d.notice != g.logged_notice) {
+  // Un aviso entra (o sale) del registro solo si dura unos segundos: con la imagen a ratos quieta iba y venía.
+  g.notice_streak = d.notice != g.logged_notice ? g.notice_streak + 1 : 0;
+  if (g.notice_streak >= kNoticeSeconds) {
+    g.notice_streak = 0;
     AddLog(d.notice.empty() ? L"Aviso resuelto: " + g.logged_notice + L" (" + detail + L")"
                             : L"Aviso: " + d.notice + L" (" + detail + L")");
     g.logged_notice = d.notice;
@@ -1030,6 +1035,10 @@ void OnToggle(const std::string& id) {
     SetStartWithWindows(!g.autostart);
     g.autostart = StartsWithWindows();
     Redraw();
+  } else if (id == "bateria") {
+    Settings s = g.settings;
+    s.battery_adapt = !s.battery_adapt;
+    ChangeSettings(s);  // se aplica en marcha (@ajustes … bateria=)
   }
 }
 

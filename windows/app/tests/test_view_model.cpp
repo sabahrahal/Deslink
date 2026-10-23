@@ -112,6 +112,8 @@ static void TestConnectedShowsStatsAndNotice() {
   // La batería: el aviso dice qué hacer. Con la imagen quieta no se avisa (no hay fluidez que perder).
   in.stats[L"reducido"] = L"bateria";
   CHECK(Contains(BuildView(in).notice.text, L"cargador"));
+  // Bajar por la batería viene apagado (bajaba a Ahorro y el brillo con el cable del PC) y se enciende en avanzada.
+  CHECK(!Settings().battery_adapt);
   in.stats[L"codificados"] = L"0";
   CHECK(BuildView(in).notice.text.empty());
   in.stats[L"codificados"] = L"119.6";
@@ -148,6 +150,9 @@ static void TestDiagnosticsGoToTheLog() {
   d = BuildDiagnostics(in.stats);
   CHECK(Contains(d.notice, L"decodificador"));
   CHECK(BuildView(in).notice.text.empty());
+  // Una cifra de 0 con imagen llegando es que el dispositivo aún no la midió: no es aviso.
+  in.stats[L"tablet_fps"] = L"0";
+  CHECK(BuildDiagnostics(in.stats).notice.empty());
   // Tablet antigua (no lo cuenta) o imagen quieta: sin cifra de la tablet, sin aviso, o sin línea.
   in.stats[L"tablet_fps"] = L"-";
   d = BuildDiagnostics(in.stats);
@@ -180,9 +185,12 @@ static void TestAdvancedRows() {
   View v = BuildView(in);
   // La resolución y el monitor ya no están aquí: van a la vista.
   CHECK(!Has(v.advanced, "resolucion") && !Has(v.advanced, "monitor"));
-  // Solo lo que casi nadie cambia, en este orden. Fps, Mbps, códec, batería, cable USB, abrir la app de la tablet,
-  // transmitir al abrir y el puerto ya no se eligen: son automáticos (o se tocan a mano en el .ini).
-  CHECK((Ids(v.advanced) == std::vector<std::string>{"tactil", "wifi_directo", "autostart", "idioma", "ayuda", "registro"}));
+  // Solo lo que casi nadie cambia, en este orden. Fps, Mbps, códec, cable USB, abrir la app de la tablet,
+  // transmitir al abrir y el puerto ya no se eligen: son automáticos (o se tocan a mano en el .ini). Bajar por la
+  // batería vuelve como opción, apagada de serie.
+  CHECK((Ids(v.advanced) ==
+         std::vector<std::string>{"tactil", "wifi_directo", "bateria", "autostart", "idioma", "ayuda", "registro"}));
+  CHECK(!Get(v.advanced, "bateria").on);
   // Táctil y Solo ver: sin «Ratón».
   CHECK(Get(v.advanced, "tactil").options.size() == 2 && Get(v.advanced, "tactil").selected == 0);
   CHECK(Get(v.advanced, "wifi_directo").help == "wifi-propia");
@@ -295,11 +303,12 @@ static void TestLanguages() {
 
 static void TestHostArguments() {
   Settings s;
-  // La batería y abrir la app de la tablet al enchufarla van siempre; el cable USB también (sin --no-usb).
+  // Abrir la app de la tablet al enchufarla va siempre; el cable USB también (sin --no-usb). La batería, solo si se
+  // enciende.
   CHECK(HostArguments(s) ==
-        L"--port 47800 --profile alta --fps auto --bitrate auto --codec auto --touch --battery-adapt --virtual");
+        L"--port 47800 --profile alta --fps auto --bitrate auto --codec auto --touch --virtual");
   CHECK(LiveSettingsLine(s) ==
-        L"@ajustes calidad=alta fps=auto mbps=auto codec=auto sonido=pc tactil=tactil bateria=1 abrir_tablet=1");
+        L"@ajustes calidad=alta fps=auto mbps=auto codec=auto sonido=pc tactil=tactil bateria=0 abrir_tablet=1");
   s.quality = L"equilibrada";
   s.audio_tablet = true;
   s.touch = 2;
@@ -307,6 +316,7 @@ static void TestHostArguments() {
   s.bitrate = 50;
   s.codec = L"hevc";
   s.size = L"2560 × 1600";  // de un .ini viejo: ya no se pasa, la resolución la decide Windows
+  s.battery_adapt = true;
   CHECK(HostArguments(s) ==
         L"--port 47800 --profile equilibrada --fps 120 --bitrate 50 --codec hevc --audio-tablet --view-only "
         L"--battery-adapt --virtual");
