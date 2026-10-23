@@ -67,6 +67,8 @@ class LatencyStats(private val clock: ClockSync) {
         val screenUs: Long,
         val totalUs: Long,
         val maxTotalUs: Long,
+        /** La etapa de pantalla es una estimación con los refrescos ([ScreenClock]): la tablet no dice la real. */
+        val screenEstimated: Boolean = false,
     ) {
         val hasTotal get() = totalUs >= 0
         val hasScreen get() = screenUs >= 0
@@ -79,7 +81,7 @@ class LatencyStats(private val clock: ClockSync) {
                 if (holdUs > 0) add("esperar reenvíos ${ms(holdUs)}")
                 if (inputWaitUs > 0) add("esperar entrada ${ms(inputWaitUs)}")
                 add("decodificar ${ms(decodeUs)}")
-                if (screenUs >= 0) add("pantalla ${ms(screenUs)}")
+                if (screenUs >= 0) add((if (screenEstimated) "pantalla ~" else "pantalla ") + ms(screenUs))
             }
             val total = if (hasTotal) "retardo ${ms(totalUs)} ms (peor ${ms(maxTotalUs)}): " else "retardo: "
             return total + parts.joinToString(" + ") { "$it ms" }
@@ -96,6 +98,7 @@ class LatencyStats(private val clock: ClockSync) {
     private var decodeSum = 0L
     private var screenSum = 0L
     private var screenN = 0
+    private var screenEstimatedN = 0
     private var totalSum = 0L
     private var totalN = 0
     private var maxTotal = 0L
@@ -107,7 +110,15 @@ class LatencyStats(private val clock: ClockSync) {
      * encendió en pantalla (null si Android no lo dice).
      */
     @Synchronized
-    fun record(hostUs: Long, completeUs: Long, queuedUs: Long, decodedUs: Long, shownUs: Long?, inputUs: Long = queuedUs) {
+    fun record(
+        hostUs: Long,
+        completeUs: Long,
+        queuedUs: Long,
+        decodedUs: Long,
+        shownUs: Long?,
+        inputUs: Long = queuedUs,
+        shownEstimated: Boolean = false,
+    ) {
         frames++
         holdSum += (queuedUs - completeUs).coerceAtLeast(0)
         inputWaitSum += (inputUs - queuedUs).coerceAtLeast(0)
@@ -115,6 +126,7 @@ class LatencyStats(private val clock: ClockSync) {
         if (shownUs != null && shownUs >= decodedUs) {
             screenSum += shownUs - decodedUs
             screenN++
+            if (shownEstimated) screenEstimatedN++
         }
         val sent = clock.toLocal(hostUs) ?: return
         // Con un reloj mal estimado (p. ej. el primer PONG llegó tarde) saldrían valores absurdos: se ignoran.
@@ -141,11 +153,12 @@ class LatencyStats(private val clock: ClockSync) {
             screenUs = if (screenN > 0) screenSum / screenN else -1,
             totalUs = if (totalN > 0) totalSum / totalN else -1,
             maxTotalUs = maxTotal,
+            screenEstimated = screenEstimatedN > screenN / 2,
         )
         frames = 0
         arriveSum = 0; arriveN = 0
         holdSum = 0; inputWaitSum = 0; decodeSum = 0
-        screenSum = 0; screenN = 0
+        screenSum = 0; screenN = 0; screenEstimatedN = 0
         totalSum = 0; totalN = 0
         maxTotal = 0
         return s
