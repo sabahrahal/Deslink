@@ -50,6 +50,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
     private lateinit var host: String
     private lateinit var settings: AppSettings
     private var helloConfig: Dlp.HelloConfig? = null
+    private lateinit var codecMeter: CodecMeter
     private var lastBackMs = 0L
     private val probe by lazy { DeviceProbe(this) }
     private var touchFallbackShown = false
@@ -107,7 +108,8 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         settings = SettingsStore(this).load()
         statsVisible = settings.showStats
         statsShown = statsVisible
-        helloConfig = AppSettings.hello(Device.display(this), Device.hevcSupported, Device.prefersH264)
+        codecMeter = CodecMeter(this)
+        helloConfig = AppSettings.hello(Device.display(this), Device.hevcSupported, codecMeter.prefersH264(Device.prefersH264))
 
         // La pantalla no se apaga mientras se usa como monitor (ya no es una opción: nadie la quiere apagada).
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -519,9 +521,14 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         phaseDetail = ""
         overlay.visibility = View.VISIBLE
         val audioManager = getSystemService(AudioManager::class.java)
-        session = StreamSession(host, s, this, helloConfig) {
-            "${audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)}/${audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)}"
-        }.also {
+        val meter = codecMeter
+        session = StreamSession(
+            host, s, this, helloConfig,
+            mediaVolume = {
+                "${audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)}/${audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)}"
+            },
+            onDecodeSample = meter::record,
+        ).also {
             it.setFastDecode(profile.fastDecode)
             it.start()
         }

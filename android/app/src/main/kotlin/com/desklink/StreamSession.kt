@@ -18,6 +18,8 @@ class StreamSession(
     private val helloConfig: Dlp.HelloConfig? = null,
     /** Volumen multimedia de la tablet («5/15»), para el informe de sonido del log del PC. */
     private val mediaVolume: () -> String = { "?" },
+    /** Cada segundo con vídeo: codec, tamaño y lo que tardó de media en decodificarse cada frame (para [CodecMeter]). */
+    private val onDecodeSample: (codec: Int, width: Int, height: Int, decodeMs: Double) -> Unit = { _, _, _, _ -> },
 ) {
     /** En qué punto está la conexión, para la pantalla de estado. */
     enum class Phase { CONNECTING, NO_ANSWER, STREAMING, RECONNECTING, FAILED }
@@ -388,6 +390,9 @@ class StreamSession(
             val decodeNs = decoder?.decodeNanos ?: 0L
             val decodeN = decoder?.decodeCount ?: 0L
             val decodeMs = if (decodeN > lastDecodeCount) (decodeNs - lastDecodeNanos) / 1e6 / (decodeN - lastDecodeCount) else -1.0
+            if (info != null && decodeMs >= 0 && decodeN - lastDecodeCount >= 10) {
+                onDecodeSample(info.codec, info.width, info.height, decodeMs)
+            }
             lastDecodeNanos = decodeNs
             lastDecodeCount = decodeN
             val mbps = (bytesReceived - lastBytes) * 8 / secs / 1e6
