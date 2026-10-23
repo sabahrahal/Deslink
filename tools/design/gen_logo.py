@@ -5,7 +5,7 @@
     python3 tools/design/gen_logo.py --check  # falla si alguno está desfasado
     python3 tools/design/gen_logo.py --ico    # además rehace windows/app/res/extendesk.ico (pip install resvg-py)
 
-El dibujo (abajo, en las coordenadas de design/logo/extendesk-icon.png, 1254x1254) calca ese PNG; los colores salen
+El dibujo (abajo, en las coordenadas del PNG de 1254x1254 que se calcó en su día) es la única fuente; los colores salen
 de la sección «logo» de design/tokens.json. Los archivos generados no se editan a mano.
 """
 import io
@@ -26,7 +26,7 @@ ICO = ROOT / "windows/app/res/extendesk.ico"
 
 HEADER = "Generado por tools/design/gen_logo.py. No editar a mano."
 
-# Caja del dibujo dentro del PNG original.
+# Caja del dibujo dentro de ese lienzo de 1254x1254.
 BOX_X, BOX_Y, BOX_W, BOX_H = 119, 316, 1034, 662
 
 # Eslabón de atrás: abierto abajo a la izquierda, donde lo tapa el de delante.
