@@ -1,0 +1,183 @@
+---
+import Logo from './Logo.astro';
+import Icon from './Icon.astro';
+
+const links = [
+  ['#caracteristicas', 'Características'],
+  ['#como-funciona', 'Cómo funciona'],
+  ['#usos', 'Usos'],
+  ['#faq', 'Preguntas'],
+  ['#contacto', 'Contacto'],
+];
+---
+
+<div id="scroll-progress" aria-hidden="true"></div>
+<header class="nav" id="nav">
+  <div class="container inner">
+    <a href="#inicio" aria-label="DeskLink, inicio"><Logo size={28} /></a>
+    <nav aria-label="Secciones">
+      <ul id="nav-links">
+        {links.map(([href, label]) => <li><a href={href}>{label}</a></li>)}
+      </ul>
+    </nav>
+    <a href="#descargar" class="btn btn-primary cta"><Icon name="download" />Descargar</a>
+    <button class="burger" id="burger" aria-label="Abrir el menú" aria-expanded="false" aria-controls="nav-links">
+      <span></span><span></span>
+    </button>
+  </div>
+</header>
+
+<style>
+  #scroll-progress {
+    position: fixed;
+    inset: 0 0 auto 0;
+    height: 3px;
+    background: var(--grad);
+    transform-origin: left;
+    transform: scaleX(0);
+    z-index: 60;
+  }
+  .nav {
+    position: fixed;
+    inset: 0 0 auto 0;
+    z-index: 50;
+    transition:
+      background 0.3s ease,
+      border-color 0.3s ease;
+    border-bottom: 1px solid transparent;
+  }
+  .nav.scrolled {
+    background: rgba(11, 7, 22, 0.72);
+    backdrop-filter: blur(16px) saturate(140%);
+    border-bottom-color: var(--border);
+  }
+  .inner {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    height: 72px;
+  }
+  nav {
+    margin-left: auto;
+  }
+  ul {
+    display: flex;
+    gap: 6px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  ul a {
+    display: block;
+    padding: 8px 14px;
+    border-radius: 999px;
+    color: var(--text-2);
+    font-size: 15px;
+    transition:
+      color 0.2s,
+      background 0.2s;
+  }
+  ul a:hover {
+    color: var(--text);
+    background: var(--surface-strong);
+  }
+  .cta {
+    padding: 10px 18px;
+    font-size: 14px;
+  }
+  .burger {
+    display: none;
+    width: 44px;
+    height: 44px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    position: relative;
+    cursor: pointer;
+  }
+  .burger span {
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--text);
+    transition: transform 0.3s ease;
+  }
+  .burger span:first-child {
+    top: 17px;
+  }
+  .burger span:last-child {
+    top: 25px;
+  }
+  .burger[aria-expanded='true'] span:first-child {
+    transform: translateY(4px) rotate(45deg);
+  }
+  .burger[aria-expanded='true'] span:last-child {
+    transform: translateY(-4px) rotate(-45deg);
+  }
+
+  @media (max-width: 900px) {
+    .burger {
+      display: block;
+    }
+    .cta {
+      margin-left: auto;
+    }
+    nav {
+      margin: 0;
+    }
+    ul {
+      position: fixed;
+      top: 72px;
+      left: 16px;
+      right: 16px;
+      flex-direction: column;
+      padding: 12px;
+      border-radius: var(--radius);
+      background: rgba(18, 11, 36, 0.96);
+      border: 1px solid var(--border);
+      backdrop-filter: blur(16px);
+      opacity: 0;
+      transform: translateY(-10px);
+      pointer-events: none;
+      transition:
+        opacity 0.25s ease,
+        transform 0.25s ease;
+    }
+    ul.open {
+      opacity: 1;
+      transform: none;
+      pointer-events: auto;
+    }
+    ul a {
+      padding: 14px 16px;
+      font-size: 17px;
+    }
+  }
+  @media (max-width: 420px) {
+    .cta {
+      display: none;
+    }
+    .burger {
+      margin-left: auto;
+    }
+  }
+</style>
+
+<script>
+  const nav = document.getElementById('nav')!;
+  const burger = document.getElementById('burger')!;
+  const list = document.getElementById('nav-links')!;
+
+  const onScroll = () => nav.classList.toggle('scrolled', window.scrollY > 20);
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+
+  const setOpen = (open: boolean) => {
+    list.classList.toggle('open', open);
+    burger.setAttribute('aria-expanded', String(open));
+  };
+  burger.addEventListener('click', () => setOpen(!list.classList.contains('open')));
+  list.querySelectorAll('a').forEach((a) => a.addEventListener('click', () => setOpen(false)));
+</script>

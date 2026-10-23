@@ -1,0 +1,149 @@
+---
+import Icon from './Icon.astro';
+import { DOWNLOADS } from '../config';
+---
+
+<section id="descargar" class="dl">
+  <div class="container">
+    <div class="section-head" data-reveal>
+      <span class="eyebrow">Descargar</span>
+      <h2>Dos descargas y <span class="gradient-text">a trabajar</span></h2>
+      <p>Una para el PC y otra para la tablet o el móvil. Siempre la última versión.</p>
+    </div>
+
+    <div class="cards">
+      <article class="card dl-card" data-glow data-reveal="left">
+        <div class="os win"><Icon name="windows" size={34} /></div>
+        <h3>DeskLink para Windows</h3>
+        <p>Instalador con el programa, el monitor virtual y lo necesario para el cable USB.</p>
+        <dl>
+          <div><dt>Sistema</dt><dd>Windows 10 u 11 de 64 bits</dd></div>
+          <div><dt>Archivo</dt><dd>DeskLink-Setup.exe</dd></div>
+        </dl>
+        <a class="btn btn-primary" href={DOWNLOADS.windows}><Icon name="download" />Descargar para Windows</a>
+      </article>
+
+      <article class="card dl-card" data-glow data-reveal="right">
+        <div class="os and"><Icon name="android" size={34} /></div>
+        <h3>DeskLink para Android</h3>
+        <p>La app para tu tablet o móvil. Ábrela en el dispositivo y permite instalar apps de esta fuente.</p>
+        <dl>
+          <div><dt>Sistema</dt><dd>Android 8.0 o superior</dd></div>
+          <div><dt>Archivo</dt><dd>DeskLink.apk</dd></div>
+        </dl>
+        <a class="btn btn-primary" href={DOWNLOADS.android}><Icon name="download" />Descargar la APK</a>
+      </article>
+    </div>
+
+    <p class="more" data-reveal>
+      ¿Buscas otra versión o quieres ver qué ha cambiado? Mira <a href={DOWNLOADS.releases}>las versiones publicadas</a>.
+    </p>
+  </div>
+</section>
+
+<style>
+  .dl {
+    background: radial-gradient(900px circle at 50% 30%, rgba(112, 51, 253, 0.16), transparent 70%);
+  }
+  .cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 22px;
+    max-width: 980px;
+    margin: 0 auto;
+  }
+  .dl-card {
+    position: relative;
+    padding: 40px 36px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition:
+      transform 0.35s ease,
+      border-color 0.35s ease;
+  }
+  .dl-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(420px circle at var(--mx, 50%) var(--my, 0%), rgba(255, 95, 210, 0.16), transparent 60%);
+    opacity: 0;
+    transition: opacity 0.35s;
+    pointer-events: none;
+  }
+  .dl-card:hover {
+    transform: translateY(-6px);
+    border-color: rgba(166, 140, 255, 0.45);
+  }
+  .dl-card:hover::before {
+    opacity: 1;
+  }
+  .os {
+    width: 72px;
+    height: 72px;
+    border-radius: 20px;
+    display: grid;
+    place-items: center;
+    margin-bottom: 24px;
+    color: #fff;
+  }
+  .os.win {
+    background: linear-gradient(135deg, #2b88ff, #4d13c7);
+  }
+  .os.and {
+    background: linear-gradient(135deg, #30d158, #1e7d34);
+  }
+  h3 {
+    font-size: 26px;
+    font-weight: 900;
+    margin-bottom: 10px;
+  }
+  p {
+    color: var(--text-2);
+  }
+  dl {
+    margin: 24px 0 30px;
+    display: grid;
+    gap: 10px;
+  }
+  dl div {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding-bottom: 10px;
+    border-bottom: 1px dashed var(--border);
+    font-size: 15px;
+  }
+  dt {
+    color: var(--text-3);
+  }
+  dd {
+    margin: 0;
+    text-align: right;
+    font-weight: 600;
+  }
+  .btn {
+    margin-top: auto;
+    align-self: stretch;
+  }
+  .more {
+    text-align: center;
+    margin-top: 32px;
+    color: var(--text-3);
+  }
+  .more a {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  @media (max-width: 820px) {
+    .cards {
+      grid-template-columns: 1fr;
+    }
+    .dl-card {
+      padding: 30px 24px;
+    }
+    .btn {
+      white-space: normal;
+    }
+  }
+</style>

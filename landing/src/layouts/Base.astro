@@ -1,0 +1,40 @@
+---
+import '../styles/global.css';
+
+interface Props {
+  title: string;
+  description: string;
+}
+
+const { title, description } = Astro.props;
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const ogImage = new URL(`${base}/og.png`, Astro.site).href;
+---
+
+<!doctype html>
+<html lang="es" class="no-js">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#0b0716" />
+    <link rel="icon" type="image/svg+xml" href={`${base}/desklink-icon.svg`} />
+    <link rel="canonical" href={new URL(Astro.url.pathname, Astro.site).href} />
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="es_ES" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={ogImage} />
+    <meta name="twitter:card" content="summary" />
+    <script is:inline>
+      document.documentElement.classList.remove('no-js');
+    </script>
+  </head>
+  <body>
+    <slot />
+    <script>
+      import '../scripts/reveal.ts';
+    </script>
+  </body>
+</html>

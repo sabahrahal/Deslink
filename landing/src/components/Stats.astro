@@ -1,0 +1,84 @@
+---
+// Cifras sacadas de la documentación del repo (README, docs/ajustes.md, docs/protocol-dlp.md).
+const stats = [
+  { value: 120, suffix: ' fps', label: 'de fluidez si tu tablet llega a 120 Hz' },
+  { value: 25, prefix: '<', suffix: ' ms', label: 'de retardo objetivo, de cristal a cristal, por cable USB' },
+  { value: 100, suffix: ' Mbps', label: 'de calidad de vídeo como máximo, ajustada sola' },
+  { value: 10, suffix: ' ms', label: 'por trozo de sonido: el audio va a la par que la imagen' },
+];
+---
+
+<section class="stats" id="cifras">
+  <div class="container">
+    <div class="row">
+      {
+        stats.map((s, i) => (
+          <div class="stat" data-reveal style={`--delay:${i * 0.08}s`}>
+            <strong>
+              {s.prefix && <span class="prefix">{s.prefix}</span>}
+              <span data-count={s.value} data-suffix={s.suffix}>
+                {s.value}
+                {s.suffix}
+              </span>
+            </strong>
+            <span class="label">{s.label}</span>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<style>
+  .stats {
+    padding: 40px 0 60px;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: linear-gradient(180deg, rgba(112, 51, 253, 0.08), rgba(112, 51, 253, 0.02));
+    overflow: hidden;
+  }
+  .stat {
+    padding: 32px 28px;
+    border-right: 1px solid var(--border);
+  }
+  .stat:last-child {
+    border-right: none;
+  }
+  strong {
+    display: block;
+    font-family: var(--font-title);
+    font-weight: 900;
+    font-size: clamp(34px, 4vw, 46px);
+    line-height: 1;
+    background: var(--grad);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .label {
+    display: block;
+    margin-top: 10px;
+    color: var(--text-2);
+    font-size: 15px;
+  }
+  @media (max-width: 860px) {
+    .row {
+      grid-template-columns: repeat(2, 1fr);
+    }
+    .stat:nth-child(2) {
+      border-right: none;
+    }
+    .stat:nth-child(-n + 2) {
+      border-bottom: 1px solid var(--border);
+    }
+  }
+  @media (max-width: 460px) {
+    .stat {
+      padding: 24px 18px;
+    }
+  }
+</style>

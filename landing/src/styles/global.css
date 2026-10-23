@@ -1,0 +1,276 @@
+@font-face {
+  font-family: 'Montserrat';
+  src: url('../assets/fonts/Montserrat-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Montserrat';
+  src: url('../assets/fonts/Montserrat-Black.ttf') format('truetype');
+  font-weight: 900;
+  font-display: swap;
+}
+
+/* Colores de la marca (design/tokens.json) más los de la landing, que es oscura para que el morado brille. */
+:root {
+  --brand-900: #3f0d91;
+  --brand-800: #4d13c7;
+  --brand-600: #7033fd;
+  --brand-300: #a68cff;
+  --brand-100: #e4dcff;
+  --pink: #ff5fd2;
+  --cyan: #46e0ff;
+  --green: #30d158;
+
+  --bg: #0b0716;
+  --bg-2: #120b24;
+  --surface: rgba(255, 255, 255, 0.04);
+  --surface-strong: rgba(255, 255, 255, 0.08);
+  --border: rgba(166, 140, 255, 0.18);
+  --text: #f5f5f7;
+  --text-2: #b9b3cc;
+  --text-3: #8a849c;
+
+  --radius: 20px;
+  --radius-sm: 12px;
+  --max: 1180px;
+  --font-title: 'Montserrat', 'Segoe UI', system-ui, sans-serif;
+  --font-body: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --grad: linear-gradient(120deg, var(--brand-300) 0%, var(--brand-600) 40%, var(--pink) 100%);
+
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 84px;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 17px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+img,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+a {
+  color: var(--brand-300);
+  text-decoration: none;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-title);
+  line-height: 1.1;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+p {
+  margin: 0;
+}
+
+.container {
+  width: 100%;
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+@media (max-width: 600px) {
+  .container {
+    padding: 0 16px;
+  }
+}
+
+section {
+  position: relative;
+  padding: 120px 0;
+}
+
+@media (max-width: 760px) {
+  section {
+    padding: 80px 0;
+  }
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-title);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--brand-300);
+}
+
+.eyebrow::before {
+  content: '';
+  width: 24px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--grad);
+}
+
+.section-head {
+  max-width: 820px;
+  margin: 0 auto 64px;
+  text-align: center;
+}
+
+.section-head .eyebrow {
+  justify-content: center;
+}
+
+.section-head h2 {
+  font-size: clamp(32px, 5vw, 52px);
+  font-weight: 900;
+  margin: 16px 0;
+}
+
+.section-head p {
+  color: var(--text-2);
+  font-size: 19px;
+}
+
+.gradient-text {
+  background: var(--grad);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shine 6s linear infinite;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+@keyframes shine {
+  to {
+    background-position: 200% center;
+  }
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 15px 26px;
+  border-radius: 999px;
+  font-family: var(--font-title);
+  font-weight: 700;
+  font-size: 16px;
+  color: #fff;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition:
+    transform 0.25s ease,
+    box-shadow 0.25s ease,
+    background 0.25s ease;
+  white-space: nowrap;
+}
+
+.btn svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--brand-600), var(--brand-800));
+  box-shadow:
+    0 10px 30px -10px rgba(112, 51, 253, 0.8),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 18px 40px -12px rgba(112, 51, 253, 0.95),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.btn-ghost {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+.btn-ghost:hover {
+  background: var(--surface-strong);
+  transform: translateY(-2px);
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  backdrop-filter: blur(12px);
+}
+
+/* Aparición al hacer scroll (src/scripts/reveal.ts añade .is-visible). */
+[data-reveal] {
+  opacity: 0;
+  transform: translateY(32px);
+  transition:
+    opacity 0.8s cubic-bezier(0.2, 0.7, 0.2, 1),
+    transform 0.8s cubic-bezier(0.2, 0.7, 0.2, 1);
+  transition-delay: var(--delay, 0s);
+}
+
+[data-reveal='left'] {
+  transform: translateX(-40px);
+}
+
+[data-reveal='right'] {
+  transform: translateX(40px);
+}
+
+[data-reveal='zoom'] {
+  transform: scale(0.92);
+}
+
+[data-reveal].is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+.no-js [data-reveal] {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  [data-reveal] {
+    opacity: 1;
+    transform: none;
+  }
+}

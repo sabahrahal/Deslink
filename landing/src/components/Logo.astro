@@ -1,0 +1,65 @@
+---
+// Icono de los dos eslabones (design/logo/desklink-icon.svg) y el nombre en Montserrat Black.
+interface Props {
+  size?: number;
+  wordmark?: boolean;
+}
+
+const { size = 34, wordmark = true } = Astro.props;
+const uid = `lg${Math.random().toString(36).slice(2, 8)}`;
+---
+
+<span class="logo">
+  <svg viewBox="119 316 1034 662" width={size * 1.56} height={size} aria-hidden="true">
+    <defs>
+      <linearGradient id={uid} x1="0" y1="656" x2="0" y2="830" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="#3F11A5"></stop>
+        <stop offset="1" stop-color="#7033FD"></stop>
+      </linearGradient>
+    </defs>
+    <path
+      class="back"
+      fill="#4D13C7"
+      d="M467,600 V492 A176,176 0 0 1 643,316 H977 A176,176 0 0 1 1153,492 V644 A176,176 0 0 1 977,820 H836 V697 H970 A48,48 0 0 0 1018,649 V494 A48,48 0 0 0 970,446 H655 A48,48 0 0 0 607,494 V600 Z"
+    ></path>
+    <path
+      class="front"
+      fill="#7033FD"
+      fill-rule="evenodd"
+      d="M119,690 A155,155 0 0 1 274,535 H628 Q694,535 735,582 L925,797 Q945,820 975,820 H850 Q806,820 775,786 L733,740 V823 A155,155 0 0 1 578,978 H274 A155,155 0 0 1 119,823 Z M286,656 A34,34 0 0 0 252,690 V823 A34,34 0 0 0 286,857 H571 A34,34 0 0 0 605,823 V656 Z"
+    ></path>
+    <path fill={`url(#${uid})`} d="M605,656 H652 L733,744 V830 H605 Z"></path>
+  </svg>
+  {wordmark && <span class="name">Desklink</span>}
+</span>
+
+<style>
+  .logo {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text);
+  }
+  .name {
+    font-family: var(--font-title);
+    font-weight: 900;
+    font-size: 22px;
+    letter-spacing: -0.01em;
+  }
+  .logo:hover .back {
+    animation: nudge-back 0.6s ease;
+  }
+  .logo:hover .front {
+    animation: nudge-front 0.6s ease;
+  }
+  @keyframes nudge-back {
+    50% {
+      transform: translate(30px, -20px);
+    }
+  }
+  @keyframes nudge-front {
+    50% {
+      transform: translate(-30px, 20px);
+    }
+  }
+</style>

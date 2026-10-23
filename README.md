@@ -26,6 +26,7 @@ Objetivo: menos de 35 ms de cristal a cristal por WiFi y menos de 25 ms por USB.
 | `windows/installer/` | Instalador de Windows (Inno Setup) |
 | `tools/dev/` | `actualizar.ps1`: instala la última versión de prueba en el PC o la tablet |
 | `tools/bench/` | `desklink-bench`: comparación de latencia entre transportes |
+| `landing/` | Página de presentación (Astro), publicada en GitHub Pages ([landing](landing/README.md)) |
 
 ## Documentación
 

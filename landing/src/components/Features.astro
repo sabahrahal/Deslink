@@ -1,0 +1,242 @@
+---
+import type { ComponentProps } from 'astro/types';
+import Icon from './Icon.astro';
+
+type IconName = ComponentProps<typeof Icon>['name'];
+
+const features: { icon: IconName; title: string; text: string; big?: boolean }[] = [
+  {
+    icon: 'monitor',
+    title: 'Un monitor de verdad, no una copia',
+    text: 'DeskLink crea una pantalla virtual en Windows a la medida de tu tablet. Arrastras ventanas hasta ella como a cualquier otro monitor. Y si lo prefieres, también puede duplicar la pantalla que ya tienes.',
+    big: true,
+  },
+  {
+    icon: 'usb',
+    title: 'Cable USB o Wi-Fi',
+    text: 'Por cable va con el menor retardo posible y sin pérdidas. Por Wi-Fi la app encuentra tu PC sola, sin escribir IPs ni tocar el router.',
+  },
+  {
+    icon: 'touch',
+    title: 'Táctil directo',
+    text: 'Tus dedos son toques reales de Windows: multitáctil con presión, pellizcar para hacer zoom, desplazar con dos dedos y mantener pulsado para el clic derecho.',
+  },
+  {
+    icon: 'sound',
+    title: 'El sonido del PC en la tablet',
+    text: 'Elige dónde suena el PC. En la tablet, los altavoces del PC se silencian mientras dura y vuelven al terminar.',
+  },
+  {
+    icon: 'chip',
+    title: 'Aceleración por hardware',
+    text: 'El PC codifica con la gráfica (NVENC, AMF o Quick Sync) y la tablet decodifica por hardware. Tu procesador queda libre para lo tuyo.',
+  },
+  {
+    icon: 'gauge',
+    title: 'Fluidez automática',
+    text: 'Elige solo los fps, la calidad y el códec (HEVC o H.264). Si el Wi-Fi va justo o la gráfica está cargada, se adapta y te dice por qué.',
+  },
+  {
+    icon: 'battery',
+    title: 'Perfiles de batería',
+    text: 'Alta, Equilibrada o Ahorro. Con Ahorro la tablet aguanta más: menos fps, brillo con tope y la radio Wi-Fi puede descansar.',
+    big: true,
+  },
+];
+---
+
+<section id="caracteristicas">
+  <div class="container">
+    <div class="section-head" data-reveal>
+      <span class="eyebrow">Características</span>
+      <h2>Todo lo que esperas de <span class="gradient-text">un segundo monitor</span></h2>
+      <p>Y algunas cosas que no esperas de una app. Sin configuraciones raras: abres, conectas y listo.</p>
+    </div>
+
+    <div class="bento">
+      {
+        features.map((f, i) => (
+          <article class:list={['card', 'feature', { big: f.big }]} data-glow data-reveal style={`--delay:${(i % 3) * 0.08}s`}>
+            <div class="icon">
+              <Icon name={f.icon} size={26} />
+            </div>
+            <h3>{f.title}</h3>
+            <p>{f.text}</p>
+            {f.big && f.icon === 'monitor' && (
+              <div class="mini-monitors" aria-hidden="true">
+                <span class="m1" />
+                <span class="m2" />
+                <span class="arrow" />
+              </div>
+            )}
+            {f.big && f.icon === 'battery' && (
+              <div class="profiles" aria-hidden="true">
+                <span class="on">Alta</span>
+                <span>Equilibrada</span>
+                <span>Ahorro</span>
+              </div>
+            )}
+          </article>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<style>
+  .bento {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+  }
+  .feature {
+    position: relative;
+    padding: 32px;
+    overflow: hidden;
+    transition:
+      transform 0.35s ease,
+      border-color 0.35s ease;
+  }
+  .feature::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(400px circle at var(--mx, 50%) var(--my, 0%), rgba(112, 51, 253, 0.22), transparent 60%);
+    opacity: 0;
+    transition: opacity 0.35s ease;
+    pointer-events: none;
+  }
+  .feature:hover {
+    transform: translateY(-4px);
+    border-color: rgba(166, 140, 255, 0.4);
+  }
+  .feature:hover::before {
+    opacity: 1;
+  }
+  .big {
+    grid-column: span 2;
+  }
+  .icon {
+    width: 54px;
+    height: 54px;
+    border-radius: 16px;
+    display: grid;
+    place-items: center;
+    color: #fff;
+    background: linear-gradient(135deg, var(--brand-600), var(--brand-900));
+    box-shadow: 0 10px 24px -8px rgba(112, 51, 253, 0.8);
+    margin-bottom: 22px;
+  }
+  h3 {
+    font-size: 21px;
+    font-weight: 700;
+    margin-bottom: 10px;
+  }
+  p {
+    color: var(--text-2);
+    font-size: 16px;
+    max-width: 560px;
+  }
+
+  .mini-monitors {
+    position: absolute;
+    right: 32px;
+    top: 32px;
+    display: flex;
+    gap: 14px;
+    align-items: flex-end;
+  }
+  .mini-monitors span {
+    display: block;
+    border: 2px solid var(--brand-300);
+    border-radius: 6px;
+  }
+  .m1 {
+    width: 86px;
+    height: 54px;
+  }
+  .m2 {
+    width: 40px;
+    height: 58px;
+    border-color: var(--pink) !important;
+    animation: glow 2.4s ease-in-out infinite;
+  }
+  .mini-monitors .arrow {
+    position: absolute;
+    left: 40px;
+    top: 18px;
+    width: 14px;
+    height: 14px;
+    border: none;
+    border-radius: 3px;
+    background: var(--brand-300);
+    animation: hop 2.4s ease-in-out infinite;
+  }
+  @keyframes hop {
+    50% {
+      transform: translateX(70px);
+      background: var(--pink);
+    }
+  }
+  @keyframes glow {
+    50% {
+      box-shadow: 0 0 20px rgba(255, 95, 210, 0.6);
+    }
+  }
+
+  .profiles {
+    display: inline-flex;
+    margin-top: 22px;
+    padding: 4px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border);
+    font-size: 14px;
+    font-weight: 600;
+    position: relative;
+  }
+  .profiles span {
+    padding: 8px 16px;
+    border-radius: 9px;
+    color: var(--text-2);
+    animation: seg 6s infinite;
+  }
+  .profiles span:nth-child(2) {
+    animation-delay: 2s;
+  }
+  .profiles span:nth-child(3) {
+    animation-delay: 4s;
+  }
+  @keyframes seg {
+    0%,
+    30% {
+      background: var(--brand-600);
+      color: #fff;
+    }
+    34%,
+    100% {
+      background: transparent;
+      color: var(--text-2);
+    }
+  }
+
+  @media (max-width: 960px) {
+    .bento {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  @media (max-width: 640px) {
+    .bento {
+      grid-template-columns: 1fr;
+    }
+    .big {
+      grid-column: auto;
+    }
+    .mini-monitors {
+      display: none;
+    }
+    .feature {
+      padding: 26px;
+    }
+  }
+</style>

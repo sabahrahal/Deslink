@@ -1,0 +1,251 @@
+---
+import Icon from './Icon.astro';
+
+const steps = [
+  {
+    n: '01',
+    title: 'Instala DeskLink en el PC',
+    text: 'Un solo instalador para Windows 10 u 11. Pone el programa, el monitor virtual y todo lo necesario para el cable USB.',
+  },
+  {
+    n: '02',
+    title: 'Instala la app en la tablet',
+    text: 'La APK funciona en tablets y móviles con Android 8 o superior. La primera vez te enseña una guía corta.',
+  },
+  {
+    n: '03',
+    title: 'Conecta y listo',
+    text: 'En la misma Wi-Fi, la tablet encuentra tu PC sola. ¿Quieres aún más fluidez? Enchúfala por cable USB.',
+  },
+];
+
+const pipeline = [
+  { icon: 'monitor', title: 'Pantalla virtual', text: 'Un driver crea un monitor extra en Windows.' },
+  { icon: 'chip', title: 'Captura en la GPU', text: 'Se codifica con NVENC, AMF o Quick Sync.' },
+  { icon: 'bolt', title: 'Protocolo propio', text: 'El vídeo viaja por UDP, por Wi-Fi o por USB.' },
+  { icon: 'tablet', title: 'Decodifica por hardware', text: 'Y se pinta en el siguiente refresco de pantalla.' },
+  { icon: 'touch', title: 'Toque de vuelta', text: 'Tus dedos vuelven al PC por el mismo canal.' },
+] as const;
+---
+
+<section id="como-funciona" class="how">
+  <div class="container">
+    <div class="section-head" data-reveal>
+      <span class="eyebrow">Cómo funciona</span>
+      <h2>De cero a dos pantallas <span class="gradient-text">en tres pasos</span></h2>
+      <p>No hace falta saber de redes ni tocar configuraciones. DeskLink elige solo la mejor forma de conectarse.</p>
+    </div>
+
+    <ol class="steps">
+      {
+        steps.map((s, i) => (
+          <li class="card step" data-reveal style={`--delay:${i * 0.12}s`}>
+            <span class="num">{s.n}</span>
+            <h3>{s.title}</h3>
+            <p>{s.text}</p>
+          </li>
+        ))
+      }
+    </ol>
+
+    <div class="under card" data-reveal="zoom">
+      <div class="under-head">
+        <span class="eyebrow">Por dentro</span>
+        <h3>Así viaja cada imagen de tu PC a la tablet</h3>
+      </div>
+      <div class="pipe">
+        <div class="track" aria-hidden="true"><span class="pulse"></span></div>
+        {
+          pipeline.map((p, i) => (
+            <div class="node" data-reveal style={`--delay:${0.15 + i * 0.12}s`}>
+              <div class="bubble">
+                <Icon name={p.icon} size={24} />
+              </div>
+              <strong>{p.title}</strong>
+              <span>{p.text}</span>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .how {
+    background: linear-gradient(180deg, transparent, var(--bg-2) 30%, var(--bg-2) 70%, transparent);
+  }
+  .steps {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 40px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    counter-reset: step;
+  }
+  .step {
+    padding: 34px 30px;
+    position: relative;
+    overflow: hidden;
+  }
+  .num {
+    display: block;
+    font-family: var(--font-title);
+    font-weight: 900;
+    font-size: 64px;
+    line-height: 1;
+    background: var(--grad);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    opacity: 0.9;
+    margin-bottom: 18px;
+  }
+  .step h3 {
+    font-size: 21px;
+    margin-bottom: 10px;
+  }
+  .step p {
+    color: var(--text-2);
+  }
+  .step::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    height: 3px;
+    width: 100%;
+    background: var(--grad);
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 0.9s cubic-bezier(0.2, 0.7, 0.2, 1) 0.4s;
+  }
+  .step:global(.is-visible)::after {
+    transform: scaleX(1);
+  }
+
+  .under {
+    padding: 40px;
+  }
+  .under-head {
+    margin-bottom: 36px;
+  }
+  .under-head h3 {
+    font-size: clamp(22px, 2.6vw, 28px);
+    margin-top: 10px;
+  }
+  .pipe {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 16px;
+  }
+  .track {
+    position: absolute;
+    top: 30px;
+    left: 10%;
+    right: 10%;
+    height: 2px;
+    background: rgba(166, 140, 255, 0.2);
+    overflow: hidden;
+  }
+  .pulse {
+    position: absolute;
+    top: 0;
+    left: -20%;
+    width: 20%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, var(--pink), transparent);
+    animation: travel 2.4s linear infinite;
+  }
+  @keyframes travel {
+    to {
+      left: 100%;
+    }
+  }
+  .node {
+    position: relative;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+  .bubble {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--brand-300);
+    margin-bottom: 8px;
+    box-shadow: 0 0 0 6px var(--bg-2);
+  }
+  .node strong {
+    font-family: var(--font-title);
+    font-size: 15px;
+  }
+  .node span {
+    color: var(--text-3);
+    font-size: 14px;
+    line-height: 1.45;
+  }
+
+  @media (max-width: 900px) {
+    .steps {
+      grid-template-columns: 1fr;
+    }
+    .pipe {
+      grid-template-columns: 1fr;
+      gap: 22px;
+    }
+    .track {
+      top: 0;
+      bottom: 0;
+      left: 29px;
+      right: auto;
+      width: 2px;
+      height: auto;
+    }
+    .pulse {
+      left: 0;
+      top: -20%;
+      width: 100%;
+      height: 20%;
+      background: linear-gradient(180deg, transparent, var(--pink), transparent);
+      animation-name: travel-v;
+    }
+    @keyframes travel-v {
+      to {
+        top: 100%;
+      }
+    }
+    .node {
+      flex-direction: row;
+      text-align: left;
+      flex-wrap: wrap;
+      align-items: center;
+      column-gap: 16px;
+      row-gap: 0;
+      padding-left: 0;
+    }
+    .bubble {
+      margin: 0;
+      flex: none;
+    }
+    .node strong {
+      flex: 1;
+    }
+    .node span {
+      flex-basis: 100%;
+      padding-left: 76px;
+      margin-top: -14px;
+    }
+    .under {
+      padding: 28px 20px;
+    }
+  }
+</style>

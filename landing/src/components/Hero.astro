@@ -1,0 +1,528 @@
+---
+import Icon from './Icon.astro';
+---
+
+<section class="hero" id="inicio">
+  <div class="bg" aria-hidden="true">
+    <div class="blob b1"></div>
+    <div class="blob b2"></div>
+    <div class="blob b3"></div>
+    <div class="grid"></div>
+  </div>
+
+  <div class="container layout">
+    <div class="copy">
+      <span class="pill" data-reveal>
+        <span class="dot"></span> Windows 10/11 + Android 8 o superior
+      </span>
+      <h1 data-reveal style="--delay:.08s">
+        Tu tablet ahora es<br />
+        <span class="gradient-text">tu segunda pantalla.</span>
+      </h1>
+      <p class="lead" data-reveal style="--delay:.16s">
+        DeskLink convierte cualquier tablet o móvil Android en un monitor extra para tu PC. Por cable USB o por Wi-Fi,
+        con táctil de verdad, el sonido del PC y una imagen tan rápida que se te olvida que no es un monitor.
+      </p>
+      <div class="actions" data-reveal style="--delay:.24s">
+        <a href="#descargar" class="btn btn-primary"><Icon name="download" />Descargar ahora</a>
+        <a href="#como-funciona" class="btn btn-ghost">Cómo funciona <Icon name="arrow" /></a>
+      </div>
+      <ul class="trust" data-reveal style="--delay:.32s">
+        <li><Icon name="check" size={18} /> Sin cuentas ni registros</li>
+        <li><Icon name="check" size={18} /> Encuentra tu PC solo</li>
+        <li><Icon name="check" size={18} /> Nada que configurar en la red</li>
+      </ul>
+    </div>
+
+    <div class="stage" data-reveal="zoom" style="--delay:.2s" aria-hidden="true">
+      <!-- PC -->
+      <div class="pc">
+        <div class="screen">
+          <div class="taskbar"><i></i><i></i><i></i><i></i></div>
+          <div class="win win-a"><b></b><span></span><span></span><span class="short"></span></div>
+          <div class="win win-move"><b></b><span></span><span></span><span class="short"></span></div>
+        </div>
+        <div class="stand"></div>
+      </div>
+
+      <!-- Enlace -->
+      <svg class="link" viewBox="0 0 200 60" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="hero-link" x1="0" x2="1">
+            <stop offset="0" stop-color="#7033FD"></stop>
+            <stop offset="1" stop-color="#FF5FD2"></stop>
+          </linearGradient>
+        </defs>
+        <path d="M0 30 C 60 0, 140 60, 200 30" stroke="url(#hero-link)" stroke-width="2" fill="none" stroke-dasharray="4 6"
+        ></path>
+        <circle r="4" fill="#fff"><animateMotion dur="1.6s" repeatCount="indefinite" path="M0 30 C 60 0, 140 60, 200 30"
+          ></animateMotion></circle>
+        <circle r="3" fill="#A68CFF"><animateMotion dur="1.6s" begin=".53s" repeatCount="indefinite"
+            path="M0 30 C 60 0, 140 60, 200 30"></animateMotion></circle>
+        <circle r="3" fill="#FF5FD2"><animateMotion dur="1.6s" begin="1.06s" repeatCount="indefinite"
+            path="M0 30 C 60 0, 140 60, 200 30"></animateMotion></circle>
+      </svg>
+
+      <!-- Tablet -->
+      <div class="tablet">
+        <div class="tscreen">
+          <div class="win win-land"><b></b><span></span><span></span><span class="short"></span></div>
+          <div class="tap"></div>
+        </div>
+      </div>
+
+      <div class="chip c1"><Icon name="usb" size={16} /> Cable USB o Wi-Fi</div>
+      <div class="chip c2"><Icon name="bolt" size={16} /> Hasta 120 fps</div>
+      <div class="chip c3"><Icon name="touch" size={16} /> Táctil directo</div>
+    </div>
+  </div>
+
+  <a href="#cifras" class="scroll-hint" aria-label="Seguir bajando"><span></span></a>
+</section>
+
+<style>
+  .hero {
+    min-height: 100vh;
+    min-height: 100svh;
+    display: flex;
+    align-items: center;
+    padding: 130px 0 90px;
+    overflow: hidden;
+  }
+  .bg {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+  }
+  .blob {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(90px);
+    opacity: 0.55;
+    animation: float 18s ease-in-out infinite;
+  }
+  .b1 {
+    width: 520px;
+    height: 520px;
+    background: #4d13c7;
+    top: -140px;
+    left: -120px;
+  }
+  .b2 {
+    width: 460px;
+    height: 460px;
+    background: #ff5fd2;
+    opacity: 0.25;
+    bottom: -160px;
+    right: 10%;
+    animation-delay: -6s;
+  }
+  .b3 {
+    width: 380px;
+    height: 380px;
+    background: #46e0ff;
+    opacity: 0.16;
+    top: 20%;
+    right: -100px;
+    animation-delay: -12s;
+  }
+  @keyframes float {
+    0%,
+    100% {
+      transform: translate(0, 0) scale(1);
+    }
+    33% {
+      transform: translate(60px, 40px) scale(1.1);
+    }
+    66% {
+      transform: translate(-40px, 60px) scale(0.95);
+    }
+  }
+  .grid {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(166, 140, 255, 0.07) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(166, 140, 255, 0.07) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse at 50% 40%, #000 20%, transparent 70%);
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 1.05fr 1fr;
+    gap: 48px;
+    align-items: center;
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    border-radius: 999px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    font-size: 14px;
+    color: var(--text-2);
+  }
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 0 0 rgba(48, 209, 88, 0.6);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    70% {
+      box-shadow: 0 0 0 10px rgba(48, 209, 88, 0);
+    }
+    100% {
+      box-shadow: 0 0 0 0 rgba(48, 209, 88, 0);
+    }
+  }
+  h1 {
+    font-size: clamp(40px, 6.4vw, 76px);
+    font-weight: 900;
+    margin: 24px 0;
+  }
+  .lead {
+    font-size: clamp(17px, 1.6vw, 20px);
+    color: var(--text-2);
+    max-width: 560px;
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    margin-top: 36px;
+  }
+  .trust {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 22px;
+    list-style: none;
+    padding: 0;
+    margin: 28px 0 0;
+    color: var(--text-3);
+    font-size: 15px;
+  }
+  .trust li {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .trust :global(svg) {
+    color: var(--green);
+  }
+
+  /* Escena: PC, enlace y tablet */
+  .stage {
+    position: relative;
+    height: 440px;
+  }
+  .pc {
+    position: absolute;
+    left: 0;
+    top: 40px;
+    width: 62%;
+  }
+  .screen {
+    position: relative;
+    aspect-ratio: 16 / 10;
+    border-radius: 14px;
+    background: linear-gradient(160deg, #1d1438, #120b24);
+    border: 6px solid #2a2142;
+    box-shadow:
+      0 30px 80px -20px rgba(77, 19, 199, 0.6),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+    overflow: hidden;
+  }
+  .stand {
+    width: 26%;
+    height: 34px;
+    margin: 0 auto;
+    background: linear-gradient(#2a2142, #1a132e);
+    clip-path: polygon(30% 0, 70% 0, 100% 100%, 0 100%);
+  }
+  .taskbar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 18px;
+    background: rgba(255, 255, 255, 0.06);
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    align-items: center;
+  }
+  .taskbar i {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    background: rgba(166, 140, 255, 0.5);
+  }
+  .win {
+    position: absolute;
+    width: 46%;
+    padding: 10px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  }
+  .win b {
+    display: block;
+    height: 10px;
+    width: 40%;
+    border-radius: 4px;
+    background: var(--brand-600);
+    margin-bottom: 8px;
+  }
+  .win span {
+    display: block;
+    height: 6px;
+    border-radius: 3px;
+    background: #d2d2d7;
+    margin-top: 6px;
+  }
+  .win span.short {
+    width: 60%;
+  }
+  .win-a {
+    left: 8%;
+    top: 14%;
+  }
+  .win-move {
+    left: 48%;
+    top: 40%;
+    background: linear-gradient(135deg, #fff, #ece6ff);
+    animation: drag 6s cubic-bezier(0.6, 0, 0.3, 1) infinite;
+  }
+  .win-move b {
+    background: var(--pink);
+  }
+  @keyframes drag {
+    0%,
+    15% {
+      transform: translateX(0);
+      opacity: 1;
+    }
+    45% {
+      transform: translateX(140%);
+      opacity: 1;
+    }
+    50%,
+    100% {
+      transform: translateX(140%);
+      opacity: 0;
+    }
+  }
+
+  .link {
+    position: absolute;
+    left: 54%;
+    top: 160px;
+    width: 18%;
+    height: 60px;
+    overflow: visible;
+    z-index: 2;
+  }
+  .link path {
+    animation: dash 1s linear infinite;
+  }
+  @keyframes dash {
+    to {
+      stroke-dashoffset: -20;
+    }
+  }
+
+  .tablet {
+    position: absolute;
+    right: 0;
+    top: 70px;
+    width: 34%;
+    aspect-ratio: 10 / 15;
+    border-radius: 22px;
+    padding: 10px;
+    background: #1a132e;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 30px 80px -20px rgba(255, 95, 210, 0.4);
+    animation: bob 6s ease-in-out infinite;
+  }
+  @keyframes bob {
+    50% {
+      transform: translateY(-12px) rotate(1.5deg);
+    }
+  }
+  .tscreen {
+    position: relative;
+    height: 100%;
+    border-radius: 14px;
+    background: linear-gradient(160deg, #241845, #120b24);
+    overflow: hidden;
+  }
+  .win-land {
+    width: 80%;
+    left: 10%;
+    top: 30%;
+    background: linear-gradient(135deg, #fff, #ece6ff);
+    animation: land 6s cubic-bezier(0.6, 0, 0.3, 1) infinite;
+  }
+  .win-land b {
+    background: var(--pink);
+  }
+  @keyframes land {
+    0%,
+    45% {
+      transform: translateX(-120%);
+      opacity: 0;
+    }
+    55%,
+    92% {
+      transform: none;
+      opacity: 1;
+    }
+    100% {
+      transform: none;
+      opacity: 0;
+    }
+  }
+  .tap {
+    position: absolute;
+    left: 55%;
+    top: 62%;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.8);
+    opacity: 0;
+    animation: tap 6s ease-out infinite;
+  }
+  @keyframes tap {
+    0%,
+    66% {
+      transform: scale(0.3);
+      opacity: 0;
+    }
+    70% {
+      opacity: 1;
+    }
+    82%,
+    100% {
+      transform: scale(1.6);
+      opacity: 0;
+    }
+  }
+
+  .chip {
+    position: absolute;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 14px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+    background: rgba(18, 11, 36, 0.8);
+    border: 1px solid var(--border);
+    backdrop-filter: blur(10px);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    animation: bob 7s ease-in-out infinite;
+    white-space: nowrap;
+  }
+  .chip :global(svg) {
+    color: var(--brand-300);
+  }
+  .c1 {
+    left: 4%;
+    top: 0;
+  }
+  .c2 {
+    right: 2%;
+    top: 10px;
+    animation-delay: -2s;
+  }
+  .c3 {
+    left: 30%;
+    bottom: 10px;
+    animation-delay: -4s;
+  }
+
+  .scroll-hint {
+    position: absolute;
+    left: 50%;
+    bottom: 26px;
+    width: 26px;
+    height: 42px;
+    margin-left: -13px;
+    border: 2px solid var(--border);
+    border-radius: 14px;
+  }
+  .scroll-hint span {
+    position: absolute;
+    left: 50%;
+    top: 8px;
+    width: 4px;
+    height: 8px;
+    margin-left: -2px;
+    border-radius: 2px;
+    background: var(--brand-300);
+    animation: wheel 1.8s ease-in-out infinite;
+  }
+  @keyframes wheel {
+    60% {
+      transform: translateY(12px);
+      opacity: 0;
+    }
+  }
+
+  @media (max-width: 960px) {
+    .layout {
+      grid-template-columns: 1fr;
+    }
+    .copy {
+      text-align: center;
+    }
+    .lead {
+      margin: 0 auto;
+    }
+    .actions,
+    .trust {
+      justify-content: center;
+    }
+    .stage {
+      max-width: 560px;
+      width: 100%;
+      margin: 0 auto;
+      height: 380px;
+    }
+    .scroll-hint {
+      display: none;
+    }
+  }
+  @media (max-width: 520px) {
+    .stage {
+      height: 290px;
+    }
+    .pc {
+      top: 40px;
+    }
+    .tablet {
+      top: 50px;
+      border-radius: 16px;
+      padding: 6px;
+    }
+    .link {
+      top: 110px;
+    }
+    .chip {
+      font-size: 11px;
+      padding: 6px 10px;
+    }
+    .c3 {
+      left: 18%;
+      bottom: 0;
+    }
+  }
+</style>

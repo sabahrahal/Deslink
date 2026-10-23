@@ -1,0 +1,228 @@
+---
+import Icon from './Icon.astro';
+import { CONTACT, REPO } from '../config';
+---
+
+<section id="contacto" class="contact">
+  <div class="container">
+    <div class="box card" data-reveal="zoom">
+      <div class="intro">
+        <span class="eyebrow">Contacto</span>
+        <h2>Hablemos</h2>
+        <p>
+          ¿Una idea, un fallo o tu tablet no conecta? Escríbenos y te respondemos. Si nos cuentas el modelo de tu tablet
+          y de tu gráfica, mejor.
+        </p>
+        <ul class="ways">
+          <li>
+            <a href={CONTACT.issues} target="_blank" rel="noopener">
+              <span class="ic"><Icon name="github" /></span>
+              <span><strong>Abre un issue en GitHub</strong><small>Para fallos y sugerencias</small></span>
+            </a>
+          </li>
+          {
+            CONTACT.email && (
+              <li>
+                <a href={`mailto:${CONTACT.email}`}>
+                  <span class="ic">
+                    <Icon name="mail" />
+                  </span>
+                  <span>
+                    <strong>{CONTACT.email}</strong>
+                    <small>Para todo lo demás</small>
+                  </span>
+                </a>
+              </li>
+            )
+          }
+          <li>
+            <a href={REPO} target="_blank" rel="noopener">
+              <span class="ic"><Icon name="layers" /></span>
+              <span><strong>Mira el proyecto</strong><small>Código, documentación y versiones</small></span>
+            </a>
+          </li>
+        </ul>
+      </div>
+
+      <form id="contact-form" data-email={CONTACT.email} data-issues={CONTACT.issues}>
+        <label>
+          <span>Nombre</span>
+          <input name="nombre" type="text" autocomplete="name" required placeholder="Tu nombre" />
+        </label>
+        <label>
+          <span>Correo</span>
+          <input name="correo" type="email" autocomplete="email" required placeholder="tu@correo.com" />
+        </label>
+        <label>
+          <span>Tema</span>
+          <select name="tema">
+            <option>Tengo una pregunta</option>
+            <option>Algo no funciona</option>
+            <option>Tengo una idea</option>
+            <option>Otro</option>
+          </select>
+        </label>
+        <label>
+          <span>Mensaje</span>
+          <textarea name="mensaje" rows="5" required placeholder="Cuéntanos qué necesitas"></textarea>
+        </label>
+        <button class="btn btn-primary" type="submit">
+          Enviar mensaje <Icon name="arrow" />
+        </button>
+        <p class="hint">
+          {
+            CONTACT.email
+              ? 'Se abrirá tu programa de correo con el mensaje listo para enviar.'
+              : 'Se abrirá GitHub con tu mensaje listo para publicar.'
+          }
+        </p>
+      </form>
+    </div>
+  </div>
+</section>
+
+<style>
+  .box {
+    display: grid;
+    grid-template-columns: 1fr 1.1fr;
+    gap: 48px;
+    padding: 56px;
+    border-radius: 28px;
+    background:
+      radial-gradient(700px circle at 0% 0%, rgba(112, 51, 253, 0.25), transparent 60%),
+      radial-gradient(500px circle at 100% 100%, rgba(255, 95, 210, 0.12), transparent 60%),
+      var(--bg-2);
+    position: relative;
+    overflow: hidden;
+  }
+  h2 {
+    font-size: clamp(34px, 5vw, 54px);
+    font-weight: 900;
+    margin: 14px 0 16px;
+  }
+  .intro p {
+    color: var(--text-2);
+    font-size: 18px;
+  }
+  .ways {
+    list-style: none;
+    padding: 0;
+    margin: 32px 0 0;
+    display: grid;
+    gap: 12px;
+  }
+  .ways a {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    padding: 14px 16px;
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    transition:
+      transform 0.25s,
+      background 0.25s;
+  }
+  .ways a:hover {
+    transform: translateX(6px);
+    background: var(--surface-strong);
+  }
+  .ic {
+    width: 44px;
+    height: 44px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: 12px;
+    background: rgba(112, 51, 253, 0.25);
+    color: var(--brand-300);
+  }
+  .ways strong {
+    display: block;
+    font-size: 16px;
+    word-break: break-all;
+  }
+  .ways small {
+    color: var(--text-3);
+    font-size: 14px;
+  }
+
+  form {
+    display: grid;
+    gap: 16px;
+    align-content: start;
+  }
+  label {
+    display: grid;
+    gap: 6px;
+  }
+  label span {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-2);
+  }
+  input,
+  select,
+  textarea {
+    width: 100%;
+    padding: 14px 16px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: rgba(0, 0, 0, 0.25);
+    color: var(--text);
+    font: 16px var(--font-body);
+    transition:
+      border-color 0.2s,
+      box-shadow 0.2s;
+  }
+  textarea {
+    resize: vertical;
+  }
+  input:focus,
+  select:focus,
+  textarea:focus {
+    outline: none;
+    border-color: var(--brand-300);
+    box-shadow: 0 0 0 4px rgba(166, 140, 255, 0.2);
+  }
+  ::placeholder {
+    color: var(--text-3);
+  }
+  form .btn {
+    justify-self: start;
+  }
+  .hint {
+    font-size: 13px;
+    color: var(--text-3);
+  }
+  @media (max-width: 900px) {
+    .box {
+      grid-template-columns: 1fr;
+      padding: 32px 22px;
+      gap: 36px;
+    }
+    form .btn {
+      justify-self: stretch;
+    }
+  }
+</style>
+
+<script>
+  const form = document.getElementById('contact-form') as HTMLFormElement;
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const data = new FormData(form);
+    const nombre = String(data.get('nombre') ?? '');
+    const correo = String(data.get('correo') ?? '');
+    const tema = String(data.get('tema') ?? '');
+    const mensaje = String(data.get('mensaje') ?? '');
+    const title = `${tema}: ${nombre}`;
+    const body = `${mensaje}\n\n— ${nombre} (${correo})`;
+    const email = form.dataset.email;
+    const url = email
+      ? `mailto:${email}?subject=${encodeURIComponent(`[DeskLink] ${title}`)}&body=${encodeURIComponent(body)}`
+      : `${form.dataset.issues}?title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
+    window.open(url, email ? '_self' : '_blank', 'noopener');
+  });
+</script>

@@ -1,0 +1,166 @@
+---
+// Respuestas sacadas de la documentación del repo (docs/ajustes.md, docs/usb.md, docs/battery.md).
+const faqs = [
+  {
+    q: '¿Qué necesito para usar DeskLink?',
+    a: 'Un PC con Windows 10 u 11 de 64 bits y una tablet o un móvil con Android 8.0 o superior. Instalas DeskLink en los dos y los conectas por Wi-Fi (en la misma red) o por cable USB.',
+  },
+  {
+    q: '¿Funciona con móviles o solo con tablets?',
+    a: 'Con los dos. La pantalla extra se crea a la medida de tu dispositivo, sea una tablet grande o un móvil.',
+  },
+  {
+    q: '¿Es una pantalla extra o una copia de la mía?',
+    a: 'Las dos cosas. De serie, DeskLink crea un monitor virtual nuevo en Windows y puedes arrastrar ventanas hasta él. Si prefieres ver lo mismo que en tu pantalla, elige «Duplicar» en el PC.',
+  },
+  {
+    q: '¿Qué es mejor, cable USB o Wi-Fi?',
+    a: 'El cable da el retardo más bajo y no pierde datos; el objetivo es menos de 25 ms por cable y menos de 35 ms por Wi-Fi. Por Wi-Fi no tienes que configurar nada, pero va mejor en 5 o 6 GHz. Si la tablet llega por las dos vías, DeskLink usa el cable.',
+  },
+  {
+    q: '¿Necesito activar el modo desarrollador?',
+    a: 'No. Por Wi-Fi no hace falta nada, y por cable puedes usar el anclaje USB de Android. La depuración USB (dentro de las opciones de desarrollador) es opcional: da algo más de fluidez y deja que la app se abra sola al enchufar la tablet.',
+  },
+  {
+    q: '¿Puedo tocar la pantalla de la tablet como si fuera táctil?',
+    a: 'Sí. Con «Táctil» tus dedos son toques reales de Windows: multitáctil con presión, pellizcar para hacer zoom, desplazar con dos dedos y mantener pulsado para el clic derecho. Si solo quieres mirar, elige «Solo ver».',
+  },
+  {
+    q: '¿Se oye el sonido del PC en la tablet?',
+    a: 'Si quieres, sí. En el PC eliges dónde suena: en el PC o en la tablet. Mientras suena en la tablet, los altavoces del PC se silencian y vuelven al terminar.',
+  },
+  {
+    q: '¿Gasta mucha batería?',
+    a: 'Depende del perfil. «Alta» da la imagen más fluida; «Equilibrada» limita a 60 fps; «Ahorro» baja a 30 fps, pone un tope al brillo y deja descansar la radio Wi-Fi. También puedes dejar que baje la calidad sola si la batería de la tablet no aguanta.',
+  },
+  {
+    q: '¿Necesito una tarjeta gráfica concreta?',
+    a: 'No. DeskLink usa el codificador por hardware de tu gráfica: NVENC en NVIDIA, AMF en AMD o Quick Sync en Intel. Si la gráfica va muy cargada, baja los fps solo y te avisa.',
+  },
+  {
+    q: '¿Mi pantalla pasa por internet?',
+    a: 'No. La imagen va directa del PC a la tablet por tu red local o por el cable USB, sin pasar por ningún servidor. Por ahora, úsalo en redes de confianza, como la de casa o la del trabajo.',
+  },
+  {
+    q: '¿Puedo ver la pantalla más grande en la tablet?',
+    a: 'Sí: sube la «Escala» en la configuración de pantalla de Windows en vez de bajar la resolución. Así todo se ve más grande y sigue nítido.',
+  },
+];
+---
+
+<section id="faq">
+  <div class="container narrow">
+    <div class="section-head" data-reveal>
+      <span class="eyebrow">Preguntas frecuentes</span>
+      <h2>¿Dudas? <span class="gradient-text">Aquí tienes respuestas</span></h2>
+      <p>Lo que más nos preguntan antes de probar DeskLink.</p>
+    </div>
+
+    <div class="list">
+      {
+        faqs.map((f, i) => (
+          <details class="card item" data-reveal style={`--delay:${Math.min(i, 5) * 0.05}s`} open={i === 0}>
+            <summary>
+              <span>{f.q}</span>
+              <span class="plus" aria-hidden="true" />
+            </summary>
+            <div class="answer">
+              <p>{f.a}</p>
+            </div>
+          </details>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<style>
+  .narrow {
+    max-width: 860px;
+  }
+  .list {
+    display: grid;
+    gap: 12px;
+  }
+  .item {
+    border-radius: 16px;
+    transition:
+      border-color 0.3s,
+      background 0.3s;
+  }
+  .item[open] {
+    border-color: rgba(166, 140, 255, 0.45);
+    background: rgba(112, 51, 253, 0.08);
+  }
+  summary {
+    list-style: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 18px;
+    padding: 22px 26px;
+    cursor: pointer;
+    font-family: var(--font-title);
+    font-weight: 700;
+    font-size: 18px;
+  }
+  summary::-webkit-details-marker {
+    display: none;
+  }
+  .plus {
+    position: relative;
+    flex: none;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: var(--surface-strong);
+    transition:
+      transform 0.35s ease,
+      background 0.35s;
+  }
+  .plus::before,
+  .plus::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 12px;
+    height: 2px;
+    margin: -1px 0 0 -6px;
+    border-radius: 2px;
+    background: var(--text);
+  }
+  .plus::after {
+    transform: rotate(90deg);
+    transition: transform 0.35s ease;
+  }
+  .item[open] .plus {
+    transform: rotate(180deg);
+    background: var(--brand-600);
+  }
+  .item[open] .plus::after {
+    transform: rotate(0deg);
+  }
+  .answer {
+    padding: 0 26px 24px;
+    color: var(--text-2);
+  }
+  .item[open] .answer {
+    animation: open 0.4s ease;
+  }
+  @keyframes open {
+    from {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+  }
+  @media (max-width: 520px) {
+    summary {
+      padding: 18px;
+      font-size: 16px;
+    }
+    .answer {
+      padding: 0 18px 20px;
+    }
+  }
+</style>
