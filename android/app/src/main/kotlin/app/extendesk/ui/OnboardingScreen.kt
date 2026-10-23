@@ -53,7 +53,7 @@ object Onboarding {
             "Ejecuta Extendesk-Setup.exe en el PC. Instala también la pantalla extra, que es lo que permite usar el dispositivo como un monitor más.",
             listOf(
                 "Abre Extendesk en el PC y pulsa Iniciar.",
-                "La calidad, el sonido y el táctil se eligen en la ventana del PC.",
+                "La calidad y el sonido se eligen en la ventana del PC. Lo demás es automático.",
             ),
         ),
         OnboardingPage(
@@ -62,8 +62,8 @@ object Onboarding {
             "Lo más fácil es el Wi-Fi: con el PC y el dispositivo en la misma red no hay que configurar nada. Abre Extendesk en los dos y pulsa Conectar.",
             listOf(
                 "Wi-Fi: la misma red en el PC y en el dispositivo.",
-                "Cable, sin complicaciones: enchufa el dispositivo y activa «Anclaje USB» en sus ajustes.",
-                "Cable, más fluido (opcional): activa la depuración USB una sola vez (Información del dispositivo, toca 7 veces «Número de compilación», y en «Opciones de desarrollador» activa «Depuración USB»).",
+                "Cable, la conexión más estable: enchufa el dispositivo y activa «Anclaje USB» en sus ajustes.",
+                "Opcional: con la depuración USB el cable conecta solo al enchufarlo, sin repetir ese paso (Información del dispositivo, toca 7 veces «Número de compilación», y en «Opciones de desarrollador» activa «Depuración USB»).",
             ),
         ),
         OnboardingPage(
@@ -79,7 +79,11 @@ object Onboarding {
             "sesion",
             "Durante la sesión",
             "El botón azul ☰ de la esquina abre el menú: estadísticas y desconectar.",
-            listOf("Si te tapa algo, arrástralo a otro sitio y se queda ahí."),
+            listOf(
+                "Si te tapa algo, arrástralo a otro sitio y se queda ahí.",
+                "Al desconectar, la pantalla extra desaparece sola del PC.",
+                "¿Dudas? Cada opción está explicada en Configuración avanzada > Ayuda.",
+            ),
         ),
     )
 }

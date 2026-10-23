@@ -43,6 +43,7 @@ fun SettingsScreen(
     onOpenDiagnostics: () -> Unit,
     onBack: () -> Unit,
     onOpenGuide: () -> Unit = {},
+    onOpenHelp: () -> Unit = {},
 ) {
     var manual by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
@@ -60,7 +61,7 @@ fun SettingsScreen(
 
             DlCard {
                 Column {
-                    Text("La calidad, el sonido y el táctil se eligen en el PC", style = DlText.Headline)
+                    Text("La calidad y el sonido se eligen en el PC", style = DlText.Headline)
                     Text(
                         "En la ventana de Extendesk del PC. El dispositivo usa lo que el PC decida y lo enseña al conectar.",
                         style = DlText.Note,
@@ -88,19 +89,18 @@ fun SettingsScreen(
             }
             VSpace(24.dp)
 
-            SectionHeader("Pantalla")
-            DlCard(padding = 12.dp) {
-                Column {
-                    SwitchRow("Mostrar estadísticas", "fps, Mbps y retardo. También desde el botón del menú durante la sesión.", settings.showStats) {
-                        onChange(settings.copy(showStats = it))
-                    }
-                }
-            }
-            VSpace(24.dp)
-
             SectionHeader("Ayuda")
             DlCard(padding = 12.dp) {
                 Column {
+                    Row(Modifier.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Cada opción explicada", style = DlText.Body)
+                            Text("La ayuda de Extendesk en la web: qué elegir y qué hacer si algo falla.", style = DlText.Note, color = palette.textSecondary)
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        SecondaryButton("Abrir", onOpenHelp)
+                    }
+                    RowDivider()
                     Row(Modifier.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("Diagnóstico", style = DlText.Body)

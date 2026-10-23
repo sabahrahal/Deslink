@@ -287,7 +287,7 @@ class StreamSession(
             listener.onStreamInfo(info)
             setPhase(Phase.STREAMING)
         } catch (e: Exception) {
-            setPhase(Phase.FAILED, "Este dispositivo no pudo abrir el vídeo (${e.message}). Prueba el códec H.264 en la Configuración avanzada del PC.")
+            setPhase(Phase.FAILED, "Este dispositivo no pudo abrir el vídeo (${e.message}). Reinícialo y vuelve a intentarlo.")
         }
     }
 

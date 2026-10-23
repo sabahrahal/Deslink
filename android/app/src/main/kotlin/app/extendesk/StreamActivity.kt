@@ -354,10 +354,13 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         menuButton.visibility = if (phase == StreamSession.Phase.STREAMING && !menuOpen) View.VISIBLE else View.GONE
     }
 
+    /** Solo desde el menú ☰: se recuerda para la próxima sesión (ya no está en Configuración avanzada). */
     private fun toggleStats() {
         statsVisible = !statsVisible
         statsShown = statsVisible
         statsView.visibility = if (statsVisible) View.VISIBLE else View.GONE
+        settings = settings.copy(showStats = statsVisible)
+        SettingsStore(this).save(settings)
     }
 
     /** Lo que decidió el PC: calidad, sonido, táctil y si va reducida. */
