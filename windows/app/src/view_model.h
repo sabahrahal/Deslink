@@ -45,6 +45,7 @@ struct Row {
   int selected = -1;                  // kSegmented
   bool on = false;                    // kToggle
   std::wstring value;                 // kChoice: lo elegido; kInfo: el texto
+  std::string help;                   // sección de la ayuda en la web (HelpUrl): sale un «?» junto al nombre
 };
 
 struct Line {
@@ -65,7 +66,7 @@ struct View {
   bool primary_stop = false;
   bool show_apply = false;
   std::wstring repair;    // botón para instalar el driver de la pantalla extra (vacío: no hace falta)
-  std::vector<Row> main;  // a la vista: modo, resolución (o monitor), calidad, sonido, táctil
+  std::vector<Row> main;  // a la vista: modo, resolución (o monitor), calidad, sonido
   bool advanced_open = false;
   std::vector<Row> advanced;
 };
@@ -81,15 +82,11 @@ struct Diagnostics {
 };
 Diagnostics BuildDiagnostics(const std::map<std::wstring, std::wstring>& stats);
 
-// Opciones de los desplegables de Configuración avanzada (0 o vacío = automático).
-const std::vector<int>& FpsChoices();
-const std::vector<int>& BitrateChoices();
-const std::vector<std::wstring>& SizeChoices();
-const std::vector<std::wstring>& CodecChoices();
-std::wstring FpsLabel(int fps);
-std::wstring BitrateLabel(int mbps);
+// «2944 × 1840» para la resolución que dice el host.
 std::wstring SizeLabel(const std::wstring& size);
-std::wstring CodecLabel(const std::wstring& codec);
+
+// Página de ayuda de la web; con anchor, en su sección («calidad», «cable-usb»…). La ventana la abre con «?» y «Ayuda».
+std::wstring HelpUrl(const std::string& anchor = "");
 
 // Calidad, sonido y táctil como índice de su control y al revés.
 int QualityIndex(const std::wstring& quality);

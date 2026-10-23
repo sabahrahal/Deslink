@@ -66,44 +66,16 @@ Row Toggle(const char* id, const std::wstring& label, bool on) {
 
 }  // namespace
 
-const std::vector<int>& FpsChoices() {
-  static const std::vector<int> v = {0, 30, 60, 90, 120};
-  return v;
-}
-
-const std::vector<int>& BitrateChoices() {
-  static const std::vector<int> v = {0, 20, 30, 50, 80};
-  return v;
-}
-
-const std::vector<std::wstring>& SizeChoices() {
-  static const std::vector<std::wstring> v = {L"", L"3840x2400", L"2944x1840", L"2560x1600", L"1920x1200", L"1920x1080"};
-  return v;
-}
-
-const std::vector<std::wstring>& CodecChoices() {
-  static const std::vector<std::wstring> v = {L"", L"hevc", L"h264"};
-  return v;
-}
-
-std::wstring FpsLabel(int fps) {
-  return fps > 0 ? std::to_wstring(fps) + L" fps" : L"Automática (lo máximo que aguanten el dispositivo y el PC)";
-}
-
-std::wstring BitrateLabel(int mbps) {
-  return mbps > 0 ? std::to_wstring(mbps) + L" Mbps" : L"Automática (según resolución y fps)";
-}
-
 std::wstring SizeLabel(const std::wstring& size) {
   unsigned w, h;
   if (ParseSize(size, &w, &h)) return std::to_wstring(w) + L" × " + std::to_wstring(h);
   return L"Automática (la del dispositivo)";
 }
 
-std::wstring CodecLabel(const std::wstring& codec) {
-  if (codec == L"hevc") return L"HEVC";
-  if (codec == L"h264") return L"H.264";
-  return L"Automático (HEVC si el dispositivo puede)";
+std::wstring HelpUrl(const std::string& anchor) {
+  std::wstring url = L"https://extendesk.app/ayuda";
+  if (!anchor.empty()) url += L"#" + std::wstring(anchor.begin(), anchor.end());
+  return url;
 }
 
 int QualityIndex(const std::wstring& quality) {
@@ -133,17 +105,22 @@ View BuildView(const ViewInput& in) {
       v.dot = Tone::kWarning;
       break;
     case State::kWaiting:
-      v.title = L"Esperando al dispositivo";
-      v.detail = L"Abre Extendesk en el dispositivo y pulsa Conectar.";
+      if (const int grace = StatInt(in, L"gracia", 0); grace > 0) {
+        // Se cortó sin avisar o se bloqueó: la pantalla extra aguanta un poco para que las ventanas no se muevan.
+        v.title = L"Reconectando…";
+        v.detail = L"Se cortó la conexión. La pantalla extra se queda " + std::to_wstring(grace) +
+                   L" s más por si el dispositivo vuelve.";
+      } else {
+        v.title = L"Esperando al dispositivo";
+        v.detail = L"Abre Extendesk en el dispositivo o enchúfalo por cable. La pantalla extra aparece al conectar.";
+      }
       v.dot = Tone::kWarning;
       break;
     case State::kConnected:
-      if (link == L"usb") {
+      // Por cable es lo mismo por anclaje que por depuración USB: el dispositivo elige solo la mejor vía.
+      if (link == L"usb" || link == L"anclaje") {
         v.title = L"Conectado por cable USB";
-        v.detail = L"La conexión más rápida.";
-      } else if (link == L"anclaje") {
-        v.title = L"Conectado por cable USB (anclaje de red)";
-        v.detail = L"Con la depuración USB va más fluido y no hay que activar el anclaje cada vez.";
+        v.detail = L"La conexión más estable.";
       } else {
         v.title = L"Conectado por Wi-Fi";
         v.detail = L"Tablet " + Stat(in, L"ip") + L".";
@@ -184,9 +161,7 @@ View BuildView(const ViewInput& in) {
   // Por dónde puede llegar la tablet: el cable USB y el Wi-Fi, los dos a la vez si los hay.
   if (in.state == State::kWaiting || in.state == State::kStarting || in.state == State::kStopped ||
       in.state == State::kError) {
-    if (!s.usb) {
-      v.connection.push_back({L"Cable USB: desactivado en Configuración avanzada.", Tone::kSecondary});
-    } else if (in.state != State::kWaiting || in.stats.find(L"adb") == in.stats.end()) {
+    if (in.state != State::kWaiting || in.stats.find(L"adb") == in.stats.end()) {
       v.connection.push_back({L"Cable USB: se activa al iniciar.", Tone::kSecondary});
     } else {
       const int ready = StatInt(in, L"adb", 0);
@@ -198,7 +173,7 @@ View BuildView(const ViewInput& in) {
       } else if (ready > 0) {
         v.connection.push_back({L"Cable USB: dispositivo enchufado y listo.", Tone::kSuccess});
       } else {
-        v.connection.push_back({L"Cable USB: sin dispositivo enchufado (activa la depuración USB).", Tone::kSecondary});
+        v.connection.push_back({L"Cable USB: enchufa el dispositivo y sigue el aviso que sale en él.", Tone::kSecondary});
       }
     }
     v.connection.push_back(in.addresses.empty()
@@ -224,7 +199,11 @@ View BuildView(const ViewInput& in) {
   v.show_apply = in.dirty && in.state != State::kStopped && in.state != State::kError && in.state != State::kStopping;
 
   // A la vista: lo que casi todo el mundo toca.
+  // Cada opción con una línea que dice qué gana el usuario; lo largo, en la ayuda de la web («?»).
   Row mode = Segmented("modo", L"Modo", {L"Pantalla extra", L"Duplicar"}, s.virtual_display ? 0 : 1);
+  mode.help = "modo";
+  mode.hint = s.virtual_display ? L"El dispositivo es un monitor más, a su medida."
+                                : L"El dispositivo muestra lo mismo que un monitor del PC.";
   if (s.virtual_display && !in.driver_installed) {
     mode.hint = L"Falta el driver de la pantalla extra";
     mode.hint_tone = Tone::kWarning;
@@ -248,23 +227,27 @@ View BuildView(const ViewInput& in) {
                                      : std::to_wstring(s.output + 1) + L": (no conectado)";
     v.main.push_back(Choice("monitor", L"Monitor", monitor));
   }
+  // La única perilla de imagen: los fps, la tasa y el códec los elige el host para este dispositivo.
   Row quality = Segmented("calidad", L"Calidad", {L"Alta", L"Equilibrada", L"Ahorro"}, QualityIndex(s.quality));
-  const wchar_t* quality_hints[] = {L"La mejor imagen y la máxima fluidez", L"Hasta 60 fps y 30 Mbps",
-                                    L"30 fps: gasta menos en el dispositivo"};
+  quality.help = "calidad";
+  const wchar_t* quality_hints[] = {L"La imagen más fluida y nítida. Casi siempre, la mejor.",
+                                    L"Hasta 60 fps: para un Wi-Fi que da tirones.",
+                                    L"30 fps: dura más la batería del dispositivo."};
   quality.hint = quality_hints[quality.selected];
   v.main.push_back(quality);
-  v.main.push_back(Segmented("sonido", L"Sonido", {L"En el PC", L"En el dispositivo"}, s.audio_tablet ? 1 : 0));
-  // Sin «Ratón»: en una tablet se toca. Si Windows rechaza los toques, el host pasa solo a ratón por debajo.
-  v.main.push_back(Segmented("tactil", L"Táctil", {L"Táctil", L"Solo ver"}, s.touch == 2 ? 1 : 0));
+  Row sound = Segmented("sonido", L"Sonido", {L"En el PC", L"En el dispositivo"}, s.audio_tablet ? 1 : 0);
+  sound.hint = L"Dónde suena el PC mientras está conectado.";
+  v.main.push_back(sound);
 
-  // Configuración avanzada, plegada.
+  // Configuración avanzada, plegada: lo que casi nadie cambia.
   v.advanced_open = in.advanced_open;
   if (in.advanced_open) {
-    v.advanced.push_back(Choice("fps", L"Fluidez", FpsLabel(s.fps)));
-    v.advanced.push_back(Choice("mbps", L"Calidad de vídeo", BitrateLabel(s.bitrate)));
-    v.advanced.push_back(Choice("codec", L"Códec", CodecLabel(s.codec)));
-    v.advanced.push_back(Toggle("bateria", L"Bajar la calidad si la batería del dispositivo no aguanta", s.battery_adapt));
+    // Sin «Ratón»: en una tablet se toca. Si Windows rechaza los toques, el host pasa solo a ratón por debajo.
+    Row touch = Segmented("tactil", L"Táctil", {L"Táctil", L"Solo ver"}, s.touch == 2 ? 1 : 0);
+    touch.hint = s.touch == 2 ? L"Los toques no llegan al PC: solo se mira." : L"Toca y escribe como en una pantalla táctil.";
+    v.advanced.push_back(touch);
     Row direct = Toggle("wifi_directo", L"Red Wi-Fi propia del PC", in.direct_wifi_on);
+    direct.help = "wifi-propia";
     if (in.direct_wifi_busy) {
       direct.hint = L"Cambiando…";
     } else if (!in.direct_wifi_error.empty()) {
@@ -277,15 +260,14 @@ View BuildView(const ViewInput& in) {
       direct.hint = L"Sin router de por medio: menos retardo y menos tirones por Wi-Fi. Hace falta Wi-Fi en el PC.";
     }
     v.advanced.push_back(direct);
-    v.advanced.push_back(Toggle("usb", L"Conexión por cable USB", s.usb));
-    if (s.usb) v.advanced.push_back(Toggle("abrir_tablet", L"Abrir Extendesk en el dispositivo al enchufarlo", s.open_tablet));
-    v.advanced.push_back(Toggle("autostart", L"Abrir Extendesk al iniciar Windows", in.autostart));
-    v.advanced.push_back(Toggle("abrir", L"Transmitir nada más abrir", s.stream_on_open));
-    Row port;
-    port.id = "puerto";
-    port.label = L"Puerto";
-    port.value = L"UDP " + std::to_wstring(s.port) + L" · se cambia en extendesk.ini";
-    v.advanced.push_back(port);
+    Row autostart = Toggle("autostart", L"Abrir Extendesk al iniciar Windows", in.autostart);
+    autostart.hint = L"Así el dispositivo conecta sin tocar el PC.";
+    v.advanced.push_back(autostart);
+    Row help;
+    help.id = "ayuda";
+    help.control = Control::kLink;
+    help.label = L"Ayuda: cada opción explicada";
+    v.advanced.push_back(help);
     Row log;
     log.id = "registro";
     log.control = Control::kLink;

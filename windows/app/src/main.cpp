@@ -189,8 +189,8 @@ std::wstring FriendlyError(const std::wstring& line) {
                   g.settings.port);
   }
   if (has(L"codificador")) {
-    return L"La tarjeta gráfica no pudo iniciar el codificador de vídeo. Prueba el códec H.264 en Configuración "
-           L"avanzada, o actualiza el driver de la GPU.";
+    return L"La tarjeta gráfica no pudo iniciar el codificador de vídeo. Actualiza el driver de la tarjeta gráfica y "
+           L"pulsa Iniciar.";
   }
   if (has(L"No existe la salida")) return L"Ese monitor ya no está conectado. Elige otro en «Monitor».";
   if (has(L"DuplicateOutput falló") || has(L"no se pudo recuperar la captura")) {
@@ -382,6 +382,11 @@ LRESULT CALLBACK LogProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
 // La resolución de la pantalla extra se cambia donde la de cualquier monitor; el host sigue lo que se elija.
 void OpenDisplaySettings() { ShellExecuteW(nullptr, L"open", L"ms-settings:display", nullptr, nullptr, SW_SHOWNORMAL); }
+
+// La ayuda de la web, en la sección de una opción si se da (los «?» de la ventana).
+void OpenHelp(const std::string& anchor) {
+  ShellExecuteW(nullptr, L"open", HelpUrl(anchor).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+}
 
 void ShowLog() {
   if (g.log_wnd) {
@@ -956,19 +961,6 @@ int PickFromMenu(float x, float y, const std::vector<std::wstring>& items, int c
   return cmd >= kMenuPick ? cmd - kMenuPick : -1;
 }
 
-template <typename T, typename Label>
-void PickValue(float x, float y, const std::vector<T>& values, const T& current, Label label,
-               const std::function<void(const T&)>& apply) {
-  std::vector<std::wstring> items;
-  int checked = -1;
-  for (size_t i = 0; i < values.size(); ++i) {
-    items.push_back(label(values[i]));
-    if (values[i] == current) checked = static_cast<int>(i);
-  }
-  const int pick = PickFromMenu(x, y, items, checked);
-  if (pick >= 0 && values[pick] != current) apply(values[pick]);
-}
-
 // ---------------------------------------------------------------------------------------------------------------
 // Qué hace cada fila al pulsarla.
 
@@ -993,24 +985,6 @@ void OnChoice(const std::string& id, float x, float y) {
       s.output = pick;
       ChangeSettings(s);
     }
-  } else if (id == "fps") {
-    PickValue<int>(x, y, FpsChoices(), g.settings.fps, FpsLabel, [](const int& v) {
-      Settings s = g.settings;
-      s.fps = v;
-      ChangeSettings(s);
-    });
-  } else if (id == "mbps") {
-    PickValue<int>(x, y, BitrateChoices(), g.settings.bitrate, BitrateLabel, [](const int& v) {
-      Settings s = g.settings;
-      s.bitrate = v;
-      ChangeSettings(s);
-    });
-  } else if (id == "codec") {
-    PickValue<std::wstring>(x, y, CodecChoices(), g.settings.codec, CodecLabel, [](const std::wstring& v) {
-      Settings s = g.settings;
-      s.codec = v;
-      ChangeSettings(s);
-    });
   }
 }
 
@@ -1026,7 +1000,6 @@ void RefreshDirectWifi(int action) {  // 0 consultar, 1 encender, 2 apagar
 }
 
 void OnToggle(const std::string& id) {
-  Settings s = g.settings;
   if (id == "wifi_directo") {
     RefreshDirectWifi(g.direct_wifi.on ? 2 : 1);
     if (g.direct_wifi_busy) AddLog(g.direct_wifi.on ? L"--- apagando la red Wi-Fi del PC" : L"--- creando la red Wi-Fi del PC");
@@ -1037,13 +1010,7 @@ void OnToggle(const std::string& id) {
     SetStartWithWindows(!g.autostart);
     g.autostart = StartsWithWindows();
     Redraw();
-    return;
   }
-  if (id == "bateria") s.battery_adapt = !s.battery_adapt;
-  else if (id == "usb") s.usb = !s.usb;
-  else if (id == "abrir") s.stream_on_open = !s.stream_on_open;
-  else if (id == "abrir_tablet") s.open_tablet = !s.open_tablet;
-  ChangeSettings(s);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1122,6 +1089,17 @@ float StatusContent(gp::Graphics& gr, const View& v, bool draw, float x, float t
   return y + F(kPad) - F(4) - top;
 }
 
+// «?» junto al nombre de una opción (centrado en cy): abre su sección de la ayuda en la web.
+constexpr float kHelpMarkPx = 16;
+void HelpMark(gp::Graphics& gr, float x, float cy, const std::string& anchor) {
+  const float d = F(kHelpMarkPx);
+  const gp::RectF r(x, cy - d / 2, d, d);
+  const int hit = AddHit(gp::RectF(r.X - F(4), r.Y - F(4), d + F(8), d + F(8)), [anchor] { OpenHelp(anchor); });
+  FillRound(gr, r, d / 2, Hovered(hit) ? P().separator : P().surface_secondary);
+  auto font = MakeFont(tokens::kNotePx, true);
+  Text(gr, L"?", r, *font, Hovered(hit) ? P().text : P().text_secondary, Align::kCenter);
+}
+
 // Filas de una tarjeta de ajustes, separadas por una línea fina.
 float RowsContent(gp::Graphics& gr, const std::vector<Row>& rows, bool draw, float x, float top, float w) {
   const float ix = x + F(kPad), iw = w - F(2 * kPad);
@@ -1139,10 +1117,14 @@ float RowsContent(gp::Graphics& gr, const std::vector<Row>& rows, bool draw, flo
     switch (r.control) {
       case Control::kSegmented: {
         const float seg_w = std::min(iw * 0.66f, F(118) * r.options.size());
-        const float label_w = iw - seg_w - F(12);
+        const float mark_w = r.help.empty() ? 0 : F(kHelpMarkPx + 6);
+        const float label_w = iw - seg_w - F(12) - mark_w;
         const float lh = std::max(F(30), TextHeight(gr, r.label, *body, label_w));
         if (draw) {
           Text(gr, r.label, gp::RectF(ix, y, label_w, lh), *body, P().text);
+          if (!r.help.empty()) {
+            HelpMark(gr, ix + std::min(TextWidth(gr, r.label, *body), label_w) + F(6), y + lh / 2, r.help);
+          }
           const std::string id = r.id;
           Segmented(gr, gp::RectF(ix + iw - seg_w, y, seg_w, F(30)), r.options, r.selected,
                     [id](int k) { OnSegment(id, k); });
@@ -1173,14 +1155,26 @@ float RowsContent(gp::Graphics& gr, const std::vector<Row>& rows, bool draw, flo
         break;
       }
       case Control::kToggle: {
-        const float lh = std::max(F(32), TextHeight(gr, r.label, *body, iw - F(54)));
+        const float mark_w = r.help.empty() ? 0 : F(kHelpMarkPx + 6);
+        const float label_w = iw - F(54) - mark_w;
+        const float lh = std::max(F(32), TextHeight(gr, r.label, *body, label_w));
         if (draw) {
           const std::string id = r.id;
           const int hit = AddHit(gp::RectF(x, row_top, w, lh + F(20)), [id] { OnToggle(id); });
-          Text(gr, r.label, gp::RectF(ix, y, iw - F(54), lh), *body, P().text, Align::kLeft, lh > F(32));
+          Text(gr, r.label, gp::RectF(ix, y, label_w, lh), *body, P().text, Align::kLeft, lh > F(32));
+          // El «?» se añade después que la fila: HitAt le da preferencia.
           Switch(gr, ix + iw - F(38), y + (lh - F(22)) / 2, r.on, Hovered(hit));
+          if (!r.help.empty() && lh <= F(32)) {
+            HelpMark(gr, ix + std::min(TextWidth(gr, r.label, *body), label_w) + F(6), y + lh / 2, r.help);
+          }
         }
         y += lh;
+        if (!r.hint.empty()) {
+          y += F(4);
+          const float hh = TextHeight(gr, r.hint, *note, iw - F(54));
+          if (draw) Text(gr, r.hint, gp::RectF(ix, y, iw - F(54), hh + F(2)), *note, ToneColor(r.hint_tone), Align::kLeft, true);
+          y += hh;
+        }
         break;
       }
       case Control::kInfo: {
@@ -1195,6 +1189,7 @@ float RowsContent(gp::Graphics& gr, const std::vector<Row>& rows, bool draw, flo
         if (draw) {
           const int hit = AddHit(gp::RectF(x, row_top, w, F(52)),
                                  r.id == "resolucion" ? std::function<void()>(OpenDisplaySettings)
+                                 : r.id == "ayuda"    ? std::function<void()>([] { OpenHelp(""); })
                                                       : std::function<void()>(ShowLog));
           if (r.value.empty()) {
             Text(gr, r.label, gp::RectF(ix, y, iw, F(32)), *body, Hovered(hit) ? P().text : P().accent);
@@ -1389,8 +1384,9 @@ void ScrollBy(float dy) {
   }
 }
 
+// La última que se añadió gana: va pintada encima (el «?» de una fila sobre la fila entera).
 int HitAt(int x, int y) {
-  for (size_t i = 0; i < g.hits.size(); ++i) {
+  for (size_t i = g.hits.size(); i-- > 0;) {
     if (g.hits[i].rect.Contains(static_cast<float>(x), static_cast<float>(y) + g.scroll)) return static_cast<int>(i);
   }
   return -1;
@@ -1767,7 +1763,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd_line, int) {
   TrayCommand(NIM_ADD);
   SetTimer(g.wnd, kTimerRefresh, 5000, nullptr);
   if (!tray_only) ShowMain();
-  if (g.settings.stream_on_open) StartHost();
+  StartHost();  // siempre escucha: la pantalla extra solo aparece cuando un dispositivo se conecta
 
   MSG msg;
   while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
