@@ -84,7 +84,7 @@ class HomeScreenTest {
         show(HomeState(hosts = listOf(net, tether), scans = 1))
         compose.onNodeWithText("Cable USB").assertIsSelected()
         compose.onNodeWithText("Wi-Fi").assertIsNotSelected()
-        compose.onNodeWithText("Por cable USB (anclaje de red) · 192.168.42.10").assertIsDisplayed()
+        compose.onNodeWithText("Por cable USB (anclaje de red) · el más estable · 192.168.42.10").assertIsDisplayed()
     }
 
     @Test
