@@ -224,13 +224,27 @@ void SaveInputMode(TouchInjector::Mode mode) {
 
 // Coordenadas en píxeles reales en todos los monitores, aunque tengan escalas distintas (la tablet suele ir al
 // 150-200 %): si no, Windows escala las posiciones del monitor virtual y los toques y el cursor caen desplazados.
+// Con «consciente del sistema» (lo último que queda) las pantallas con otra escala siguen escaladas: se avisa.
 void SetDpiAwareness() {
   using SetContextFn = BOOL(WINAPI*)(HANDLE);
   if (HMODULE user32 = GetModuleHandleW(L"user32.dll")) {
     auto set = reinterpret_cast<SetContextFn>(GetProcAddress(user32, "SetProcessDpiAwarenessContext"));
     if (set && set(reinterpret_cast<HANDLE>(static_cast<intptr_t>(-4)))) return;  // PER_MONITOR_AWARE_V2
+    if (set && set(reinterpret_cast<HANDLE>(static_cast<intptr_t>(-3)))) return;  // PER_MONITOR_AWARE
+  }
+  if (HMODULE shcore = LoadLibraryW(L"shcore.dll")) {
+    using SetAwarenessFn = HRESULT(WINAPI*)(int);
+    using GetAwarenessFn = HRESULT(WINAPI*)(HANDLE, int*);
+    auto set = reinterpret_cast<SetAwarenessFn>(GetProcAddress(shcore, "SetProcessDpiAwareness"));
+    if (set && SUCCEEDED(set(2))) return;  // PROCESS_PER_MONITOR_DPI_AWARE (Windows 8.1)
+    // Puede que ya estuviera puesto (los intentos de arriba fallan entonces con «acceso denegado»).
+    auto get = reinterpret_cast<GetAwarenessFn>(GetProcAddress(shcore, "GetProcessDpiAwareness"));
+    int now = 0;
+    if (get && SUCCEEDED(get(nullptr, &now)) && now == 2) return;
   }
   SetProcessDPIAware();
+  std::fprintf(stderr, "aviso: Windows no deja usar píxeles reales en cada pantalla; si la tablet tiene otra escala, "
+                       "los toques pueden caer desplazados\n");
 }
 
 // El PC es la única fuente de verdad (docs/ajustes.md): la app de bandeja pasa aquí lo que eligió el usuario y lo
@@ -582,7 +596,7 @@ int Run(int argc, char** argv) {
   int exit_code = 1;
 
   std::atomic<uint32_t> next_frame_id{1};
-  std::atomic<uint64_t> bytes_sent{0}, frames_encoded{0}, encode_latency_us{0}, keyframes_sent{0}, retransmits{0}, touch_packets{0};
+  std::atomic<uint64_t> bytes_sent{0}, frames_encoded{0}, encode_latency_us{0}, keyframes_sent{0}, retransmits{0}, touch_packets{0}, pen_packets{0};
   std::atomic<uint64_t> packets_sent{0};
   // El envío se atrasó y tiró frames: la tasa lo lee con el siguiente informe de la tablet (RateController).
   std::atomic<bool> send_backlog{false};
@@ -774,6 +788,15 @@ int Run(int argc, char** argv) {
                   opt.codec == VideoCodec::kHevc ? "HEVC" : "H.264");
     }
     if (!p->converter.Init(p->gpu, p->w, p->h, ew, eh, 24)) return nullptr;
+    p->converter.SetOrigin(p->gpu.desktop_rect.left, p->gpu.desktop_rect.top);
+    {
+      // Si Windows da a la pantalla otro tamaño que el de la imagen, los toques no caerían donde se pulsa.
+      const RECT& r = p->gpu.desktop_rect;
+      if (std::abs((r.right - r.left) - static_cast<long>(p->w)) > 1 || std::abs((r.bottom - r.top) - static_cast<long>(p->h)) > 1) {
+        std::printf("Aviso: Windows dice que %ls mide %ldx%ld y la captura es de %ux%u.\n", p->gpu.device_name.c_str(),
+                    r.right - r.left, r.bottom - r.top, p->w, p->h);
+      }
+    }
     // En el monitor virtual Windows ya pinta el cursor dentro de la imagen (el driver no tiene cursor por hardware),
     // y a la escala de ese monitor: dibujarlo otra vez salía doble, uno grande y otro pequeño desplazado.
     // Desktop Duplication solo lo deja fuera en un monitor de verdad.
@@ -812,7 +835,7 @@ int Run(int argc, char** argv) {
     info.height = static_cast<uint16_t>(eh);
     info.fps = static_cast<uint16_t>(eff.fps);
     info.codec = opt.codec == VideoCodec::kHevc ? dlp::Codec::kHevc : dlp::Codec::kH264;
-    info.host_flags = dlp::kHostAcceptsHelloConfig;
+    info.host_flags = dlp::kHostAcceptsHelloConfig | dlp::kHostAcceptsPen;
     info.host_name = host_name;
     {
       std::lock_guard<std::mutex> lock(info_mutex);
@@ -1112,6 +1135,24 @@ int Run(int argc, char** argv) {
           touch.Update(contacts);
           break;
         }
+        case dlp::PacketType::kPen: {
+          if (!touch_ready || view_only) break;
+          const auto pen = dlp::DecodePen(data + dlp::kHeaderSize, header->payload_size);
+          if (!pen) break;
+          TouchInjector::Pen p;
+          p.in_range = (pen->flags & dlp::kPenInRange) != 0;
+          p.contact = (pen->flags & dlp::kPenContact) != 0;
+          p.barrel = (pen->flags & dlp::kPenBarrel) != 0;
+          p.eraser = (pen->flags & dlp::kPenEraser) != 0;
+          p.x = pen->x / 65535.0f;
+          p.y = pen->y / 65535.0f;
+          p.pressure = pen->pressure;
+          p.tilt_x = pen->tilt_x;
+          p.tilt_y = pen->tilt_y;
+          if (pen_packets++ == 0) std::printf("Lápiz detectado en la tablet (presión e inclinación).\n");
+          touch.UpdatePen(p);
+          break;
+        }
         case dlp::PacketType::kBye: {
           // Desconectar en la tablet (o bloquearla): se la olvida ya, sin esperar 5 s de silencio. Cuánto aguanta
           // la pantalla extra lo decide el bucle principal según el motivo.
@@ -1192,8 +1233,8 @@ int Run(int argc, char** argv) {
                                               : LoadInputMode();
       touch_ready = touch.Init(r, mode);
       if (touch_ready) {
-        std::printf("Táctil: %s (pantalla de %ldx%ld en %ld,%ld).\n", touch.active_name(), r.right - r.left,
-                    r.bottom - r.top, r.left, r.top);
+        std::printf("Táctil: %s (pantalla %ls de %ldx%ld en %ld,%ld).\n", touch.active_name(),
+                    pipe->gpu.device_name.c_str(), r.right - r.left, r.bottom - r.top, r.left, r.top);
       } else {
         std::printf("Táctil NO disponible.\n");
       }
@@ -1647,17 +1688,17 @@ int Run(int argc, char** argv) {
         }
       }
 
-      // Si el usuario mueve el monitor virtual en Configuración, el cursor dibujado y el táctil siguen su sitio.
+      // Si el usuario mueve el monitor virtual en Configuración (o Windows lo recoloca al cambiar una resolución), el
+      // cursor dibujado y el táctil siguen su sitio. Se pregunta a Windows (GDI): la descripción de DXGI no se
+      // actualiza después de crear la GPU, y con ella los toques se quedaban en la posición de antes.
       if (now - last_rect_check_us >= 1'000'000) {
         last_rect_check_us = now;
-        DXGI_OUTPUT_DESC od{};
-        if (SUCCEEDED(pipe->gpu.output->GetDesc(&od)) &&
-            (od.DesktopCoordinates.left != pipe->gpu.desktop_rect.left ||
-             od.DesktopCoordinates.top != pipe->gpu.desktop_rect.top)) {
-          pipe->gpu.desktop_rect = od.DesktopCoordinates;
-          pipe->converter.SetOrigin(od.DesktopCoordinates.left, od.DesktopCoordinates.top);
-          if (touch_ready) touch.SetRect(od.DesktopCoordinates);
-          std::printf("La pantalla se movió a %ld,%ld.\n", od.DesktopCoordinates.left, od.DesktopCoordinates.top);
+        RECT r{};
+        if (ScreenRect(pipe->gpu.device_name, &r) && !EqualRect(&r, &pipe->gpu.desktop_rect)) {
+          pipe->gpu.desktop_rect = r;
+          pipe->converter.SetOrigin(r.left, r.top);
+          if (touch_ready) touch.SetRect(r);
+          std::printf("La pantalla está ahora en %ld,%ld (%ldx%ld).\n", r.left, r.top, r.right - r.left, r.bottom - r.top);
         }
       }
 

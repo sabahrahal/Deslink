@@ -68,6 +68,8 @@ TouchInjector::~TouchInjector() {
     stop_ = true;
     ReleaseLocked();
     StopBackend();
+    if (pen_device_) Synthetic().destroy(pen_device_);
+    pen_device_ = nullptr;
   }
   wake_.notify_all();
   if (worker_.joinable()) worker_.join();
@@ -261,7 +263,8 @@ void TouchInjector::UpdateLocked(const std::vector<Contact>& contacts) {
   SendMouse(actions);
 }
 
-void TouchInjector::ReleaseLocked() {
+void TouchInjector::ReleaseLocked(bool pen) {
+  if (pen) ReleasePenLocked();
   if (active_mode_ == Mode::kTouch) {
     if (std::any_of(std::begin(slots_), std::end(slots_), [](const Slot& s) { return s.used; })) UpdateLocked({});
   } else {
@@ -317,6 +320,115 @@ void TouchInjector::SendMouse(const std::vector<touch::MouseAction>& actions) {
   SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
 }
 
+bool TouchInjector::InjectPen(const Pen& pen) {
+  if (!pen_device_) {
+    pen_device_ = Synthetic().create(PT_PEN, 1, kPointerFeedbackNone);
+    if (!pen_device_) {
+      std::fprintf(stderr, "aviso: no se pudo crear el lápiz sintético (error %lu)\n", GetLastError());
+      return false;
+    }
+  }
+  const touch::Point pt = ToPixels(Contact{0, pen.x, pen.y, 0});
+  auto send = [&](uint32_t flags, bool contact, POINTER_BUTTON_CHANGE_TYPE change) {
+    SyntheticPointerTypeInfo info{};
+    info.type = PT_PEN;
+    POINTER_PEN_INFO& p = info.penInfo;
+    p.pointerInfo.pointerType = PT_PEN;
+    p.pointerInfo.pointerFlags = flags;
+    p.pointerInfo.ButtonChangeType = change;
+    p.pointerInfo.ptPixelLocation.x = pt.x;
+    p.pointerInfo.ptPixelLocation.y = pt.y;
+    p.penFlags = (pen.barrel ? PEN_FLAG_BARREL : 0) | (pen.eraser ? PEN_FLAG_INVERTED : 0) |
+                 (pen.eraser && contact ? PEN_FLAG_ERASER : 0);
+    p.penMask = PEN_MASK_PRESSURE | PEN_MASK_TILT_X | PEN_MASK_TILT_Y;
+    p.pressure = contact ? std::clamp<uint32_t>(pen.pressure, 1, 1024) : 0;
+    p.tiltX = std::clamp(pen.tilt_x, -90, 90);
+    p.tiltY = std::clamp(pen.tilt_y, -90, 90);
+    return Synthetic().inject(pen_device_, &info, 1) != FALSE;
+  };
+  const bool in_range = pen.in_range || pen.contact;
+  bool ok = true;
+  if (pen.contact) {
+    ok = send(POINTER_FLAG_INRANGE | POINTER_FLAG_INCONTACT | (pen_contact_ ? POINTER_FLAG_UPDATE : POINTER_FLAG_DOWN),
+              true, pen_contact_ ? POINTER_CHANGE_NONE : POINTER_CHANGE_FIRSTBUTTON_DOWN);
+  } else if (in_range) {
+    // Flotando: Windows mueve el cursor del lápiz sin pintar.
+    ok = pen_contact_ ? send(POINTER_FLAG_INRANGE | POINTER_FLAG_UP, false, POINTER_CHANGE_FIRSTBUTTON_UP)
+                      : send(POINTER_FLAG_INRANGE | POINTER_FLAG_UPDATE, false, POINTER_CHANGE_NONE);
+  } else {
+    // Se fue: se levanta si tocaba y sale de alcance.
+    if (pen_contact_) ok = send(POINTER_FLAG_UP, false, POINTER_CHANGE_FIRSTBUTTON_UP);
+    if (ok && (pen_range_ || pen_contact_)) ok = send(POINTER_FLAG_UPDATE, false, POINTER_CHANGE_NONE);
+  }
+  if (!ok) return false;
+  pen_range_ = in_range;
+  pen_contact_ = pen.contact;
+  last_pen_inject_ms_ = NowMs();
+  return true;
+}
+
+void TouchInjector::PenAsMouse(const Pen& pen) {
+  std::vector<touch::MouseAction> actions;
+  const bool in_range = pen.in_range || pen.contact;
+  if (in_range) {
+    const touch::Point pt = ToPixels(Contact{0, pen.x, pen.y, 0});
+    touch::MouseAction move;
+    move.x = pt.x;
+    move.y = pt.y;
+    actions.push_back(move);
+  }
+  if (pen.contact && pen_button_up_ == touch::MouseAction::kMove) {
+    // El botón lateral al apoyar decide el clic: derecho con él, izquierdo sin él.
+    touch::MouseAction down;
+    down.kind = pen.barrel ? touch::MouseAction::kRightDown : touch::MouseAction::kLeftDown;
+    pen_button_up_ = pen.barrel ? touch::MouseAction::kRightUp : touch::MouseAction::kLeftUp;
+    actions.push_back(down);
+  } else if (!pen.contact && pen_button_up_ != touch::MouseAction::kMove) {
+    touch::MouseAction up;
+    up.kind = pen_button_up_;
+    pen_button_up_ = touch::MouseAction::kMove;
+    actions.push_back(up);
+  }
+  SendMouse(actions);
+}
+
+void TouchInjector::UpdatePenLocked(const Pen& pen) {
+  last_pen_ = pen;
+  const bool as_pen = active_mode_ == Mode::kTouch && !pen_failed_ && Synthetic().available();
+  if (as_pen) {
+    if (InjectPen(pen)) return;
+    std::fprintf(stderr, "aviso: Windows rechazó el lápiz (error %lu%s); el lápiz irá como ratón\n", GetLastError(),
+                 ErrorHint(GetLastError()));
+    pen_failed_ = true;
+    if (pen_device_) Synthetic().destroy(pen_device_);  // cancela lo que tuviera apoyado
+    pen_device_ = nullptr;
+    pen_range_ = pen_contact_ = false;
+  }
+  PenAsMouse(pen);
+}
+
+void TouchInjector::ReleasePenLocked() {
+  if (pen_range_ || pen_contact_ || pen_button_up_ != touch::MouseAction::kMove) {
+    Pen gone = last_pen_;
+    gone.in_range = gone.contact = false;
+    if (pen_range_ || pen_contact_) {
+      if (!InjectPen(gone)) pen_range_ = pen_contact_ = false;
+    }
+    if (pen_button_up_ != touch::MouseAction::kMove) PenAsMouse(gone);
+  }
+  last_pen_ = {};
+}
+
+void TouchInjector::UpdatePen(const Pen& pen) {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!ready_) return;
+    last_pen_update_ms_ = NowMs();
+    UpdatePenLocked(pen);
+  }
+  if (pen.contact) wake_.notify_one();
+}
+
 void TouchInjector::Update(const std::vector<Contact>& contacts) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -329,8 +441,10 @@ void TouchInjector::Update(const std::vector<Contact>& contacts) {
 
 void TouchInjector::ExpireIfSilent(uint64_t now_ms, uint64_t timeout_ms) {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (!ready_ || last_contacts_.empty() || now_ms - last_update_ms_ < timeout_ms) return;
-  ReleaseLocked();
+  if (!ready_) return;
+  if ((last_pen_.in_range || last_pen_.contact) && now_ms - last_pen_update_ms_ >= timeout_ms) ReleasePenLocked();
+  if (last_contacts_.empty() || now_ms - last_update_ms_ < timeout_ms) return;
+  ReleaseLocked(false);  // el lápiz tiene su propio silencio
 }
 
 void TouchInjector::ReleaseAll() {
@@ -341,7 +455,9 @@ void TouchInjector::ReleaseAll() {
 void TouchInjector::Worker() {
   std::unique_lock<std::mutex> lock(mutex_);
   while (!stop_) {
-    const bool touching = active_mode_ == Mode::kTouch && !last_contacts_.empty();
+    // El lápiz apoyado también se repite: Windows lo cancelaría igual que un dedo.
+    const bool pen_down = pen_device_ && pen_contact_;
+    const bool touching = (active_mode_ == Mode::kTouch && !last_contacts_.empty()) || pen_down;
     const bool timing = active_mode_ == Mode::kMouse && gestures_.needs_tick();
     if (!touching && !timing) {
       // Sin dedos apoyados el hilo duerme hasta el siguiente toque: no gasta nada en reposo.
@@ -351,6 +467,10 @@ void TouchInjector::Worker() {
     wake_.wait_for(lock, std::chrono::milliseconds(touching ? kKeepAliveMs : 16));
     if (stop_) break;
     const uint64_t now = NowMs();
+    if (pen_device_ && pen_contact_ && now - last_pen_inject_ms_ >= kKeepAliveMs) {
+      const Pen same = last_pen_;
+      UpdatePenLocked(same);
+    }
     if (active_mode_ == Mode::kTouch) {
       if (!last_contacts_.empty() && now - last_inject_ms_ >= kKeepAliveMs) {
         const std::vector<Contact> same = last_contacts_;

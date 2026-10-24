@@ -21,6 +21,10 @@
 //    los interpreta Windows como en una pantalla táctil. Se usa la API de punteros sintéticos (Windows 10
 //    1809 o posterior) y, si no está, InjectTouchInput. Si Windows rechaza los toques se pasa solo a ratón.
 //  - Ratón: los dedos mueven el cursor y los gestos se traducen a clics y rueda (ver touch_gestures.h).
+//
+// El lápiz de la tablet va aparte (UpdatePen): en modo táctil es un lápiz de Windows, con presión, inclinación, botón
+// lateral, goma y la punta flotando sobre la pantalla, que es lo que usan los programas de dibujo. En modo ratón, o si
+// Windows no deja inyectar lápiz, mueve el cursor y hace clic al apoyarlo (clic derecho con el botón lateral).
 class TouchInjector {
  public:
   enum class Mode : uint8_t { kTouch = 0, kMouse = 1 };
@@ -29,6 +33,16 @@ class TouchInjector {
     uint8_t id = 0;
     float x = 0, y = 0;  // 0..1 dentro de la pantalla capturada
     uint16_t pressure = 0;
+  };
+
+  struct Pen {
+    bool in_range = false;  // cerca de la pantalla (flotando o apoyado)
+    bool contact = false;   // la punta toca
+    bool barrel = false;    // botón lateral
+    bool eraser = false;    // goma
+    float x = 0, y = 0;     // 0..1 dentro de la pantalla capturada
+    uint16_t pressure = 0;  // 0..1024
+    int tilt_x = 0, tilt_y = 0;  // grados, -90..90
   };
 
   ~TouchInjector();
@@ -46,6 +60,7 @@ class TouchInjector {
   const char* active_name() const;
 
   void Update(const std::vector<Contact>& contacts);
+  void UpdatePen(const Pen& pen);
   // Suelta los dedos si la tablet lleva más de timeout_ms sin decir nada (cable desconectado, etc.).
   void ExpireIfSilent(uint64_t now_ms, uint64_t timeout_ms);
   void ReleaseAll();
@@ -65,10 +80,16 @@ class TouchInjector {
   bool InjectTouch(const std::vector<Contact>& contacts);
   bool SendFrame(const std::vector<POINTER_TOUCH_INFO>& frame);
   void FallBack(DWORD error);
-  void ReleaseLocked();
+  // Suelta los dedos y, con pen, también el lápiz.
+  void ReleaseLocked(bool pen = true);
   void UpdateLocked(const std::vector<Contact>& contacts);
   void SendMouse(const std::vector<touch::MouseAction>& actions);
   touch::Point ToPixels(const Contact& c) const;
+  // Lápiz como lápiz de Windows. false si Windows lo rechaza.
+  bool InjectPen(const Pen& pen);
+  void PenAsMouse(const Pen& pen);
+  void UpdatePenLocked(const Pen& pen);
+  void ReleasePenLocked();
   void Worker();
 
   std::mutex mutex_;
@@ -86,4 +107,12 @@ class TouchInjector {
   touch::MouseGestures gestures_;
   uint64_t last_update_ms_ = 0;
   uint64_t last_inject_ms_ = 0;
+  // Lápiz.
+  HANDLE pen_device_ = nullptr;
+  bool pen_failed_ = false;           // Windows no aceptó el lápiz: va como ratón el resto de la sesión
+  Pen last_pen_;                      // último estado recibido
+  bool pen_range_ = false, pen_contact_ = false;  // último estado enviado a Windows como lápiz
+  touch::MouseAction::Kind pen_button_up_ = touch::MouseAction::kMove;  // como ratón: botón pulsado (kMove = ninguno)
+  uint64_t last_pen_update_ms_ = 0;
+  uint64_t last_pen_inject_ms_ = 0;
 };

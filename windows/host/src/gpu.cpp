@@ -31,7 +31,11 @@ bool CreateGpuForMatchingOutput(Match match, Gpu* gpu) {
 
       if (FAILED(output.As(&gpu->output))) return false;
       gpu->adapter = adapter;
+      gpu->device_name = od.DeviceName;
       gpu->desktop_rect = od.DesktopCoordinates;
+      // Recién enchufado o cambiado de modo el monitor virtual, DXGI puede dar aún la posición o el tamaño de antes.
+      RECT now{};
+      if (ScreenRect(gpu->device_name, &now)) gpu->desktop_rect = now;
 
       const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0};
       D3D_FEATURE_LEVEL got{};
@@ -70,4 +74,25 @@ bool CreateGpuForDeviceName(const wchar_t* device_name, Gpu* gpu) {
   }
   std::fprintf(stderr, "DXGI no encuentra la salida %ls\n", device_name);
   return false;
+}
+
+bool ScreenRect(const std::wstring& device_name, RECT* rect) {
+  struct Search {
+    const std::wstring* name;
+    RECT* rect;
+    bool found;
+  } search{&device_name, rect, false};
+  EnumDisplayMonitors(
+      nullptr, nullptr,
+      [](HMONITOR monitor, HDC, LPRECT, LPARAM data) -> BOOL {
+        auto* s = reinterpret_cast<Search*>(data);
+        MONITORINFOEXW mi{};
+        mi.cbSize = sizeof(mi);
+        if (!GetMonitorInfoW(monitor, &mi) || _wcsicmp(mi.szDevice, s->name->c_str()) != 0) return TRUE;
+        *s->rect = mi.rcMonitor;
+        s->found = true;
+        return FALSE;
+      },
+      reinterpret_cast<LPARAM>(&search));
+  return search.found;
 }
