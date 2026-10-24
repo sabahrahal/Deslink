@@ -5,9 +5,9 @@ name: design
 # enseña cada cosa donde debe (sin Windows).
 on:
   push:
-    paths: ['design/**', 'tools/design/**', 'android/app/src/main/kotlin/com/desklink/ui/Tokens.kt', 'android/app/src/main/res/drawable/**', 'windows/app/**', '.github/workflows/design.yml']
+    paths: ['design/**', 'tools/design/**', 'android/app/src/main/kotlin/app/extendesk/ui/Tokens.kt', 'android/app/src/main/res/drawable/**', 'windows/app/**', '.github/workflows/design.yml']
   pull_request:
-    paths: ['design/**', 'tools/design/**', 'android/app/src/main/kotlin/com/desklink/ui/Tokens.kt', 'android/app/src/main/res/drawable/**', 'windows/app/**', '.github/workflows/design.yml']
+    paths: ['design/**', 'tools/design/**', 'android/app/src/main/kotlin/app/extendesk/ui/Tokens.kt', 'android/app/src/main/res/drawable/**', 'windows/app/**', '.github/workflows/design.yml']
 
 jobs:
   check:

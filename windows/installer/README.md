@@ -7,5 +7,5 @@ un solo `Extendesk-Setup.exe`. Lo arma `.github/workflows/release.yml`; cómo us
 Para armarlo a mano hace falta la misma carpeta que prepara la CI (`host\`, `adb\`, `driver\` y `tools\`) y:
 
 ```
-iscc /DAppVersion=0.1.0 /DStage=C:\ruta\carpeta /DDriverId=<contenido de driver\driver-id.txt> windows\installer\desklink.iss
+iscc /DAppVersion=0.1.0 /DStage=C:\ruta\carpeta /DDriverId=<contenido de driver\driver-id.txt> windows\installer\extendesk.iss
 ```

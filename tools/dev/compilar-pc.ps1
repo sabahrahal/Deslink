@@ -75,7 +75,7 @@ if ($LASTEXITCODE) {
 Write-Host '== Herramienta del driver'
 cmake -S windows/driver/setup -B build/setup -A x64
 cmake --build build/setup --config Release
-if ($LASTEXITCODE) { throw 'No compiló desklink-driver.exe.' }
+if ($LASTEXITCODE) { throw 'No compiló extendesk-driver.exe.' }
 
 Write-Host '== Firmar el driver'
 Remove-Item -Recurse -Force build/installer -ErrorAction SilentlyContinue
@@ -97,7 +97,7 @@ New-Item -ItemType Directory -Force "$stage/host", "$stage/adb", "$stage/tools" 
 Get-ChildItem build/host/Release, build/app/Release -File | Where-Object Extension -in '.exe', '.dll' |
   Copy-Item -Destination "$stage/host"
 Copy-Item tools/dev/actualizar.ps1, tools/dev/actualizar-tablet.bat, tools/dev/actualizar-pc.bat "$stage/tools"
-$pt = Join-Path $env:TEMP 'desklink-platform-tools'
+$pt = Join-Path $env:TEMP 'extendesk-platform-tools'
 if (-not (Test-Path "$pt/platform-tools/adb.exe")) {
   Invoke-WebRequest https://dl.google.com/android/repository/platform-tools-latest-windows.zip -OutFile "$pt.zip"
   Expand-Archive "$pt.zip" -DestinationPath $pt -Force
@@ -107,7 +107,7 @@ Copy-Item "$pt/platform-tools/adb.exe", "$pt/platform-tools/AdbWinApi.dll", "$pt
 Write-Host '== Instalador'
 $stageFull = (Resolve-Path $stage).Path
 $driverId = Get-Content -Raw "$stage/driver/driver-id.txt"
-& $iscc "/DAppVersion=$Version" "/DStage=$stageFull" "/DDriverId=$driverId" "/O$repo\build" windows/installer/desklink.iss
+& $iscc "/DAppVersion=$Version" "/DStage=$stageFull" "/DDriverId=$driverId" "/O$repo\build" windows/installer/extendesk.iss
 if ($LASTEXITCODE) { throw 'Inno Setup no pudo armar el instalador.' }
 $setup = "$repo\build\Extendesk-Setup.exe"
 Write-Host "Listo: $setup"

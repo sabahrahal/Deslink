@@ -1,6 +1,6 @@
-// Extendesk: app de bandeja para Windows. Arranca desklink-host.exe sin consola con los ajustes guardados, muestra
+// Extendesk: app de bandeja para Windows. Arranca extendesk-host.exe sin consola con los ajustes guardados, muestra
 // el estado de la conexión (cable USB o Wi-Fi, fps, Mbps, RTT) y explica los errores con palabras normales.
-// La captura y la codificación siguen en desklink-host.exe, que también se puede usar solo desde una consola.
+// La captura y la codificación siguen en extendesk-host.exe, que también se puede usar solo desde una consola.
 //
 // El PC manda: calidad, sonido y táctil se eligen aquí y el host se los dice a la tablet. Lo que se ve sale de
 // view_model.h (probado en tests/test_view_model.cpp); este archivo solo lo pinta con GDI+, en una columna, con
@@ -33,6 +33,7 @@ using std::min;
 
 #include "direct_wifi.h"
 #include "host_process.h"
+#include "i18n.h"
 #include "logo.h"
 #include "settings.h"
 #include "system_info.h"
@@ -43,8 +44,8 @@ namespace gp = Gdiplus;
 
 namespace {
 
-constexpr wchar_t kMainClass[] = L"DeskLinkMain";
-constexpr wchar_t kLogClass[] = L"DeskLinkLog";
+constexpr wchar_t kMainClass[] = L"ExtendeskMain";
+constexpr wchar_t kLogClass[] = L"ExtendeskLog";
 constexpr wchar_t kAppName[] = L"Extendesk";
 constexpr UINT WM_TRAY = WM_APP + 1;
 constexpr UINT WM_APP_SHOW = WM_APP + 4;  // otra copia de la app pide mostrar esta ventana
@@ -62,7 +63,14 @@ enum ChildId { kIdLogEdit = 100, kIdLogCopy };
 
 gp::Color C(COLORREF c, BYTE alpha = 255) { return gp::Color(alpha, GetRValue(c), GetGValue(c), GetBValue(c)); }
 
-constexpr int kClientW = 540;  // ancho del área cliente a 96 ppp; el alto sale del contenido
+constexpr int kClientW = 540;  // ancho del área cliente a 96 ppp al abrirla por primera vez; el alto sale del contenido
+constexpr int kMinClientW = 480;  // lo menos que se puede estrechar o encoger la ventana
+constexpr int kMinClientH = 360;
+// Lo más ancha que se puede hacer: más, las filas se separan tanto que cuesta leerlas. De alto, como mucho lo que
+// mide el contenido (no queda hueco vacío debajo) y la pantalla.
+constexpr int kMaxClientW = 720;
+constexpr ULONGLONG kDiagnosticsEveryMs = 10000;
+constexpr int kNoticeSeconds = 5;  // segundos que tiene que durar un aviso técnico para ir al registro  // cada cuánto van al registro los fps por etapa
 constexpr float kMargin = 24;
 constexpr float kPad = 16;  // relleno dentro de las tarjetas
 
@@ -102,6 +110,7 @@ struct App {
   float scroll = 0;           // desplazamiento vertical cuando el contenido no cabe en la pantalla
   float advanced_top = 0;     // dónde empieza «Configuración avanzada» (para llevarla a la vista al abrirla)
   bool reveal_advanced = false;
+  bool user_sized = false;    // el usuario cambió el tamaño: ya no se ajusta sola al contenido
 
   // Datos
   Settings settings;
@@ -115,6 +124,9 @@ struct App {
   std::map<std::wstring, std::wstring> stats;  // última línea «@estado»
   std::wstring link = L"ninguno";
   std::deque<std::wstring> log;
+  std::wstring logged_notice;       // último aviso técnico que fue al registro (BuildDiagnostics)
+  int notice_streak = 0;            // segundos seguidos con un aviso distinto del registrado
+  ULONGLONG diagnostics_at = 0;     // cuándo fueron al registro los últimos fps por etapa
   bool dirty = false;               // ajustes que piden reiniciar la transmisión
   bool advanced_open = false;       // «Configuración avanzada» desplegada
   bool tray_hint_shown = false;
@@ -122,7 +134,8 @@ struct App {
   bool repairing_driver = false;
   bool autostart = false;
   std::vector<std::wstring> monitors;
-  std::wstring addresses;
+  std::wstring addresses;      // IP de este PC sin los adaptadores virtuales (vacía: sin red)
+  std::wstring all_addresses;  // todas, para el registro
   DirectWifi direct_wifi;
   bool direct_wifi_busy = false;
 } g;
@@ -162,33 +175,26 @@ COLORREF ToneColor(Tone t) {
 std::wstring FriendlyError(const std::wstring& line) {
   auto has = [&](const wchar_t* s) { return line.find(s) != std::wstring::npos; };
   if (has(L"driver del monitor virtual no está instalado")) {
-    return L"Falta el driver de la pantalla extra. Pulsa «Instalar la pantalla extra» (Windows pedirá permiso) o "
-           L"elige «Duplicar».";
+    return Tr("err_driver_missing");
   }
   if (has(L"no se pudo abrir el driver")) {
-    return L"Windows no deja abrir el driver de la pantalla extra. Reinstala Extendesk con el instalador de la "
-           L"última versión.";
+    return Tr("err_driver_open");
   }
   if (has(L"no activó el monitor virtual")) {
-    return L"Windows no activó la pantalla extra. En Configuración > Pantalla, elige «Extender estas pantallas».";
+    return Tr("err_not_enabled");
   }
   if (has(L"el driver no pudo crear el monitor")) {
-    return L"El driver no pudo crear la pantalla extra. Prueba otra resolución en Configuración avanzada o "
-           L"reinstala el driver.";
+    return Tr("err_driver_create");
   }
   if (has(L"bind al puerto") || has(L"USB: no se pudo escuchar")) {
-    return Format(L"El puerto %d ya está en uso. ¿Hay otro Extendesk abierto (por ejemplo desklink-host.exe en una "
-                  L"consola)? Ciérralo y pulsa Iniciar.",
-                  g.settings.port);
+    return Tr("err_port", {std::to_wstring(g.settings.port)});
   }
   if (has(L"codificador")) {
-    return L"La tarjeta gráfica no pudo iniciar el codificador de vídeo. Prueba el códec H.264 en Configuración "
-           L"avanzada, o actualiza el driver de la GPU.";
+    return Tr("err_encoder");
   }
-  if (has(L"No existe la salida")) return L"Ese monitor ya no está conectado. Elige otro en Configuración avanzada.";
+  if (has(L"No existe la salida")) return Tr("err_no_output");
   if (has(L"DuplicateOutput falló") || has(L"no se pudo recuperar la captura")) {
-    return L"Windows no deja capturar la pantalla ahora mismo (pantalla bloqueada, aviso de UAC o un juego a "
-           L"pantalla completa).";
+    return Tr("err_capture");
   }
   return {};
 }
@@ -306,7 +312,7 @@ void Notify(const std::wstring& title, const std::wstring& text, bool warning = 
 
 void AddLog(const std::wstring& line) {
   g.log.push_back(line);
-  if (g.log.size() > 2000) g.log.pop_front();
+  if (g.log.size() > 5000) g.log.pop_front();  // con los fps por etapa cada 10 s caben unas horas
   if (g.log_edit) {
     const std::wstring text = line + L"\r\n";
     const int len = GetWindowTextLengthW(g.log_edit);
@@ -322,8 +328,8 @@ LRESULT CALLBACK LogProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
       g.log_edit = CreateWindowExW(0, L"EDIT", L"",
                                    WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL,
                                    0, 0, 0, 0, hwnd, reinterpret_cast<HMENU>(kIdLogEdit), g.inst, nullptr);
-      CreateWindowExW(0, L"BUTTON", L"Copiar todo", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 0, 0, 0, 0,
-                      hwnd, reinterpret_cast<HMENU>(kIdLogCopy), g.inst, nullptr);
+      CreateWindowExW(0, L"BUTTON", Tr("copy_all").c_str(), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 0, 0,
+                      0, 0, hwnd, reinterpret_cast<HMENU>(kIdLogCopy), g.inst, nullptr);
       SendMessageW(g.log_edit, WM_SETFONT, reinterpret_cast<WPARAM>(g.mono_font), TRUE);
       SendMessageW(GetDlgItem(hwnd, kIdLogCopy), WM_SETFONT, reinterpret_cast<WPARAM>(g.ui_font), TRUE);
       SendMessageW(g.log_edit, EM_SETLIMITTEXT, 0, 0);
@@ -373,8 +379,22 @@ LRESULT CALLBACK LogProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
   return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
+// El idioma elegido en Configuración avanzada o, en «Automático», el de Windows. Al cambiarlo se ve al momento en la
+// ventana, el menú y el icono junto al reloj; el registro abierto sigue con su título hasta que se vuelva a abrir.
+void ApplyLanguage() {
+  wchar_t system[LOCALE_NAME_MAX_LENGTH] = L"";
+  LCIDToLocaleName(MAKELCID(GetUserDefaultUILanguage(), SORT_DEFAULT), system, LOCALE_NAME_MAX_LENGTH, 0);
+  SetLang(ResolveLang(g.settings.language, system));
+  if (g.wnd) TrayCommand(NIM_MODIFY);
+}
+
 // La resolución de la pantalla extra se cambia donde la de cualquier monitor; el host sigue lo que se elija.
 void OpenDisplaySettings() { ShellExecuteW(nullptr, L"open", L"ms-settings:display", nullptr, nullptr, SW_SHOWNORMAL); }
+
+// La ayuda de la web, en la sección de una opción si se da (los «?» de la ventana).
+void OpenHelp(const std::string& anchor) {
+  ShellExecuteW(nullptr, L"open", HelpUrl(anchor).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+}
 
 void ShowLog() {
   if (g.log_wnd) {
@@ -382,7 +402,7 @@ void ShowLog() {
     SetForegroundWindow(g.log_wnd);
     return;
   }
-  g.log_wnd = CreateWindowExW(0, kLogClass, L"Extendesk: registro", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+  g.log_wnd = CreateWindowExW(0, kLogClass, Tr("log_title").c_str(), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
                               static_cast<int>(F(760)), static_cast<int>(F(440)), nullptr, nullptr, g.inst, nullptr);
   ShowWindow(g.log_wnd, SW_SHOW);
 }
@@ -390,12 +410,29 @@ void ShowLog() {
 // ---------------------------------------------------------------------------------------------------------------
 // Estado.
 
+// Adaptadores que no llevan a la red del dispositivo: los de WSL, Hyper-V, máquinas virtuales y VPN.
+bool IsVirtualAdapter(const std::wstring& ip_and_name) {
+  for (const wchar_t* s : {L"vEthernet", L"WSL", L"Hyper-V", L"VirtualBox", L"VMware", L"Loopback"}) {
+    if (ip_and_name.find(s) != std::wstring::npos) return true;
+  }
+  return false;
+}
+
+// Las IP de este PC ya no salen en la ventana: van al registro cuando cambian (con el dispositivo se conecta solo;
+// la IP solo hace falta para escribirla a mano en él). La ventana solo avisa si no hay ninguna red.
 void UpdateAddresses() {
   const auto ips = LocalAddresses();
-  std::wstring text;
-  for (size_t i = 0; i < ips.size() && i < 2; ++i) text += (i ? L", " : L"") + ips[i];
-  if (text != g.addresses) {
-    g.addresses = text;
+  std::wstring all, real;
+  for (const auto& ip : ips) {
+    all += (all.empty() ? L"" : L", ") + ip;
+    if (!IsVirtualAdapter(ip)) real += (real.empty() ? L"" : L", ") + ip;
+  }
+  if (all != g.all_addresses) {
+    g.all_addresses = all;
+    AddLog(L"IP de este PC: " + (all.empty() ? std::wstring(L"ninguna") : all));
+  }
+  if (real != g.addresses) {
+    g.addresses = real;
     Redraw();
   }
 }
@@ -435,12 +472,12 @@ void StartHost() {
   }
   g.args = HostArguments(g.settings);
   std::wstring error;
-  if (!g.host.Start(g.wnd, AppDirectory() + L"\\desklink-host.exe", g.args, &error)) {
+  if (!g.host.Start(g.wnd, AppDirectory() + L"\\extendesk-host.exe", g.args, &error)) {
     g.error = error;
     SetState(State::kError);
     return;
   }
-  AddLog(L"--- desklink-host.exe " + g.args);
+  AddLog(L"--- extendesk-host.exe " + g.args);
   g.started_at = GetTickCount64();
   SetState(State::kStarting);
 }
@@ -478,9 +515,9 @@ void ApplyChanges() {
 void RepairDriver() {
   if (g.repairing_driver) return;
   const std::wstring dir = AppDirectory() + L"\\driver";
-  const std::wstring exe = dir + L"\\desklink-driver.exe";
+  const std::wstring exe = dir + L"\\extendesk-driver.exe";
   if (GetFileAttributesW(exe.c_str()) == INVALID_FILE_ATTRIBUTES) {
-    g.error = L"No encuentro el driver junto a Extendesk. Vuelve a instalar Extendesk con Extendesk-Setup.exe.";
+    g.error = Tr("err_no_driver_files");
     g.error_mapped = true;
     SetState(State::kError);
     return;
@@ -499,9 +536,7 @@ void RepairDriver() {
   sei.lpDirectory = dir.c_str();
   sei.nShow = SW_HIDE;
   if (!ShellExecuteExW(&sei) || !sei.hProcess) {
-    g.error = GetLastError() == ERROR_CANCELLED
-                  ? L"Para instalar la pantalla extra hace falta aceptar el permiso de Windows. Vuelve a pulsar el botón."
-                  : L"No se pudo lanzar la instalación de la pantalla extra.";
+    g.error = Tr(GetLastError() == ERROR_CANCELLED ? "err_uac" : "err_install_launch");
     g.error_mapped = true;
     SetState(State::kError);
     return;
@@ -522,7 +557,7 @@ void RepairDriver() {
 
 void OnDriverDone(DWORD code) {
   g.repairing_driver = false;
-  // La salida de desklink-driver.exe va al registro de la app (Configuración avanzada > Ver registro).
+  // La salida de extendesk-driver.exe va al registro de la app (Configuración avanzada > Ver registro).
   const std::wstring log_path = AppDirectory() + L"\\driver\\reparar.log";
   HANDLE f = CreateFileW(log_path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
   if (f != INVALID_HANDLE_VALUE) {
@@ -551,10 +586,7 @@ void OnDriverDone(DWORD code) {
     StartHost();
     return;
   }
-  g.error = code == 0 ? L"El driver se instaló pero Windows no arrancó la pantalla extra. Reinicia el PC y pulsa Iniciar."
-                      : Format(L"No se pudo instalar la pantalla extra (código %lu). El detalle está en Configuración "
-                               L"avanzada > Ver registro. Mientras tanto puedes usar «Duplicar».",
-                               code);
+  g.error = code == 0 ? Tr("err_installed_not_started") : Tr("err_install_failed", {std::to_wstring(code)});
   g.error_mapped = true;
   SetState(State::kError);
 }
@@ -567,6 +599,30 @@ std::wstring Field(const std::wstring& line, const wchar_t* key) {
   const size_t start = pos + k.size();
   const size_t end = line.find(L' ', start);
   return line.substr(start, end == std::wstring::npos ? std::wstring::npos : end - start);
+}
+
+// Lo técnico que no sale en la ventana va al registro: los fps de cada etapa cada 10 s y los avisos del dispositivo
+// (que no decodifica a tiempo) al aparecer y al irse, con los fps de ese momento.
+void LogDiagnostics(const std::wstring& link) {
+  if (link.empty() || link == L"ninguno") {
+    g.logged_notice.clear();
+    return;
+  }
+  const Diagnostics d = BuildDiagnostics(g.stats);
+  const std::wstring detail = (d.fluency.empty() ? std::wstring(L"Imagen quieta") : d.fluency) + L" · " + d.stats;
+  // Un aviso entra (o sale) del registro solo si dura unos segundos: con la imagen a ratos quieta iba y venía.
+  g.notice_streak = d.notice != g.logged_notice ? g.notice_streak + 1 : 0;
+  if (g.notice_streak >= kNoticeSeconds) {
+    g.notice_streak = 0;
+    AddLog(d.notice.empty() ? L"Aviso resuelto: " + g.logged_notice + L" (" + detail + L")"
+                            : L"Aviso: " + d.notice + L" (" + detail + L")");
+    g.logged_notice = d.notice;
+  }
+  const ULONGLONG now = GetTickCount64();
+  if (!d.fluency.empty() && (g.diagnostics_at == 0 || now - g.diagnostics_at >= kDiagnosticsEveryMs)) {
+    AddLog(L"Fluidez: " + detail);
+    g.diagnostics_at = now;
+  }
 }
 
 void OnHostLine(bool from_stderr, const std::wstring& line) {
@@ -599,12 +655,17 @@ void OnHostLine(bool from_stderr, const std::wstring& line) {
     const std::wstring link = g.stats[L"enlace"];
     if (link != g.link && g.state != State::kStopping) {
       if (link == L"ninguno") {
-        Notify(L"Dispositivo desconectado", L"Extendesk sigue esperando a que vuelva a conectarse.");
+        Notify(Tr("n_disconnected"), Tr("n_disconnected_body"));
+        AddLog(L"--- Dispositivo desconectado");
       } else {
-        Notify(L"Dispositivo conectado", link == L"usb" ? L"Por cable USB." : L"Por Wi-Fi (" + g.stats[L"ip"] + L").");
+        Notify(Tr("n_connected"), link == L"usb" ? Tr("n_connected_usb") : Tr("n_connected_wifi", {g.stats[L"ip"]}));
+        AddLog(L"--- Dispositivo conectado: " + link + (link == L"wifi" ? L" " + g.stats[L"ip"] : L"") + L" · " +
+               BuildDiagnostics(g.stats).stats);
+        g.diagnostics_at = 0;
       }
       g.link = link;
     }
+    LogDiagnostics(link);
     if (g.state == State::kStarting || g.state == State::kWaiting || g.state == State::kConnected) {
       const State next = link == L"ninguno" ? State::kWaiting : State::kConnected;
       if (next != g.state) {
@@ -646,18 +707,18 @@ void OnHostExit(DWORD code) {
     }
     return;
   }
-  AddLog(Format(L"--- desklink-host.exe terminó (código %lu).", code));
+  AddLog(Format(L"--- extendesk-host.exe terminó (código %lu).", code));
   if (g.error.empty()) {
-    g.error = Format(L"El host se cerró inesperadamente (código %lu). Abre «Ver registro» para el detalle.", code);
+    g.error = Tr("err_host_crash", {std::to_wstring(code)});
   }
   if (ran >= kStableRunMs) {
     // Funcionaba: un fallo pasajero (la GPU se reinició, cambió el modo de pantalla…). Se vuelve a intentar.
-    Notify(L"Extendesk se reinicia", g.error, true);
+    Notify(Tr("n_restarting"), g.error, true);
     SetTimer(g.wnd, kTimerRestart, 3000, nullptr);
     SetState(State::kRestarting);
     return;
   }
-  Notify(L"Extendesk no pudo transmitir", g.error, true);
+  Notify(Tr("n_failed"), g.error, true);
   SetState(State::kError);
 }
 
@@ -712,7 +773,7 @@ std::unique_ptr<gp::Font> MakeFont(float px, bool semibold, bool brand = false, 
                                     gp::UnitPixel);
 }
 
-// Carga las Montserrat de desklink.rc. Sin ellas, MakeFont sigue con Segoe UI.
+// Carga las Montserrat de extendesk.rc. Sin ellas, MakeFont sigue con Segoe UI.
 void LoadBrandFonts() {
   g.brand_fonts = std::make_unique<gp::PrivateFontCollection>();
   for (const wchar_t* name : {L"FONT_BLACK", L"FONT_BOLD"}) {
@@ -923,19 +984,6 @@ int PickFromMenu(float x, float y, const std::vector<std::wstring>& items, int c
   return cmd >= kMenuPick ? cmd - kMenuPick : -1;
 }
 
-template <typename T, typename Label>
-void PickValue(float x, float y, const std::vector<T>& values, const T& current, Label label,
-               const std::function<void(const T&)>& apply) {
-  std::vector<std::wstring> items;
-  int checked = -1;
-  for (size_t i = 0; i < values.size(); ++i) {
-    items.push_back(label(values[i]));
-    if (values[i] == current) checked = static_cast<int>(i);
-  }
-  const int pick = PickFromMenu(x, y, items, checked);
-  if (pick >= 0 && values[pick] != current) apply(values[pick]);
-}
-
 // ---------------------------------------------------------------------------------------------------------------
 // Qué hace cada fila al pulsarla.
 
@@ -948,7 +996,9 @@ void OnSegment(const std::string& id, int i) {
   if (id == "calidad") s.quality = QualityAt(i);
   else if (id == "sonido") s.audio_tablet = i == 1;
   else if (id == "tactil") s.touch = i == 1 ? 2 : 0;
+  else if (id == "idioma") s.language = i == 0 ? L"" : LangCode(static_cast<Lang>(i - 1));
   ChangeSettings(s);
+  if (id == "idioma") ApplyLanguage();
 }
 
 void OnChoice(const std::string& id, float x, float y) {
@@ -960,24 +1010,6 @@ void OnChoice(const std::string& id, float x, float y) {
       s.output = pick;
       ChangeSettings(s);
     }
-  } else if (id == "fps") {
-    PickValue<int>(x, y, FpsChoices(), g.settings.fps, FpsLabel, [](const int& v) {
-      Settings s = g.settings;
-      s.fps = v;
-      ChangeSettings(s);
-    });
-  } else if (id == "mbps") {
-    PickValue<int>(x, y, BitrateChoices(), g.settings.bitrate, BitrateLabel, [](const int& v) {
-      Settings s = g.settings;
-      s.bitrate = v;
-      ChangeSettings(s);
-    });
-  } else if (id == "codec") {
-    PickValue<std::wstring>(x, y, CodecChoices(), g.settings.codec, CodecLabel, [](const std::wstring& v) {
-      Settings s = g.settings;
-      s.codec = v;
-      ChangeSettings(s);
-    });
   }
 }
 
@@ -993,7 +1025,6 @@ void RefreshDirectWifi(int action) {  // 0 consultar, 1 encender, 2 apagar
 }
 
 void OnToggle(const std::string& id) {
-  Settings s = g.settings;
   if (id == "wifi_directo") {
     RefreshDirectWifi(g.direct_wifi.on ? 2 : 1);
     if (g.direct_wifi_busy) AddLog(g.direct_wifi.on ? L"--- apagando la red Wi-Fi del PC" : L"--- creando la red Wi-Fi del PC");
@@ -1004,13 +1035,11 @@ void OnToggle(const std::string& id) {
     SetStartWithWindows(!g.autostart);
     g.autostart = StartsWithWindows();
     Redraw();
-    return;
+  } else if (id == "bateria") {
+    Settings s = g.settings;
+    s.battery_adapt = !s.battery_adapt;
+    ChangeSettings(s);  // se aplica en marcha (@ajustes … bateria=)
   }
-  if (id == "bateria") s.battery_adapt = !s.battery_adapt;
-  else if (id == "usb") s.usb = !s.usb;
-  else if (id == "abrir") s.stream_on_open = !s.stream_on_open;
-  else if (id == "abrir_tablet") s.open_tablet = !s.open_tablet;
-  ChangeSettings(s);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1042,24 +1071,18 @@ float StatusContent(gp::Graphics& gr, const View& v, bool draw, float x, float t
     const BYTE alpha = waiting ? static_cast<BYTE>(140 + 115 * (0.5f + 0.5f * std::sin(g.pulse))) : 255;
     gp::SolidBrush dot_brush(C(ToneColor(v.dot), alpha));
     gr.FillEllipse(&dot_brush, dot_rect);
-    Text(gr, v.title, gp::RectF(ix + F(20), y, iw - F(20), F(26)), *title, P().text);
   }
-  y += F(30);
+  // El título entero, en dos líneas si no cabe (antes se cortaba con «…»).
+  const float th = std::max(F(26), TextHeight(gr, v.title, *title, iw - F(20)));
+  if (draw) Text(gr, v.title, gp::RectF(ix + F(20), y, iw - F(20), th + F(2)), *title, P().text, Align::kLeft, th > F(30));
+  y += th + F(4);
 
   const float dh = TextHeight(gr, v.detail, *body, iw);
   if (draw) Text(gr, v.detail, gp::RectF(ix, y, iw, dh + F(2)), *body, P().text_secondary, Align::kLeft, true);
   y += dh + F(4);
 
-  if (!v.stats.empty()) {
-    y += F(4);
-    if (draw) Text(gr, v.stats, gp::RectF(ix, y, iw, F(22)), *body, P().text);
-    y += F(24);
-  }
-  if (!v.fluency.empty()) {
-    if (draw) Text(gr, v.fluency, gp::RectF(ix, y, iw, F(20)), *note, P().text_secondary);
-    y += F(22);
-  }
   if (!v.notice.text.empty()) {
+    y += F(4);
     const float nh = TextHeight(gr, v.notice.text, *note, iw);
     if (draw) Text(gr, v.notice.text, gp::RectF(ix, y, iw, nh + F(2)), *note, ToneColor(v.notice.tone), Align::kLeft, true);
     y += nh + F(4);
@@ -1091,6 +1114,17 @@ float StatusContent(gp::Graphics& gr, const View& v, bool draw, float x, float t
   return y + F(kPad) - F(4) - top;
 }
 
+// «?» junto al nombre de una opción (centrado en cy): abre su sección de la ayuda en la web.
+constexpr float kHelpMarkPx = 16;
+void HelpMark(gp::Graphics& gr, float x, float cy, const std::string& anchor) {
+  const float d = F(kHelpMarkPx);
+  const gp::RectF r(x, cy - d / 2, d, d);
+  const int hit = AddHit(gp::RectF(r.X - F(4), r.Y - F(4), d + F(8), d + F(8)), [anchor] { OpenHelp(anchor); });
+  FillRound(gr, r, d / 2, Hovered(hit) ? P().separator : P().surface_secondary);
+  auto font = MakeFont(tokens::kNotePx, true);
+  Text(gr, L"?", r, *font, Hovered(hit) ? P().text : P().text_secondary, Align::kCenter);
+}
+
 // Filas de una tarjeta de ajustes, separadas por una línea fina.
 float RowsContent(gp::Graphics& gr, const std::vector<Row>& rows, bool draw, float x, float top, float w) {
   const float ix = x + F(kPad), iw = w - F(2 * kPad);
@@ -1108,10 +1142,14 @@ float RowsContent(gp::Graphics& gr, const std::vector<Row>& rows, bool draw, flo
     switch (r.control) {
       case Control::kSegmented: {
         const float seg_w = std::min(iw * 0.66f, F(118) * r.options.size());
-        const float label_w = iw - seg_w - F(12);
+        const float mark_w = r.help.empty() ? 0 : F(kHelpMarkPx + 6);
+        const float label_w = iw - seg_w - F(12) - mark_w;
         const float lh = std::max(F(30), TextHeight(gr, r.label, *body, label_w));
         if (draw) {
           Text(gr, r.label, gp::RectF(ix, y, label_w, lh), *body, P().text);
+          if (!r.help.empty()) {
+            HelpMark(gr, ix + std::min(TextWidth(gr, r.label, *body), label_w) + F(6), y + lh / 2, r.help);
+          }
           const std::string id = r.id;
           Segmented(gr, gp::RectF(ix + iw - seg_w, y, seg_w, F(30)), r.options, r.selected,
                     [id](int k) { OnSegment(id, k); });
@@ -1131,7 +1169,10 @@ float RowsContent(gp::Graphics& gr, const std::vector<Row>& rows, bool draw, flo
           const std::string id = r.id;
           const float menu_x = ix + iw, menu_y = row_top + F(46);
           const int hit = AddHit(row, [id, menu_x, menu_y] { OnChoice(id, menu_x, menu_y); });
-          if (Hovered(hit)) FillRound(gr, gp::RectF(x + F(4), row_top + F(3), w - F(8), F(46)), F(6), P().surface_secondary);
+          if (Hovered(hit)) {
+            FillRound(gr, gp::RectF(x + F(6), row_top + F(4), w - F(12), F(44)), F(tokens::kControlRadius),
+                      P().surface_secondary);
+          }
           const float value_w = std::min(iw * 0.55f, TextWidth(gr, r.value, *body) + F(4));
           Text(gr, r.label, gp::RectF(ix, y, iw - value_w - F(28), F(32)), *body, P().text);
           Text(gr, r.value, gp::RectF(ix + iw - value_w - F(18), y, value_w, F(32)), *body, P().text_secondary,
@@ -1142,14 +1183,26 @@ float RowsContent(gp::Graphics& gr, const std::vector<Row>& rows, bool draw, flo
         break;
       }
       case Control::kToggle: {
-        const float lh = std::max(F(32), TextHeight(gr, r.label, *body, iw - F(54)));
+        const float mark_w = r.help.empty() ? 0 : F(kHelpMarkPx + 6);
+        const float label_w = iw - F(54) - mark_w;
+        const float lh = std::max(F(32), TextHeight(gr, r.label, *body, label_w));
         if (draw) {
           const std::string id = r.id;
           const int hit = AddHit(gp::RectF(x, row_top, w, lh + F(20)), [id] { OnToggle(id); });
-          Text(gr, r.label, gp::RectF(ix, y, iw - F(54), lh), *body, P().text, Align::kLeft, lh > F(32));
+          Text(gr, r.label, gp::RectF(ix, y, label_w, lh), *body, P().text, Align::kLeft, lh > F(32));
+          // El «?» se añade después que la fila: HitAt le da preferencia.
           Switch(gr, ix + iw - F(38), y + (lh - F(22)) / 2, r.on, Hovered(hit));
+          if (!r.help.empty() && lh <= F(32)) {
+            HelpMark(gr, ix + std::min(TextWidth(gr, r.label, *body), label_w) + F(6), y + lh / 2, r.help);
+          }
         }
         y += lh;
+        if (!r.hint.empty()) {
+          y += F(4);
+          const float hh = TextHeight(gr, r.hint, *note, iw - F(54));
+          if (draw) Text(gr, r.hint, gp::RectF(ix, y, iw - F(54), hh + F(2)), *note, ToneColor(r.hint_tone), Align::kLeft, true);
+          y += hh;
+        }
         break;
       }
       case Control::kInfo: {
@@ -1161,18 +1214,33 @@ float RowsContent(gp::Graphics& gr, const std::vector<Row>& rows, bool draw, flo
         break;
       }
       case Control::kLink: {
+        // La fila entera se pulsa, con su explicación: el resalte la cubre toda, dentro de la tarjeta y con las
+        // esquinas redondeadas (antes era de alto fijo y cortaba la explicación por la mitad).
+        const float hint_h = r.hint.empty() ? 0 : TextHeight(gr, r.hint, *note, iw);
+        const float row_h = F(10) + F(32) + hint_h + F(10);
         if (draw) {
-          const int hit = AddHit(gp::RectF(x, row_top, w, F(52)),
+          const int hit = AddHit(gp::RectF(x, row_top, w, row_h),
                                  r.id == "resolucion" ? std::function<void()>(OpenDisplaySettings)
+                                 : r.id == "ayuda"    ? std::function<void()>([] { OpenHelp(""); })
                                                       : std::function<void()>(ShowLog));
-          Text(gr, r.label, gp::RectF(ix, y, iw, F(32)), *body, Hovered(hit) ? P().text : P().accent);
+          if (r.value.empty()) {
+            Text(gr, r.label, gp::RectF(ix, y, iw, F(32)), *body, Hovered(hit) ? P().text : P().accent);
+          } else {
+            // Como una fila de ajuste: nombre a la izquierda y lo de ahora a la derecha, en el acento (se pulsa).
+            if (Hovered(hit)) {
+              FillRound(gr, gp::RectF(x + F(6), row_top + F(4), w - F(12), row_h - F(8)), F(tokens::kControlRadius),
+                        P().surface_secondary);
+            }
+            const float value_w = std::min(iw * 0.55f, TextWidth(gr, r.value, *body) + F(4));
+            Text(gr, r.label, gp::RectF(ix, y, iw - value_w - F(28), F(32)), *body, P().text);
+            Text(gr, r.value, gp::RectF(ix + iw - value_w - F(18), y, value_w, F(32)), *body, P().accent, Align::kRight);
+          }
           Chevron(gr, ix + iw - F(5), y + F(16), false, P().text_secondary);
         }
         y += F(32);
         if (!r.hint.empty()) {
-          const float hh = TextHeight(gr, r.hint, *note, iw);
-          if (draw) Text(gr, r.hint, gp::RectF(ix, y, iw, hh + F(2)), *note, P().text_secondary, Align::kLeft, true);
-          y += hh;
+          if (draw) Text(gr, r.hint, gp::RectF(ix, y, iw, hint_h + F(2)), *note, P().text_secondary, Align::kLeft, true);
+          y += hint_h;
         }
         break;
       }
@@ -1204,7 +1272,7 @@ void Paint(gp::Graphics& gr, float width) {
   const float logo_w = logo_h * logo::kWidth / logo::kHeight + F(10);
   Text(gr, L"Extendesk", gp::RectF(x + logo_w, y, w - logo_w, F(36)), *large, P().accent);
   y += F(36);
-  Text(gr, L"Tu dispositivo como segunda pantalla", gp::RectF(x, y, w, F(18)), *note, P().text_secondary);
+  Text(gr, Tr("tagline"), gp::RectF(x, y, w, F(18)), *note, P().text_secondary);
   y += F(30);
 
   // Estado y botón principal.
@@ -1222,7 +1290,7 @@ void Paint(gp::Graphics& gr, float width) {
   }
   if (v.show_apply) {
     y += F(8);
-    Button(gr, gp::RectF(x, y, w, F(36)), L"Aplicar cambios (reinicia la transmisión)", ButtonKind::kSecondary,
+    Button(gr, gp::RectF(x, y, w, F(36)), Tr("apply"), ButtonKind::kSecondary,
            ApplyChanges);
     y += F(36);
   }
@@ -1246,8 +1314,9 @@ void Paint(gp::Graphics& gr, float width) {
       Redraw();
     });
     const COLORREF c = Hovered(hit) ? P().text : P().accent;
-    Text(gr, L"Configuración avanzada", gp::RectF(x + F(4), y, w - F(30), F(32)), *section, c);
-    Chevron(gr, x + F(4) + TextWidth(gr, L"Configuración avanzada", *section) + F(8), y + F(16), v.advanced_open, c);
+    const std::wstring advanced = Tr("advanced");
+    Text(gr, advanced, gp::RectF(x + F(4), y, w - F(30), F(32)), *section, c);
+    Chevron(gr, x + F(4) + TextWidth(gr, advanced, *section) + F(8), y + F(16), v.advanced_open, c);
     y += F(36);
   }
   g.base_bottom = y + F(16);
@@ -1317,7 +1386,11 @@ void OnPaint(HWND hwnd) {
 
   // La ventana toma el alto del contenido sin lo avanzado, sin pasar del alto de la pantalla: al abrir «Configuración
   // avanzada» no crece ni se mueve (antes saltaba hacia arriba); se desplaza con la rueda hasta ella.
-  const int want = std::min(static_cast<int>(std::ceil(g.base_bottom)), MaxClientHeight(hwnd));
+  // Si el usuario le cambió el tamaño, se queda con el suyo (sin pasar del alto del contenido: al plegar
+  // «Configuración avanzada» encoge) y el contenido se desplaza.
+  const int content_h = std::max(static_cast<int>(std::ceil(g.content_bottom)), static_cast<int>(F(kMinClientH)));
+  const int want = g.user_sized ? std::min(h, content_h)
+                                : std::min(static_cast<int>(std::ceil(g.base_bottom)), MaxClientHeight(hwnd));
   if (want > 0 && std::abs(want - h) > 1) {
     RECT wr{0, 0, w, want};
     AdjustWindowRectEx(&wr, GetWindowLongW(hwnd, GWL_STYLE), FALSE, GetWindowLongW(hwnd, GWL_EXSTYLE));
@@ -1346,8 +1419,9 @@ void ScrollBy(float dy) {
   }
 }
 
+// La última que se añadió gana: va pintada encima (el «?» de una fila sobre la fila entera).
 int HitAt(int x, int y) {
-  for (size_t i = 0; i < g.hits.size(); ++i) {
+  for (size_t i = g.hits.size(); i-- > 0;) {
     if (g.hits[i].rect.Contains(static_cast<float>(x), static_cast<float>(y) + g.scroll)) return static_cast<int>(i);
   }
   return -1;
@@ -1388,19 +1462,19 @@ void ExitApp() {
 
 void ShowTrayMenu() {
   HMENU m = CreatePopupMenu();
-  AppendMenuW(m, MF_STRING, kMenuOpen, L"Abrir Extendesk");
+  AppendMenuW(m, MF_STRING, kMenuOpen, Tr("menu_open").c_str());
   SetMenuDefaultItem(m, kMenuOpen, FALSE);
   AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
   AppendMenuW(m, MF_STRING | (g.state == State::kStopping ? MF_GRAYED : 0), kMenuToggle,
-              Running() ? L"Detener la transmisión" : L"Iniciar la transmisión");
-  AppendMenuW(m, MF_STRING, kMenuVirtual, L"Pantalla extra");
-  AppendMenuW(m, MF_STRING, kMenuMirror, L"Duplicar un monitor");
+              Tr(Running() ? "menu_stop" : "menu_start").c_str());
+  AppendMenuW(m, MF_STRING, kMenuVirtual, Tr("mode_extend").c_str());
+  AppendMenuW(m, MF_STRING, kMenuMirror, Tr("menu_mirror").c_str());
   CheckMenuRadioItem(m, kMenuVirtual, kMenuMirror, g.settings.virtual_display ? kMenuVirtual : kMenuMirror,
                      MF_BYCOMMAND);
   AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
-  AppendMenuW(m, MF_STRING | (StartsWithWindows() ? MF_CHECKED : 0), kMenuAutostart, L"Abrir al iniciar Windows");
+  AppendMenuW(m, MF_STRING | (StartsWithWindows() ? MF_CHECKED : 0), kMenuAutostart, Tr("menu_autostart").c_str());
   AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
-  AppendMenuW(m, MF_STRING, kMenuExit, L"Salir");
+  AppendMenuW(m, MF_STRING, kMenuExit, Tr("menu_exit").c_str());
   POINT pt;
   GetCursorPos(&pt);
   SetForegroundWindow(g.wnd);  // si no, el menú no se cierra al hacer clic fuera
@@ -1420,6 +1494,34 @@ LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
       return 0;
     case WM_ERASEBKGND:
       return 1;
+    case WM_GETMINMAXINFO: {
+      RECT r{0, 0, static_cast<LONG>(F(kMinClientW)), static_cast<LONG>(F(kMinClientH))};
+      AdjustWindowRectEx(&r, GetWindowLongW(hwnd, GWL_STYLE), FALSE, GetWindowLongW(hwnd, GWL_EXSTYLE));
+      auto* mmi = reinterpret_cast<MINMAXINFO*>(lp);
+      mmi->ptMinTrackSize = {r.right - r.left, r.bottom - r.top};
+      const int content_h = std::max(static_cast<int>(std::ceil(g.content_bottom)), static_cast<int>(F(kMinClientH)));
+      RECT big{0, 0, static_cast<LONG>(F(kMaxClientW)), static_cast<LONG>(content_h)};
+      AdjustWindowRectEx(&big, GetWindowLongW(hwnd, GWL_STYLE), FALSE, GetWindowLongW(hwnd, GWL_EXSTYLE));
+      mmi->ptMaxTrackSize = {big.right - big.left, std::max(big.bottom - big.top, r.bottom - r.top)};
+      return 0;
+    }
+    case WM_SIZING:  // solo llega cuando el usuario arrastra un borde
+      g.user_sized = true;
+      break;
+    case WM_EXITSIZEMOVE:
+      // Se recuerda el tamaño que dejó el usuario (a 96 ppp) para la próxima vez.
+      if (g.user_sized) {
+        RECT rc;
+        GetClientRect(hwnd, &rc);
+        g.settings.window_w = static_cast<int>(std::lround(rc.right / g.scale));
+        g.settings.window_h = static_cast<int>(std::lround(rc.bottom / g.scale));
+        SaveSettings(g.settings);
+      }
+      return 0;
+    case WM_SIZE:
+      ClampScroll(static_cast<float>(HIWORD(lp)));
+      Redraw();
+      return 0;
     case WM_MOUSEMOVE: {
       if (!g.mouse_tracked) {
         TRACKMOUSEEVENT tme{sizeof(tme), TME_LEAVE, hwnd, 0};
@@ -1550,7 +1652,7 @@ LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
       ShowWindow(hwnd, SW_HIDE);
       if (!g.tray_hint_shown) {
         g.tray_hint_shown = true;
-        Notify(L"Extendesk sigue abierto", L"Está junto al reloj. Para cerrarlo: clic derecho en el icono > Salir.");
+        Notify(Tr("n_still_open"), Tr("n_still_open_body"));
       }
       return 0;
     case WM_QUERYENDSESSION:
@@ -1570,7 +1672,7 @@ LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
 int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd_line, int) {
   // Una sola copia: si ya está abierta, se muestra esa.
-  HANDLE mutex = CreateMutexW(nullptr, TRUE, L"Local\\DeskLinkApp");
+  HANDLE mutex = CreateMutexW(nullptr, TRUE, L"Local\\ExtendeskApp");
   if (GetLastError() == ERROR_ALREADY_EXISTS) {
     if (HWND other = FindWindowW(kMainClass, nullptr)) PostMessageW(other, WM_APP_SHOW, 0, 0);
     return 0;
@@ -1645,11 +1747,13 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd_line, int) {
     g.settings.virtual_display = VirtualDriverInstalled();
     SaveSettings(g.settings);
   }
+  ApplyLanguage();
   g.driver_installed = VirtualDriverInstalled();
   g.autostart = StartsWithWindows();
   g.monitors = MonitorNames();
 
-  const DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+  // Se puede agrandar hasta cierto tamaño (WM_GETMINMAXINFO), sin maximizar; el contenido se adapta al ancho.
+  const DWORD style = WS_OVERLAPPEDWINDOW & ~WS_MAXIMIZEBOX;
   RECT r{0, 0, static_cast<LONG>(F(kClientW)), static_cast<LONG>(F(640))};
   AdjustWindowRectEx(&r, style, FALSE, 0);
   g.wnd = CreateWindowExW(0, kMainClass, kAppName, style, CW_USEDEFAULT, CW_USEDEFAULT, r.right - r.left,
@@ -1681,8 +1785,15 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd_line, int) {
     DeleteObject(bmp);
     DeleteDC(mem);
     ReleaseDC(g.wnd, screen);
-    RECT wr{0, 0, static_cast<LONG>(F(kClientW)),
-            static_cast<LONG>(std::min(static_cast<int>(std::ceil(g.base_bottom)), MaxClientHeight(g.wnd)))};
+    // El tamaño que dejó el usuario la última vez o, si no hay, el del contenido.
+    g.user_sized = g.settings.window_w > 0 && g.settings.window_h > 0;
+    const int client_w = g.user_sized ? std::clamp(static_cast<int>(F(static_cast<float>(g.settings.window_w))),
+                                                   static_cast<int>(F(kMinClientW)), static_cast<int>(F(kMaxClientW)))
+                                      : static_cast<int>(F(kClientW));
+    const int client_h = std::min(g.user_sized ? static_cast<int>(F(static_cast<float>(g.settings.window_h)))
+                                               : static_cast<int>(std::ceil(g.base_bottom)),
+                                  MaxClientHeight(g.wnd));
+    RECT wr{0, 0, static_cast<LONG>(std::min(client_w, GetSystemMetrics(SM_CXFULLSCREEN))), static_cast<LONG>(client_h)};
     AdjustWindowRectEx(&wr, style, FALSE, 0);
     SetWindowPos(g.wnd, nullptr, 0, 0, wr.right - wr.left, wr.bottom - wr.top, SWP_NOMOVE | SWP_NOZORDER);
     CenterOnWorkArea(g.wnd);
@@ -1692,7 +1803,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd_line, int) {
   TrayCommand(NIM_ADD);
   SetTimer(g.wnd, kTimerRefresh, 5000, nullptr);
   if (!tray_only) ShowMain();
-  if (g.settings.stream_on_open) StartHost();
+  StartHost();  // siempre escucha: la pantalla extra solo aparece cuando un dispositivo se conecta
 
   MSG msg;
   while (GetMessageW(&msg, nullptr, 0, 0) > 0) {

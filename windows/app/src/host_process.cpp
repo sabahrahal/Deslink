@@ -117,7 +117,7 @@ bool HostProcess::Start(HWND hwnd, const std::wstring& exe, const std::wstring& 
   const unsigned gen = ++generation_;
 
   const std::wstring event_name =
-      L"Local\\DeskLinkHostStop-" + std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(gen);
+      L"Local\\ExtendeskHostStop-" + std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(gen);
   stop_event_ = CreateEventW(nullptr, TRUE, FALSE, event_name.c_str());
 
   SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
@@ -153,8 +153,8 @@ bool HostProcess::Start(HWND hwnd, const std::wstring& exe, const std::wstring& 
     CloseHandle(err_r);
     CloseHandle(in_w);
     *error = create_error == ERROR_FILE_NOT_FOUND
-                 ? L"No encuentro desklink-host.exe: debe estar en la misma carpeta que desklink.exe."
-                 : L"No se pudo abrir desklink-host.exe (error " + std::to_wstring(create_error) + L").";
+                 ? L"No encuentro extendesk-host.exe: debe estar en la misma carpeta que extendesk.exe."
+                 : L"No se pudo abrir extendesk-host.exe (error " + std::to_wstring(create_error) + L").";
     return false;
   }
   if (job_) AssignProcessToJobObject(job_, pi.hProcess);

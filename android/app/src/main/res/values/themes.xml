@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Fondo del tema (claro u oscuro, como el sistema) desde el primer fotograma. Colores: docs/design.md -->
-    <style name="Theme.DeskLink" parent="@android:style/Theme.Material.Light.NoActionBar">
+    <style name="Theme.Extendesk" parent="@android:style/Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@color/dl_background</item>
         <item name="android:colorAccent">@color/dl_accent</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
 
-    <style name="Theme.DeskLink.Stream">
+    <style name="Theme.Extendesk.Stream">
         <item name="android:windowBackground">@android:color/black</item>
         <item name="android:windowFullscreen">true</item>
     </style>

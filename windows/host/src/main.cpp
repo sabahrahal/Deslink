@@ -33,6 +33,7 @@
 #include "touch.h"
 #include "udp.h"
 #include "virtual_display.h"
+#include "../../common/app_data.h"
 
 namespace {
 
@@ -47,8 +48,8 @@ void OnSignal(int) { g_running = false; }
 class SingleInstance {
  public:
   SingleInstance() {
-    quit_ = CreateEventW(nullptr, TRUE, FALSE, L"Local\\DeskLinkHost.Quit");
-    mutex_ = CreateMutexW(nullptr, FALSE, L"Local\\DeskLinkHost");
+    quit_ = CreateEventW(nullptr, TRUE, FALSE, L"Local\\ExtendeskHost.Quit");
+    mutex_ = CreateMutexW(nullptr, FALSE, L"Local\\ExtendeskHost");
     if (!mutex_) return;
     DWORD r = WaitForSingleObject(mutex_, 0);
     if (r == WAIT_TIMEOUT) {
@@ -133,11 +134,10 @@ void SendPaced(const std::vector<std::vector<uint8_t>>& packets, uint32_t pace_m
   }
 }
 
-// Ajustes que se recuerdan entre sesiones, uno por fichero en %APPDATA%\DeskLink.
+// Ajustes que se recuerdan entre sesiones, uno por fichero en %APPDATA%\Extendesk.
 std::wstring ConfigPath(const wchar_t* name) {
-  wchar_t base[MAX_PATH];
-  if (!GetEnvironmentVariableW(L"APPDATA", base, MAX_PATH)) return {};
-  return std::wstring(base) + L"\\DeskLink\\" + name;
+  const std::wstring dir = AppDataDir();
+  return dir.empty() ? dir : dir + L"\\" + name;
 }
 
 // Resolución que el usuario dejó en Configuración de pantalla de Windows para el monitor virtual, y la tablet para la
@@ -279,7 +279,7 @@ struct Options {
   bool open_tablet = true;       // --no-open-tablet: no abrir Extendesk en la tablet al enchufarla
   std::wstring adb_path;         // --adb: ruta de adb.exe (si no, se busca)
   UINT refine = 4;               // --refine: repeticiones extra al quedarse quieta la imagen para afinar la calidad
-  bool status = false;           // --status: líneas «@...» para la app de bandeja (desklink.exe) en vez de las estadísticas
+  bool status = false;           // --status: líneas «@...» para la app de bandeja (extendesk.exe) en vez de las estadísticas
   std::wstring stop_event;       // --stop-event: evento con nombre que, al activarse, cierra el host limpiamente
   bool audio = true;             // --no-audio: nunca envía el sonido del PC (aunque la tablet lo pida)
   UINT audio_kbps = 128;         // --audio-bitrate: kbps de Opus
@@ -507,7 +507,7 @@ bool ParseArgs(int argc, char** argv, Options* o) {
       }
     } else {
       std::fprintf(stderr,
-                   "Uso: desklink-host [--port 47800] [--output 0] [--fps auto|60] [--bitrate auto|50] "
+                   "Uso: extendesk-host [--port 47800] [--output 0] [--fps auto|60] [--bitrate auto|50] "
                    "[--codec auto|hevc|h264] [--profile alta|equilibrada|ahorro] [--audio-tablet] [--battery-adapt] "
                    "[--encoder auto|nvenc|amf|mf] [--pace Mbps] [--fec 10] [--refine 4] [--no-touch] [--touch|--mouse|--view-only] [--no-cursor] [--no-audio] "
                    "[--audio-bitrate 128] [--virtual [--size 2944x1840]] [--no-usb] [--no-open-tablet] [--adb ruta\\adb.exe] [--status] "
@@ -864,23 +864,39 @@ int Run(int argc, char** argv) {
     std::printf("Calidad %s · %s · sonido en %s · táctil: %s%s.\n", ProfileArg(opt.profile),
                 opt.user_fps ? "fps fijos" : "fps automáticos", opt.audio_tablet ? "la tablet" : "el PC",
                 InputArg(opt.input_mode < 0 ? 0 : opt.input_mode), opt.battery_adapt ? " · baja si la batería no aguanta" : "");
-    if (opt.virtual_display) {
-      UINT mw = 0, mh = 0;
-      MonitorSize(opt, &mw, &mh);
-      if (!virtual_display.Plug(mw, mh, MonitorHz(opt.fps), opt.virtual_width, opt.virtual_height)) break;
-    }
-    pipe = build(10);
-    if (!pipe) break;
-    if (!opt.virtual_display) {
-      std::lock_guard<std::mutex> lock(quality_mutex);
-      Decide(&opt, dlp::HelloConfig{}, pipe->w, pipe->h);  // la tasa automática, para el tamaño del monitor
-    }
-    {
+    // La pantalla extra no se crea hasta que saluda una tablet y se quita cuando se va (ver «parked» en el bucle):
+    // sin tablet, Windows no tiene un monitor de más que nadie ve. Hasta entonces la búsqueda de la tablet recibe el
+    // nombre del PC y el tamaño previsto. Duplicando un monitor se captura desde ya, como siempre.
+    bool parked = opt.virtual_display;
+    if (parked) {
+      if (!VirtualDisplay::Installed()) {
+        std::fprintf(stderr, "Error: el driver del monitor virtual no está instalado.\n");
+        break;
+      }
+      dlp::StreamInfo info;
+      info.width = static_cast<uint16_t>(opt.virtual_width);
+      info.height = static_cast<uint16_t>(opt.virtual_height);
+      info.fps = static_cast<uint16_t>(current_quality().fps);
+      info.codec = opt.codec == VideoCodec::kHevc ? dlp::Codec::kHevc : dlp::Codec::kH264;
+      info.host_flags = dlp::kHostAcceptsHelloConfig;
+      info.host_name = host_name;
+      std::lock_guard<std::mutex> lock(info_mutex);
+      info_payload = dlp::EncodeStreamInfo(info);
+      info_current = info;
+    } else {
+      pipe = build(10);
+      if (!pipe) break;
+      {
+        std::lock_guard<std::mutex> lock(quality_mutex);
+        Decide(&opt, dlp::HelloConfig{}, pipe->w, pipe->h);  // la tasa automática, para el tamaño del monitor
+      }
       std::lock_guard<std::mutex> lock(enc_mutex);
       enc_ptr = pipe->encoder.get();
     }
 
     std::atomic<uint32_t> last_client_ip{0};
+    // La tablet dijo adiós (BYE): su motivo (dlp::ByeReason) hasta que el bucle principal la olvida; -1 = no lo dijo.
+    std::atomic<int> peer_bye{-1};
     std::atomic<uint64_t> last_keyframe_us{0};
     // Tasa según el enlace (dlp::RateController): por WiFi baja un 15 % si se pierde más del 2 %, nunca por debajo
     // de la mitad del máximo, y vuelve sola en segundos. Solo se toca desde el hilo de recepción; el máximo es el
@@ -926,6 +942,7 @@ int Run(int argc, char** argv) {
           break;
         }
         case dlp::PacketType::kHello:
+          peer_bye = -1;  // volvió (p. ej. al desbloquearla) antes de que el PC la olvidara
           if (auto config = dlp::DecodeHelloConfig(data + dlp::kHeaderSize, header->payload_size)) {
             std::lock_guard<std::mutex> lock(config_mutex);
             if (*config != requested_config) {
@@ -1136,6 +1153,15 @@ int Run(int argc, char** argv) {
           touch.UpdatePen(p);
           break;
         }
+        case dlp::PacketType::kBye: {
+          // Desconectar en la tablet (o bloquearla): se la olvida ya, sin esperar 5 s de silencio. Cuánto aguanta
+          // la pantalla extra lo decide el bucle principal según el motivo.
+          if (!udp.has_peer() || from.sin_addr.s_addr != last_client_ip.load()) break;
+          const uint8_t reason = header->payload_size >= 1 ? data[dlp::kHeaderSize] : dlp::kByeLeave;
+          peer_bye = reason == dlp::kByePause ? dlp::kByePause : dlp::kByeLeave;
+          udp.ForgetPeer();
+          break;
+        }
         case dlp::PacketType::kAudioControl:
           break;  // las tablets de antes pedían aquí el sonido; ahora se elige en el PC (--audio-tablet)
         case dlp::PacketType::kNack: {
@@ -1199,7 +1225,9 @@ int Run(int argc, char** argv) {
     };
     if (opt.touch) {
       // Los toques caen sobre el monitor que se captura (el virtual con --virtual).
-      const RECT r = pipe->gpu.desktop_rect;
+      // Sin pantalla extra todavía: el monitor principal hasta que se cree (rebuild le pasa la suya).
+      const RECT r = pipe ? pipe->gpu.desktop_rect
+                          : RECT{0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)};
       const auto mode = opt.input_mode == 0   ? TouchInjector::Mode::kTouch
                         : opt.input_mode == 1 ? TouchInjector::Mode::kMouse
                                               : LoadInputMode();
@@ -1285,8 +1313,9 @@ int Run(int argc, char** argv) {
       pipe.reset();
       sender.Clear();
       if (replug) {
+        const bool plugged = !virtual_display.gdi_name().empty();
         virtual_display.Unplug();
-        Sleep(500);
+        if (plugged) Sleep(500);
         UINT mw = 0, mh = 0;
         MonitorSize(opt, &mw, &mh);
         if (!virtual_display.Plug(mw, mh, MonitorHz(opt.fps), opt.virtual_width, opt.virtual_height)) {
@@ -1318,7 +1347,92 @@ int Run(int argc, char** argv) {
       return true;
     };
 
+    // Desconexión (ver docs/architecture.md#desconexión). Cuando la tablet se va, la pantalla extra aguanta un poco por
+    // si vuelve (las ventanas no se mueven): 1 s si pulsó Desconectar, 60 s si se bloqueó y 15 s más tras los 5 s
+    // sin respuesta si se cortó sin avisar (cable que parpadea, Wi-Fi que se va). Pasado eso se quita («parked») y
+    // el host sigue escuchando sin capturar ni codificar; la próxima vez que salude se vuelve a crear.
+    uint64_t peer_gone_us = 0;    // cuándo se olvidó a la tablet (0: está, o ya se quitó la pantalla)
+    uint64_t park_after_us = 0;   // cuánto se espera desde entonces
+    auto park = [&]() {
+      {
+        std::lock_guard<std::mutex> lock(enc_mutex);
+        enc_ptr = nullptr;
+      }
+      pipe.reset();
+      sender.Clear();
+      virtual_display.Unplug();
+      parked = true;
+      peer_gone_us = 0;
+      last_nv12 = nullptr;
+      dirty = false;
+      flush_left = 0;
+      refine_left = 0;
+      std::printf("Sin dispositivo: quito la pantalla extra hasta que vuelva a conectarse.\n");
+    };
+    auto unpark = [&]() -> bool {
+      // Se crea ya a la medida de lo que dijo la tablet en su HELLO (y con la resolución recordada para ella).
+      dlp::HelloConfig caps;
+      {
+        std::lock_guard<std::mutex> lock(config_mutex);
+        caps = requested_config;
+      }
+      {
+        std::lock_guard<std::mutex> lock(quality_mutex);
+        Decide(&opt, caps, 0, 0);
+        fps_gov.Reset(Apply(opt, tablet_request, 0).limit_fps);
+        min_interval_us = 1'000'000ull / Apply(opt, tablet_request, fps_gov.fps()).fps;
+      }
+      std::printf("Dispositivo conectado: pongo la pantalla extra de %ux%u.\n", opt.virtual_width, opt.virtual_height);
+      if (!rebuild(true, false, opt.virtual_width, opt.virtual_height)) return false;
+      parked = false;
+      rate_reset = true;  // codificador nuevo: la tasa vuelve a empezar
+      if (udp.has_peer()) {
+        {
+          std::lock_guard<std::mutex> lock(info_mutex);
+          udp.SendToPeer(dlp::MakeControlPacket(dlp::PacketType::kStreamInfo, info_payload.data(), info_payload.size(),
+                                                NowUs()));
+        }
+        send_session(nullptr, true);
+      }
+      return true;
+    };
+    // Sin pantalla extra: la ventana del PC sigue viendo el estado del cable USB una vez por segundo.
+    auto idle = [&]() {
+      update_audio();
+      const uint64_t t = NowUs();
+      if (t - last_stats_us >= 1'000'000) {
+        last_stats_us = t;
+        adb.set_busy(false);
+        if (opt.status) {
+          std::printf("@estado enlace=ninguno ip=- capturados=0 codificados=0 mbps=0 cod_ms=0 rtt_ms=0 recibidos=0 "
+                      "perdidos=0 reenvios=0 fps_max=%u fps_obj=0 mbps_obj=0 codec=%s reducido=no adb=%d "
+                      "adb_pendientes=%d enviados=0 descartados=0 tablet_fps=- pantalla=no\n",
+                      opt.fps, opt.codec == VideoCodec::kHevc ? "hevc" : "h264", opt.usb ? adb.ready() : -1,
+                      opt.usb ? adb.unauthorized() : 0);
+        }
+      }
+      Sleep(20);
+    };
+
     while (g_running) {
+      if (opt.virtual_display) {
+        if (udp.has_peer()) {
+          peer_gone_us = 0;
+        } else if (!parked && peer_gone_us && NowUs() - peer_gone_us >= park_after_us) {
+          park();
+        }
+        if (parked) {
+          if (!udp.has_peer()) {
+            idle();
+            continue;
+          }
+          if (!unpark()) {
+            std::fprintf(stderr, "Error: no se pudo crear la pantalla extra para el dispositivo.\n");
+            failed = true;
+            break;
+          }
+        }
+      }
       if (config_seq.load() != applied_seq) {
         // La tablet saludó (su pantalla, Hz y códecs) o el usuario cambió algo en la ventana del PC: se decide de
         // nuevo y, si cambia el tamaño, los fps del monitor o el códec, se rehace el pipeline.
@@ -1499,7 +1613,18 @@ int Run(int argc, char** argv) {
         tablet_decoded = -1;
         tablet_decode_x10 = -1;
         tablet_total_x10 = 0;
-        std::printf("Cliente desconectado (sin respuesta durante 5 s). Esperando cliente.\n");
+        const int bye = peer_bye.exchange(-1);
+        peer_gone_us = NowUs();
+        park_after_us = bye == dlp::kByeLeave ? 1'000'000ull : bye == dlp::kByePause ? 60'000'000ull : 15'000'000ull;
+        if (bye == dlp::kByeLeave) {
+          std::printf("El dispositivo se desconectó. Esperando cliente.\n");
+        } else if (bye == dlp::kByePause) {
+          std::printf("El dispositivo se bloqueó o pasó a segundo plano: la pantalla extra se queda 60 s por si vuelve.\n");
+        } else if (opt.virtual_display) {
+          std::printf("Cliente desconectado (sin respuesta). La pantalla extra se queda 15 s más por si vuelve.\n");
+        } else {
+          std::printf("Cliente desconectado (sin respuesta durante 5 s). Esperando cliente.\n");
+        }
       }
 
       // Cada imagen nueva del escritorio solo se copia (hay que hacerlo antes de soltarla) y queda como
@@ -1707,14 +1832,19 @@ int Run(int argc, char** argv) {
                                                                             : "no";
           std::printf("@estado enlace=%s ip=%s capturados=%.1f codificados=%.1f mbps=%.1f cod_ms=%.1f rtt_ms=%.1f "
                       "recibidos=%u perdidos=%u reenvios=%llu size=%ux%u fps_max=%u fps_obj=%u mbps_obj=%.1f "
-                      "codec=%s reducido=%s adb=%d adb_pendientes=%d enviados=%.1f descartados=%.1f tablet_fps=%s\n",
+                      "codec=%s reducido=%s adb=%d adb_pendientes=%d enviados=%.1f descartados=%.1f tablet_fps=%s "
+                      "pantalla=si gracia=%llu\n",
                       !peer ? "ninguno" : udp.peer_is_usb() ? "usb" : peer_tether ? "anclaje" : "wifi", ip,
                       (captured - last_captured) / secs, enc / secs, (bytes_sent - last_bytes) * 8 / secs / 1e6,
                       enc ? lat / 1000.0 / enc : 0.0, rtt_us.load() / 1000.0, tablet_received.load(),
                       tablet_lost.load(), static_cast<unsigned long long>(retransmits.load() - last_retransmits),
                       pipe->w, pipe->h, opt.fps, session.fps, session.bitrate_x100kbps / 10.0,
                       opt.codec == VideoCodec::kHevc ? "hevc" : "h264", reduced, opt.usb ? adb.ready() : -1,
-                      opt.usb ? adb.unauthorized() : 0, submitted / secs, dropped / secs, tablet_fps_text);
+                      opt.usb ? adb.unauthorized() : 0, submitted / secs, dropped / secs, tablet_fps_text,
+                      static_cast<unsigned long long>(
+                          !peer && peer_gone_us && opt.virtual_display && park_after_us > t - peer_gone_us
+                              ? (park_after_us - (t - peer_gone_us) + 999'999) / 1'000'000
+                              : 0));
         } else {
           std::printf("capturados %.0f/s | codificados %.0f/s | %.1f Mbps | codificación %.1f ms | claves %llu | conv %.1f ms | buzón %.1f ms | errores de envío %llu | reenvíos %llu | toques %llu%s\n",
                       (captured - last_captured) / secs, enc / secs,
@@ -1743,6 +1873,14 @@ int Run(int argc, char** argv) {
         last_encode_count = pipe->encoder->encode_count;
         last_submitted = pipe->encoder->submitted_frames;
         last_dropped = pipe->encoder->dropped_frames;
+      }
+    }
+    // Detener o Salir en el PC: la tablet vuelve al inicio en vez de quedarse esperando a un PC que no está.
+    if (!failed && udp.has_peer()) {
+      const uint8_t reason = dlp::kByeLeave;
+      for (int i = 0; i < 3; ++i) {
+        udp.SendToPeer(dlp::MakeControlPacket(dlp::PacketType::kBye, &reason, 1, NowUs()));
+        Sleep(5);
       }
     }
     // Los hilos usan variables de este bloque: se paran antes de salir de él.

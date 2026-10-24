@@ -1,0 +1,7 @@
+// Icono, manifiesto (controles comunes v6 y DPI) y fuentes del logo (Montserrat, design/fonts/) de extendesk.exe.
+#include <windows.h>
+
+APP ICON "extendesk.ico"
+CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "extendesk.manifest"
+FONT_BLACK RCDATA "../../../design/fonts/Montserrat-Black.ttf"
+FONT_BOLD RCDATA "../../../design/fonts/Montserrat-Bold.ttf"

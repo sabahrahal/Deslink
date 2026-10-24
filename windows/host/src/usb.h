@@ -19,7 +19,7 @@
 SOCKET NonInheritableSocket(int type, int protocol);
 
 // Cierra el servidor de adb (adb kill-server). adb_path vacío: lo busca como AdbReverse. Para soltar el puerto
-// de DeskLink si lo retiene un servidor de adb que lo heredó de un host de una versión anterior.
+// de Extendesk si lo retiene un servidor de adb que lo heredó de un host de una versión anterior.
 bool StopAdbServer(const std::wstring& adb_path);
 
 // Enlace USB: servidor TCP en 127.0.0.1 al que llega la tablet por `adb reverse` (ver docs/usb.md).
@@ -66,7 +66,7 @@ class AdbReverse {
   // Tablets con el túnel puesto y tablets enchufadas sin autorizar; ready() es -1 si no hay adb.exe.
   int ready() const { return missing_ ? -1 : ready_.load(); }
   int unauthorized() const { return unauthorized_; }
-  // Abrir DeskLink en la tablet en cuanto se enchufa (con la depuración USB ya aceptada).
+  // Abrir Extendesk en la tablet en cuanto se enchufa (con la depuración USB ya aceptada).
   void set_open_app(bool open) { open_app_ = open; }
   // Hay una tablet transmitiendo: no se abre la app (se pondría delante de la sesión).
   void set_busy(bool busy) { busy_ = busy; }

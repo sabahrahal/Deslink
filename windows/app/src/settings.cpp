@@ -4,10 +4,14 @@
 
 #include <cstdio>
 #include <cwchar>
+#include <vector>
+
+#include "../../common/app_data.h"
 
 namespace {
 
-constexpr wchar_t kSection[] = L"DeskLink";
+constexpr wchar_t kSection[] = L"Extendesk";
+constexpr wchar_t kLegacySection[] = L"DeskLink";
 // 3: el PC elige todo (calidad, sonido, táctil, resolución, fps, Mbps, códec). En la 2 lo elegía la tablet.
 constexpr int kConfigVersion = 3;
 
@@ -29,12 +33,27 @@ void WriteString(const std::wstring& path, const wchar_t* key, const std::wstrin
   WritePrivateProfileStringW(kSection, key, v.c_str(), path.c_str());
 }
 
+// Antes del nombre Extendesk el archivo era desklink.ini, con la sección [DeskLink]: se pasa la primera vez.
+void MigrateLegacyIni(const std::wstring& path, const std::wstring& legacy_path) {
+  if (GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES || !MoveFileW(legacy_path.c_str(), path.c_str())) {
+    return;
+  }
+  std::vector<wchar_t> section(32768);
+  if (GetPrivateProfileSectionW(kLegacySection, section.data(), static_cast<DWORD>(section.size()), path.c_str()) == 0) {
+    return;
+  }
+  WritePrivateProfileSectionW(kSection, section.data(), path.c_str());
+  WritePrivateProfileStringW(kLegacySection, nullptr, nullptr, path.c_str());
+}
+
 }  // namespace
 
 std::wstring SettingsPath() {
-  wchar_t base[MAX_PATH];
-  if (!GetEnvironmentVariableW(L"APPDATA", base, MAX_PATH)) return {};
-  return std::wstring(base) + L"\\DeskLink\\desklink.ini";
+  const std::wstring dir = AppDataDir();
+  if (dir.empty()) return {};
+  const std::wstring path = dir + L"\\extendesk.ini";
+  MigrateLegacyIni(path, dir + L"\\desklink.ini");
+  return path;
 }
 
 bool LoadSettings(Settings* s) {
@@ -50,13 +69,13 @@ bool LoadSettings(Settings* s) {
   s->fps = ReadInt(path, L"fps", s->fps);
   s->bitrate = ReadInt(path, L"bitrate", s->bitrate);
   s->codec = ReadString(path, L"codec");
-  s->battery_adapt = ReadInt(path, L"battery_adapt", s->battery_adapt) != 0;
-  s->usb = ReadInt(path, L"usb", s->usb) != 0;
-  s->stream_on_open = ReadInt(path, L"stream_on_open", s->stream_on_open) != 0;
-  s->open_tablet = ReadInt(path, L"open_tablet", s->open_tablet) != 0;
   s->port = ReadInt(path, L"port", s->port);
   s->adb = ReadString(path, L"adb");
   s->extra = ReadString(path, L"extra");
+  s->language = ReadString(path, L"language");
+  s->battery_adapt = ReadInt(path, L"battery_adapt", 0) != 0;
+  s->window_w = ReadInt(path, L"window_w", 0);
+  s->window_h = ReadInt(path, L"window_h", 0);
   Sanitize(s);
   if (ReadInt(path, L"config", 1) < kConfigVersion) SaveSettings(*s);
   return true;
@@ -87,11 +106,11 @@ void SaveSettings(const Settings& s) {
   WriteInt(path, L"fps", s.fps);
   WriteInt(path, L"bitrate", s.bitrate);
   WriteString(path, L"codec", s.codec);
-  WriteInt(path, L"battery_adapt", s.battery_adapt);
-  WriteInt(path, L"usb", s.usb);
-  WriteInt(path, L"stream_on_open", s.stream_on_open);
-  WriteInt(path, L"open_tablet", s.open_tablet);
   WriteInt(path, L"port", s.port);
   WriteString(path, L"adb", s.adb);
   WriteString(path, L"extra", s.extra);
+  WriteString(path, L"language", s.language);
+  WriteInt(path, L"battery_adapt", s.battery_adapt);
+  WriteInt(path, L"window_w", s.window_w);
+  WriteInt(path, L"window_h", s.window_h);
 }

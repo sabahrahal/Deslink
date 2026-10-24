@@ -1,4 +1,4 @@
-// EDID mínimo (1.4, 128 bytes) del monitor virtual. Lleva el nombre «DeskLink» (para que el host lo
+// EDID mínimo (1.4, 128 bytes) del monitor virtual. Lleva el nombre «Extendesk» (para que el host lo
 // encuentre) y el modo pedido escrito como número de serie, «2944x1840@60», para recuperarlo al
 // analizar la descripción del monitor (IddCx no dice a qué monitor pertenece cada EDID).
 #pragma once
@@ -8,7 +8,7 @@
 #include <cstdio>
 #include <cstring>
 
-namespace desklink {
+namespace extendesk {
 
 struct Mode {
   uint32_t width = 0;
@@ -76,7 +76,7 @@ inline Edid BuildEdid(const Mode& m) {
 
   char serial[16];
   std::snprintf(serial, sizeof(serial), "%ux%u@%u", m.width, m.height, m.refresh);
-  WriteTextDescriptor(e.data() + 72, 0xFC, "DeskLink");
+  WriteTextDescriptor(e.data() + 72, 0xFC, "Extendesk");
   WriteTextDescriptor(e.data() + 90, 0xFF, serial);
   std::memset(e.data() + 108, 0, 18);
   e[108 + 3] = 0x10;  // descriptor vacío
@@ -88,7 +88,7 @@ inline Edid BuildEdid(const Mode& m) {
   return e;
 }
 
-// Lee el modo escrito en el número de serie. Devuelve false si el EDID no es de DeskLink.
+// Lee el modo escrito en el número de serie. Devuelve false si el EDID no es de Extendesk.
 inline bool ParseEdidMode(const uint8_t* data, size_t size, Mode* out) {
   if (size < 128) return false;
   for (int off = 54; off <= 108; off += 18) {
@@ -107,4 +107,4 @@ inline bool ParseEdidMode(const uint8_t* data, size_t size, Mode* out) {
   return false;
 }
 
-}  // namespace desklink
+}  // namespace extendesk

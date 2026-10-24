@@ -20,12 +20,12 @@ Objetivo: menos de 35 ms de cristal a cristal por WiFi y menos de 25 ms por USB.
 | `protocol/` | Especificación DLP y librería C++ compartida (paquetes, FEC, cifrado) |
 | `windows/driver/` | Indirect Display Driver (IddCx, UMDF) |
 | `windows/host/` | Servicio C++20: captura, encoders, transportes, entrada, diagnóstico |
-| `windows/app/` | `desklink.exe`: app de bandeja (Win32) que arranca el host, enseña el estado y guarda los ajustes |
+| `windows/app/` | `extendesk.exe`: app de bandeja (Win32) que arranca el host, enseña el estado y guarda los ajustes |
 | `android/app/` | App Kotlin + Jetpack Compose (UI, emparejamiento QR, panel de diagnóstico) |
 | `android/native/` | C++ NDK: red, FEC, AMediaCodec |
 | `windows/installer/` | Instalador de Windows (Inno Setup) |
 | `tools/dev/` | `actualizar.ps1`: instala la última versión de prueba en el PC o la tablet |
-| `tools/bench/` | `desklink-bench`: comparación de latencia entre transportes |
+| `tools/bench/` | `extendesk-bench`: comparación de latencia entre transportes |
 
 ## Documentación
 

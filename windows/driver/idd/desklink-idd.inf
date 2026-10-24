@@ -1,5 +1,7 @@
 ;
-; desklink-idd.inf: monitor virtual de DeskLink (Indirect Display Driver, UMDF)
+; desklink-idd.inf: monitor virtual de Extendesk (Indirect Display Driver, UMDF)
+; Los nombres de archivo, secciones, servicio e id de hardware (DeskLink...) son los de antes del nombre Extendesk y se
+; conservan: así los equipos que ya lo tienen lo actualizan y lo desinstalan como siempre.
 ;
 
 [Version]
@@ -62,8 +64,8 @@ UMDriverCopy=12,UMDF
 desklink-idd.dll
 
 [Strings]
-ManufacturerName="DeskLink"
-DiskName="DeskLink"
-DeviceName="DeskLink monitor virtual"
+ManufacturerName="Extendesk"
+DiskName="Extendesk"
+DeviceName="Extendesk monitor virtual"
 REG_MULTI_SZ=0x00010000
 REG_SZ=0x00000000

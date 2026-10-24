@@ -6,7 +6,7 @@
 #include <string>
 #include <thread>
 
-// Monitor virtual de DeskLink (driver desklink-idd). Plug() pide al driver un monitor de width x height (el tamaño
+// Monitor virtual de Extendesk (driver desklink-idd). Plug() pide al driver un monitor de width x height (el tamaño
 // nativo de la tablet: Windows ofrece de ahí hacia abajo y lo reconoce siempre como el mismo monitor) y le pone
 // mode_w x mode_h (la resolución elegida en Windows),
 // espera a que Windows lo active como pantalla extendida y devuelve su nombre GDI («\\.\DISPLAY3»),
@@ -16,6 +16,8 @@ class VirtualDisplay {
  public:
   ~VirtualDisplay() { Unplug(); }
 
+  // ¿Está instalado el driver? Sin crear nada: el monitor se pone cuando llega una tablet.
+  static bool Installed();
   bool Plug(UINT width, UINT height, UINT refresh_hz, UINT mode_w, UINT mode_h);
   void Unplug();
   // Cambia la resolución o los Hz del monitor ya enchufado (sin quitarlo: Windows conserva su posición y su escala).

@@ -89,11 +89,12 @@ Limits CombineLimits(Profile host_profile, uint32_t target_fps, uint32_t target_
   l.scale_percent = p.scale_percent ? p.scale_percent : 100;
   if (battery_adapt && tablet && static_cast<uint8_t>(tablet->profile) > static_cast<uint8_t>(host_profile)) {
     const uint32_t chosen = l.bitrate_bps;
+    const uint32_t chosen_fps = l.fps;  // con el tope de la calidad del PC: eso no lo baja la batería
     if (tablet->max_fps) l.fps = std::min<uint32_t>(l.fps, tablet->max_fps);
     if (tablet->max_bitrate_bps) {
       l.bitrate_bps = std::max(std::min(chosen, tablet->max_bitrate_bps), static_cast<uint32_t>(chosen * 6ull / 10));
     }
-    l.battery_reduced = l.fps < target_fps || l.bitrate_bps < chosen;
+    l.battery_reduced = l.fps < chosen_fps || l.bitrate_bps < chosen;
   }
   return l;
 }

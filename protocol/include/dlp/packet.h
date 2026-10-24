@@ -1,4 +1,4 @@
-// DeskLink Protocol (DLP) v1: formato de paquetes. Ver docs/protocol-dlp.md.
+// Protocolo de Extendesk (DLP, por su nombre original «DeskLink Protocol») v1: formato de paquetes. Ver docs/protocol-dlp.md.
 #pragma once
 
 #include <cstddef>
@@ -36,7 +36,14 @@ enum class PacketType : uint8_t {
   kSessionConfig = 17,   // host -> cliente: lo que eligió el PC (ver dlp/session.h); tras STREAM_INFO, al cambiar y cada 2 s
   kClientInfo = 18,      // cliente -> host: texto UTF-8 para el log del PC (modelo y decodificador de la tablet)
   kVideoFec = 19,        // host -> cliente: paridad de un grupo de paquetes VIDEO (ver AddFec)
-  kPen = 20,             // cliente -> host: estado del lápiz (ver PenState); solo si el host pone kHostAcceptsPen
+  kBye = 20,             // los dos sentidos: me voy (u8 ByeReason); se manda 3 veces por si se pierde alguno
+  kPen = 21,             // cliente -> host: estado del lápiz (ver PenState); solo si el host pone kHostAcceptsPen
+};
+
+// Por qué se va el que manda BYE. Sin payload cuenta como kByeLeave.
+enum ByeReason : uint8_t {
+  kByeLeave = 0,  // desconectar a propósito (tablet: Desconectar, Atrás, cerrar la app; PC: Detener o Salir)
+  kByePause = 1,  // solo la tablet: se bloqueó o pasó a segundo plano y volverá en cuanto la desbloqueen
 };
 
 enum Flags : uint8_t {

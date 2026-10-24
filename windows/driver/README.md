@@ -4,14 +4,14 @@ Monitor virtual de Extendesk: un driver de pantalla indirecta (IddCx, modo usuar
 
 | Carpeta | Contenido |
 | --- | --- |
-| `idd/` | El driver (`desklink-idd.dll` + `.inf`). Se compila con MSBuild y el WDK. |
-| `setup/` | `desklink-driver.exe instalar \| desinstalar` y los `.bat` que lo lanzan. |
+| `idd/` | El driver (`desklink-idd.dll` + `.inf`; conserva el nombre de antes de Extendesk para que los equipos que ya lo tienen lo actualicen sin problemas). Se compila con MSBuild y el WDK. |
+| `setup/` | `extendesk-driver.exe instalar \| desinstalar` y los `.bat` que lo lanzan. |
 | `include/` | Interfaz compartida con el host (GUID, IOCTL). |
 
 ## Cómo funciona
 
-1. `desklink-driver instalar` crea un dispositivo `Root\DeskLinkIdd` y le instala el driver. El dispositivo no muestra ningún monitor por sí solo.
-2. `desklink-host --virtual` abre el driver y le pide un monitor del tamaño de la tablet (`IOCTL_DESKLINK_PLUG`). El driver lo crea con un EDID propio llamado «DeskLink».
+1. `extendesk-driver instalar` crea un dispositivo `Root\DeskLinkIdd` y le instala el driver. El dispositivo no muestra ningún monitor por sí solo.
+2. `extendesk-host --virtual` abre el driver y le pide un monitor del tamaño de la tablet (`IOCTL_EXTENDESK_PLUG`). El driver lo crea con un EDID propio llamado «Extendesk» (los drivers de antes del nombre nuevo lo llamaban «DeskLink»; el host acepta los dos).
 3. El host busca ese monitor por su nombre, espera a que Windows lo active en modo «extender» y lo captura con Desktop Duplication, igual que un monitor físico.
 4. Mientras corre, el host avisa al driver cada segundo. Si el host se cierra (o se cuelga), el driver quita el monitor a los 5 s: no queda una pantalla fantasma.
 

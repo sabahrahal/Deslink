@@ -3,10 +3,10 @@
 Cada cambio que entra en `main` lo compila la CI y lo publica como la versión de prueba **latest** de GitHub Releases.
 Los enlaces no cambian nunca (el repo es privado: hay que tener la sesión de GitHub iniciada):
 
-- PC: <https://github.com/sabahrahal/Deslink/releases/download/latest/Extendesk-Setup.exe>
-- Tablet: <https://github.com/sabahrahal/Deslink/releases/download/latest/Extendesk.apk>
+- PC: <https://github.com/sabahrahal/Extendesk/releases/download/latest/Extendesk-Setup.exe>
+- Tablet: <https://github.com/sabahrahal/Extendesk/releases/download/latest/Extendesk.apk>
 
-La página de la versión (<https://github.com/sabahrahal/Deslink/releases/tag/latest>) dice de qué commit sale.
+La página de la versión (<https://github.com/sabahrahal/Extendesk/releases/tag/latest>) dice de qué commit sale.
 
 ## La primera vez
 
@@ -33,7 +33,7 @@ Configuración → Aplicaciones → Extendesk → Desinstalar (o «Desinstalar E
 
 ## Cómo está hecho
 
-- Instalador: Inno Setup, en [`windows/installer/desklink.iss`](../windows/installer/desklink.iss).
+- Instalador: Inno Setup, en [`windows/installer/extendesk.iss`](../windows/installer/extendesk.iss).
 - Publicación: [`.github/workflows/release.yml`](../.github/workflows/release.yml). En los PR también se compila y el
   instalador y la APK quedan como artefactos de la ejecución, sin publicar nada.
 - Firma de la APK: [`android/keystore/`](../android/keystore/README.md).

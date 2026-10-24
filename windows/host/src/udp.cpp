@@ -41,6 +41,12 @@ bool ProcessGone(DWORD pid) {
   return gone;
 }
 
+// El host de Extendesk, con su nombre de ahora o el de antes (desklink-host.exe).
+bool IsHostExe(const std::string& process) {
+  return _strnicmp(process.c_str(), "extendesk-host.exe", 18) == 0 ||
+         _strnicmp(process.c_str(), "desklink-host.exe", 17) == 0;
+}
+
 }  // namespace
 
 DWORD UdpPortOwner(uint16_t port) {
@@ -139,9 +145,9 @@ bool UdpEndpoint::Bind(uint16_t port, PacketHandler handler, bool usb, std::func
 }
 
 // Si el puerto está ocupado se reintenta unos segundos (un host que se está cerrando tarda en soltarlo). Si lo
-// tiene un desklink-host antiguo (sin el relevo automático de main.cpp), se cierra; si figura un proceso que ya no
-// existe, el puerto lo retiene quien heredó su socket y se llama a free_orphaned_port; si es otro programa, se dice
-// cuál.
+// tiene un host antiguo (sin el relevo automático de main.cpp, o de antes del nombre Extendesk: desklink-host.exe),
+// se cierra; si figura un proceso que ya no existe, el puerto lo retiene quien heredó su socket y se llama a
+// free_orphaned_port; si es otro programa, se dice cuál.
 bool UdpEndpoint::BindWithRetry(const sockaddr_in& addr, uint16_t port,
                                 const std::function<bool()>& free_orphaned_port) {
   bool killed = false;
@@ -155,7 +161,7 @@ bool UdpEndpoint::BindWithRetry(const sockaddr_in& addr, uint16_t port,
     }
     const DWORD pid = UdpPortOwner(port);
     const std::string owner = DescribeProcess(pid);
-    if (!killed && pid && pid != GetCurrentProcessId() && _strnicmp(owner.c_str(), "desklink-host.exe", 17) == 0) {
+    if (!killed && pid && pid != GetCurrentProcessId() && IsHostExe(owner)) {
       std::printf("Cierro una versión anterior de Extendesk que seguía abierta: %s.\n", owner.c_str());
       if (HANDLE h = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, pid)) {
         TerminateProcess(h, 0);
@@ -235,6 +241,11 @@ bool UdpEndpoint::ExpirePeer(std::chrono::milliseconds timeout) {
   has_peer_ = false;
   peer_lost_ = false;
   return true;
+}
+
+void UdpEndpoint::ForgetPeer() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (has_peer_) peer_lost_ = true;
 }
 
 bool UdpEndpoint::has_peer() const {

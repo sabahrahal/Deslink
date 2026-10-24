@@ -1,9 +1,9 @@
-// desklink-idd: driver de pantalla indirecta (IddCx, UMDF) que crea el monitor virtual de DeskLink.
+// desklink-idd: driver de pantalla indirecta (IddCx, UMDF) que crea el monitor virtual de Extendesk.
 //
 // El driver no muestra nada por sí mismo: Windows dibuja el escritorio en el monitor virtual, el driver
 // devuelve cada imagen al sistema sin tocarla y el host la captura con Desktop Duplication, igual que
-// un monitor físico. El monitor solo existe mientras el host lo pide (IOCTL_DESKLINK_PLUG) y le manda
-// IOCTL_DESKLINK_PING; si el host se cierra o se cuelga, el monitor desaparece a los pocos segundos.
+// un monitor físico. El monitor solo existe mientras el host lo pide (IOCTL_EXTENDESK_PLUG) y le manda
+// IOCTL_EXTENDESK_PING; si el host se cierra o se cuelga, el monitor desaparece a los pocos segundos.
 //
 // Basado en el ejemplo IddSampleDriver de Microsoft (Windows-driver-samples, licencia MIT).
 #define NOMINMAX
@@ -25,11 +25,11 @@
 #include <mutex>
 #include <vector>
 
-#include "../include/desklink_idd.h"
+#include "../include/extendesk_idd.h"
 #include "edid.h"
 
 using Microsoft::WRL::ComPtr;
-using desklink::Mode;
+using extendesk::Mode;
 
 namespace {
 
@@ -226,8 +226,8 @@ class DeviceContext {
     caps.EndPointDiagnostics.Size = sizeof(caps.EndPointDiagnostics);
     caps.EndPointDiagnostics.GammaSupport = IDDCX_FEATURE_IMPLEMENTATION_NONE;
     caps.EndPointDiagnostics.TransmissionType = IDDCX_TRANSMISSION_TYPE_WIRED_OTHER;
-    caps.EndPointDiagnostics.pEndPointFriendlyName = L"DeskLink";
-    caps.EndPointDiagnostics.pEndPointManufacturerName = L"DeskLink";
+    caps.EndPointDiagnostics.pEndPointFriendlyName = L"Extendesk";
+    caps.EndPointDiagnostics.pEndPointManufacturerName = L"Extendesk";
     caps.EndPointDiagnostics.pEndPointModelName = L"Monitor virtual";
     IDDCX_ENDPOINT_VERSION version = {};
     version.Size = sizeof(version);
@@ -265,7 +265,7 @@ class DeviceContext {
     UnplugLocked();
 
     // El EDID siempre a 60 Hz: si cambiara con los Hz, Windows lo vería como otro monitor y no recordaría sus ajustes.
-    const desklink::Edid edid = desklink::BuildEdid({mode.width, mode.height, 60});
+    const extendesk::Edid edid = extendesk::BuildEdid({mode.width, mode.height, 60});
     WDF_OBJECT_ATTRIBUTES attr;
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attr, MonitorContextWrapper);
     attr.EvtCleanupCallback = [](WDFOBJECT object) {
@@ -283,7 +283,7 @@ class DeviceContext {
     info.MonitorDescription.DataSize = static_cast<UINT>(edid.size());
     info.MonitorDescription.pData = const_cast<BYTE*>(edid.data());
     // Mismo id de contenedor siempre: Windows recuerda la posición y la escala del monitor entre usos.
-    info.MonitorContainerId = GUID_DEVINTERFACE_DESKLINK_IDD;
+    info.MonitorContainerId = GUID_DEVINTERFACE_EXTENDESK_IDD;
 
     IDARG_IN_MONITORCREATE in = {};
     in.ObjectAttributes = &attr;
@@ -325,7 +325,7 @@ class DeviceContext {
     auto* ctx = static_cast<DeviceContext*>(self);
     while (WaitForSingleObject(ctx->stop_, 500) == WAIT_TIMEOUT) {
       std::lock_guard<std::mutex> lock(ctx->mutex_);
-      if (ctx->monitor_ && GetTickCount64() - ctx->last_ping_ms_ > kDeskLinkWatchdogMs) ctx->UnplugLocked();
+      if (ctx->monitor_ && GetTickCount64() - ctx->last_ping_ms_ > kExtendeskWatchdogMs) ctx->UnplugLocked();
     }
     return 0;
   }
@@ -346,16 +346,16 @@ class DeviceContext {
 // ---------------------------------------------------------------------------------------------
 
 extern "C" DRIVER_INITIALIZE DriverEntry;
-EVT_WDF_DRIVER_DEVICE_ADD DeskLinkDeviceAdd;
-EVT_WDF_DEVICE_D0_ENTRY DeskLinkDeviceD0Entry;
-EVT_IDD_CX_DEVICE_IO_CONTROL DeskLinkIoDeviceControl;
-EVT_IDD_CX_ADAPTER_INIT_FINISHED DeskLinkAdapterInitFinished;
-EVT_IDD_CX_ADAPTER_COMMIT_MODES DeskLinkAdapterCommitModes;
-EVT_IDD_CX_PARSE_MONITOR_DESCRIPTION DeskLinkParseMonitorDescription;
-EVT_IDD_CX_MONITOR_GET_DEFAULT_DESCRIPTION_MODES DeskLinkMonitorGetDefaultModes;
-EVT_IDD_CX_MONITOR_QUERY_TARGET_MODES DeskLinkMonitorQueryModes;
-EVT_IDD_CX_MONITOR_ASSIGN_SWAPCHAIN DeskLinkMonitorAssignSwapChain;
-EVT_IDD_CX_MONITOR_UNASSIGN_SWAPCHAIN DeskLinkMonitorUnassignSwapChain;
+EVT_WDF_DRIVER_DEVICE_ADD ExtendeskDeviceAdd;
+EVT_WDF_DEVICE_D0_ENTRY ExtendeskDeviceD0Entry;
+EVT_IDD_CX_DEVICE_IO_CONTROL ExtendeskIoDeviceControl;
+EVT_IDD_CX_ADAPTER_INIT_FINISHED ExtendeskAdapterInitFinished;
+EVT_IDD_CX_ADAPTER_COMMIT_MODES ExtendeskAdapterCommitModes;
+EVT_IDD_CX_PARSE_MONITOR_DESCRIPTION ExtendeskParseMonitorDescription;
+EVT_IDD_CX_MONITOR_GET_DEFAULT_DESCRIPTION_MODES ExtendeskMonitorGetDefaultModes;
+EVT_IDD_CX_MONITOR_QUERY_TARGET_MODES ExtendeskMonitorQueryModes;
+EVT_IDD_CX_MONITOR_ASSIGN_SWAPCHAIN ExtendeskMonitorAssignSwapChain;
+EVT_IDD_CX_MONITOR_UNASSIGN_SWAPCHAIN ExtendeskMonitorUnassignSwapChain;
 
 extern "C" BOOL WINAPI DllMain(HINSTANCE, UINT, LPVOID) { return TRUE; }
 
@@ -364,27 +364,27 @@ extern "C" NTSTATUS DriverEntry(PDRIVER_OBJECT driver_object, PUNICODE_STRING re
   WDF_DRIVER_CONFIG config;
   WDF_OBJECT_ATTRIBUTES attributes;
   WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
-  WDF_DRIVER_CONFIG_INIT(&config, DeskLinkDeviceAdd);
+  WDF_DRIVER_CONFIG_INIT(&config, ExtendeskDeviceAdd);
   return WdfDriverCreate(driver_object, registry_path, &attributes, &config, WDF_NO_HANDLE);
 }
 
 _Use_decl_annotations_
-NTSTATUS DeskLinkDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT device_init) {
+NTSTATUS ExtendeskDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT device_init) {
   WDF_PNPPOWER_EVENT_CALLBACKS pnp;
   WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&pnp);
-  pnp.EvtDeviceD0Entry = DeskLinkDeviceD0Entry;
+  pnp.EvtDeviceD0Entry = ExtendeskDeviceD0Entry;
   WdfDeviceInitSetPnpPowerEventCallbacks(device_init, &pnp);
 
   IDD_CX_CLIENT_CONFIG config;
   IDD_CX_CLIENT_CONFIG_INIT(&config);
-  config.EvtIddCxDeviceIoControl = DeskLinkIoDeviceControl;
-  config.EvtIddCxAdapterInitFinished = DeskLinkAdapterInitFinished;
-  config.EvtIddCxParseMonitorDescription = DeskLinkParseMonitorDescription;
-  config.EvtIddCxMonitorGetDefaultDescriptionModes = DeskLinkMonitorGetDefaultModes;
-  config.EvtIddCxMonitorQueryTargetModes = DeskLinkMonitorQueryModes;
-  config.EvtIddCxAdapterCommitModes = DeskLinkAdapterCommitModes;
-  config.EvtIddCxMonitorAssignSwapChain = DeskLinkMonitorAssignSwapChain;
-  config.EvtIddCxMonitorUnassignSwapChain = DeskLinkMonitorUnassignSwapChain;
+  config.EvtIddCxDeviceIoControl = ExtendeskIoDeviceControl;
+  config.EvtIddCxAdapterInitFinished = ExtendeskAdapterInitFinished;
+  config.EvtIddCxParseMonitorDescription = ExtendeskParseMonitorDescription;
+  config.EvtIddCxMonitorGetDefaultDescriptionModes = ExtendeskMonitorGetDefaultModes;
+  config.EvtIddCxMonitorQueryTargetModes = ExtendeskMonitorQueryModes;
+  config.EvtIddCxAdapterCommitModes = ExtendeskAdapterCommitModes;
+  config.EvtIddCxMonitorAssignSwapChain = ExtendeskMonitorAssignSwapChain;
+  config.EvtIddCxMonitorUnassignSwapChain = ExtendeskMonitorUnassignSwapChain;
   NTSTATUS status = IddCxDeviceInitConfig(device_init, &config);
   if (!NT_SUCCESS(status)) return status;
 
@@ -400,7 +400,7 @@ NTSTATUS DeskLinkDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT device_init) {
   if (!NT_SUCCESS(status)) return status;
 
   // Interfaz por la que el host abre el dispositivo para enchufar el monitor.
-  status = WdfDeviceCreateDeviceInterface(device, &GUID_DEVINTERFACE_DESKLINK_IDD, nullptr);
+  status = WdfDeviceCreateDeviceInterface(device, &GUID_DEVINTERFACE_EXTENDESK_IDD, nullptr);
   if (!NT_SUCCESS(status)) return status;
 
   status = IddCxDeviceInitialize(device);
@@ -410,24 +410,24 @@ NTSTATUS DeskLinkDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT device_init) {
 }
 
 _Use_decl_annotations_
-NTSTATUS DeskLinkDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE) {
+NTSTATUS ExtendeskDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE) {
   WdfObjectGet_DeviceContextWrapper(device)->context->InitAdapter();
   return STATUS_SUCCESS;
 }
 
 _Use_decl_annotations_
-VOID DeskLinkIoDeviceControl(WDFDEVICE device, WDFREQUEST request, size_t, size_t input_length,
+VOID ExtendeskIoDeviceControl(WDFDEVICE device, WDFREQUEST request, size_t, size_t input_length,
                              ULONG io_control_code) {
   DeviceContext* ctx = WdfObjectGet_DeviceContextWrapper(device)->context;
   NTSTATUS status = STATUS_INVALID_DEVICE_REQUEST;
   switch (io_control_code) {
-    case IOCTL_DESKLINK_PLUG: {
-      DeskLinkPlugArgs* args = nullptr;
-      if (input_length < sizeof(DeskLinkPlugArgs)) {
+    case IOCTL_EXTENDESK_PLUG: {
+      ExtendeskPlugArgs* args = nullptr;
+      if (input_length < sizeof(ExtendeskPlugArgs)) {
         status = STATUS_BUFFER_TOO_SMALL;
         break;
       }
-      status = WdfRequestRetrieveInputBuffer(request, sizeof(DeskLinkPlugArgs), reinterpret_cast<PVOID*>(&args),
+      status = WdfRequestRetrieveInputBuffer(request, sizeof(ExtendeskPlugArgs), reinterpret_cast<PVOID*>(&args),
                                              nullptr);
       if (!NT_SUCCESS(status)) break;
       Mode mode{args->width, args->height, args->refresh_hz};
@@ -441,11 +441,11 @@ VOID DeskLinkIoDeviceControl(WDFDEVICE device, WDFREQUEST request, size_t, size_
       status = ctx->Plug(mode);
       break;
     }
-    case IOCTL_DESKLINK_UNPLUG:
+    case IOCTL_EXTENDESK_UNPLUG:
       ctx->Unplug();
       status = STATUS_SUCCESS;
       break;
-    case IOCTL_DESKLINK_PING:
+    case IOCTL_EXTENDESK_PING:
       ctx->Ping();
       status = STATUS_SUCCESS;
       break;
@@ -456,20 +456,20 @@ VOID DeskLinkIoDeviceControl(WDFDEVICE device, WDFREQUEST request, size_t, size_
 }
 
 _Use_decl_annotations_
-NTSTATUS DeskLinkAdapterInitFinished(IDDCX_ADAPTER adapter, const IDARG_IN_ADAPTER_INIT_FINISHED* in) {
+NTSTATUS ExtendeskAdapterInitFinished(IDDCX_ADAPTER adapter, const IDARG_IN_ADAPTER_INIT_FINISHED* in) {
   // El monitor no se crea aquí: espera a que el host lo pida.
   if (NT_SUCCESS(in->AdapterInitStatus)) WdfObjectGet_DeviceContextWrapper(adapter)->context->AdapterReady();
   return STATUS_SUCCESS;
 }
 
 _Use_decl_annotations_
-NTSTATUS DeskLinkAdapterCommitModes(IDDCX_ADAPTER, const IDARG_IN_COMMITMODES*) { return STATUS_SUCCESS; }
+NTSTATUS ExtendeskAdapterCommitModes(IDDCX_ADAPTER, const IDARG_IN_COMMITMODES*) { return STATUS_SUCCESS; }
 
 _Use_decl_annotations_
-NTSTATUS DeskLinkParseMonitorDescription(const IDARG_IN_PARSEMONITORDESCRIPTION* in,
+NTSTATUS ExtendeskParseMonitorDescription(const IDARG_IN_PARSEMONITORDESCRIPTION* in,
                                          IDARG_OUT_PARSEMONITORDESCRIPTION* out) {
   Mode preferred = kDefaultMode;
-  desklink::ParseEdidMode(static_cast<const uint8_t*>(in->MonitorDescription.pData),
+  extendesk::ParseEdidMode(static_cast<const uint8_t*>(in->MonitorDescription.pData),
                           in->MonitorDescription.DataSize, &preferred);
   const auto modes = ModeList(preferred);
   out->MonitorModeBufferOutputCount = static_cast<UINT>(modes.size());
@@ -484,7 +484,7 @@ NTSTATUS DeskLinkParseMonitorDescription(const IDARG_IN_PARSEMONITORDESCRIPTION*
 }
 
 _Use_decl_annotations_
-NTSTATUS DeskLinkMonitorGetDefaultModes(IDDCX_MONITOR, const IDARG_IN_GETDEFAULTDESCRIPTIONMODES* in,
+NTSTATUS ExtendeskMonitorGetDefaultModes(IDDCX_MONITOR, const IDARG_IN_GETDEFAULTDESCRIPTIONMODES* in,
                                         IDARG_OUT_GETDEFAULTDESCRIPTIONMODES* out) {
   // Solo se usa si un monitor llega sin EDID (no debería pasar: siempre se manda uno).
   const auto modes = ModeList(kDefaultMode);
@@ -499,7 +499,7 @@ NTSTATUS DeskLinkMonitorGetDefaultModes(IDDCX_MONITOR, const IDARG_IN_GETDEFAULT
 }
 
 _Use_decl_annotations_
-NTSTATUS DeskLinkMonitorQueryModes(IDDCX_MONITOR monitor, const IDARG_IN_QUERYTARGETMODES* in,
+NTSTATUS ExtendeskMonitorQueryModes(IDDCX_MONITOR monitor, const IDARG_IN_QUERYTARGETMODES* in,
                                    IDARG_OUT_QUERYTARGETMODES* out) {
   MonitorContext* ctx = WdfObjectGet_MonitorContextWrapper(monitor)->context;
   const auto modes = ModeList(ctx ? ctx->mode() : kDefaultMode);
@@ -511,14 +511,14 @@ NTSTATUS DeskLinkMonitorQueryModes(IDDCX_MONITOR monitor, const IDARG_IN_QUERYTA
 }
 
 _Use_decl_annotations_
-NTSTATUS DeskLinkMonitorAssignSwapChain(IDDCX_MONITOR monitor, const IDARG_IN_SETSWAPCHAIN* in) {
+NTSTATUS ExtendeskMonitorAssignSwapChain(IDDCX_MONITOR monitor, const IDARG_IN_SETSWAPCHAIN* in) {
   WdfObjectGet_MonitorContextWrapper(monitor)->context->AssignSwapChain(in->hSwapChain, in->RenderAdapterLuid,
                                                                        in->hNextSurfaceAvailable);
   return STATUS_SUCCESS;
 }
 
 _Use_decl_annotations_
-NTSTATUS DeskLinkMonitorUnassignSwapChain(IDDCX_MONITOR monitor) {
+NTSTATUS ExtendeskMonitorUnassignSwapChain(IDDCX_MONITOR monitor) {
   WdfObjectGet_MonitorContextWrapper(monitor)->context->UnassignSwapChain();
   return STATUS_SUCCESS;
 }

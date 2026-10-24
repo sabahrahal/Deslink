@@ -10,8 +10,8 @@ Objetivo: duplicar un monitor de Windows, codificarlo con la GPU, enviarlo por W
 
 ## Cómo probarlo
 
-1. En GitHub, pestaña Actions, abre la última ejecución y descarga dos artefactos: `desklink-host-windows` (el `.exe`) y `desklink-android-debug` (la APK).
-2. En el PC: ejecuta `desklink-host.exe`. Permite el acceso en redes privadas cuando Windows lo pida.
+1. En GitHub, pestaña Actions, abre la última ejecución y descarga dos artefactos: `extendesk-host-windows` (el `.exe`) y `extendesk-android-debug` (la APK).
+2. En el PC: ejecuta `extendesk-host.exe`. Permite el acceso en redes privadas cuando Windows lo pida.
 3. En la tablet: instala la APK, escribe la IP del PC y pulsa Conectar. Un toque en la pantalla oculta o muestra las estadísticas.
 
 Con el PC por cable al router y la tablet en 5 o 6 GHz. Opciones del host: ver `windows/host/README.md`.
