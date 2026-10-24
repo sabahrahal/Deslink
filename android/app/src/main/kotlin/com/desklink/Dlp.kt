@@ -46,6 +46,13 @@ object Dlp {
 
     /** Paridad de un grupo de paquetes de vídeo (dlp::AddFec): payload = u16 XOR de longitudes + XOR de datos. */
     const val TYPE_VIDEO_FEC = 19
+    /** Tablet -> host: estado del lápiz ([pen]); solo si el host lo admite ([StreamInfo.acceptsPen]). */
+    const val TYPE_PEN = 20
+    const val PEN_SIZE = 9
+    const val PEN_IN_RANGE = 1
+    const val PEN_CONTACT = 2
+    const val PEN_BARREL = 4
+    const val PEN_ERASER = 8
     const val MAX_FEC_PAYLOAD = MAX_PAYLOAD + 2
     const val INPUT_VIEW_ONLY = 2
 
@@ -70,6 +77,8 @@ object Dlp {
 
     /** Bit de [StreamInfo.hostFlags]: el host aplica la [HelloConfig] que la tablet manda en HELLO. */
     const val HOST_ACCEPTS_HELLO_CONFIG = 1
+    /** Bit de [StreamInfo.hostFlags]: el host entiende [TYPE_PEN] (el lápiz llega al PC como lápiz de Windows). */
+    const val HOST_ACCEPTS_PEN = 2
     const val HELLO_CONFIG_SIZE = 14
     const val MAX_HOST_NAME = 64
 
@@ -95,6 +104,7 @@ object Dlp {
         val hostName: String = "",
     ) {
         val acceptsHelloConfig: Boolean get() = hostFlags and HOST_ACCEPTS_HELLO_CONFIG != 0
+        val acceptsPen: Boolean get() = hostFlags and HOST_ACCEPTS_PEN != 0
     }
 
     /**
@@ -320,6 +330,27 @@ object Dlp {
             b.putShort(o + 3, (state[4 * i + 2].coerceIn(0f, 1f) * 65535f).toInt().toShort())
             b.putShort(o + 5, (state[4 * i + 3].coerceIn(0f, 1f) * 1024f).toInt().toShort())
         }
+        return b.array()
+    }
+
+    /**
+     * Estado del lápiz: [flags] ([PEN_IN_RANGE], [PEN_CONTACT], [PEN_BARREL], [PEN_ERASER]), x e y en 0..1, presión
+     * en 0..1 e inclinación en grados (-90..90; x hacia la derecha, y hacia el usuario). Como el táctil, va entero.
+     */
+    fun pen(flags: Int, x: Float, y: Float, pressure: Float, tiltX: Int, tiltY: Int, timestampUs: Long): ByteArray {
+        val b = ByteBuffer.allocate(HEADER_SIZE + PEN_SIZE).order(ByteOrder.LITTLE_ENDIAN)
+        b.putShort(0, MAGIC.toShort())
+        b.put(2, VERSION.toByte())
+        b.put(3, TYPE_PEN.toByte())
+        b.putShort(12, 1)
+        b.putLong(14, timestampUs)
+        b.putShort(22, PEN_SIZE.toShort())
+        b.put(HEADER_SIZE, flags.toByte())
+        b.putShort(HEADER_SIZE + 1, (x.coerceIn(0f, 1f) * 65535f).toInt().toShort())
+        b.putShort(HEADER_SIZE + 3, (y.coerceIn(0f, 1f) * 65535f).toInt().toShort())
+        b.putShort(HEADER_SIZE + 5, (pressure.coerceIn(0f, 1f) * 1024f).toInt().toShort())
+        b.put(HEADER_SIZE + 7, tiltX.coerceIn(-90, 90).toByte())
+        b.put(HEADER_SIZE + 8, tiltY.coerceIn(-90, 90).toByte())
         return b.array()
     }
 

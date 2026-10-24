@@ -311,8 +311,34 @@ static void TestFec() {
   CHECK(plain.size() == 5);
 }
 
+static void TestPen() {
+  PenState pen;
+  pen.flags = kPenInRange | kPenContact | kPenBarrel;
+  pen.x = 65535;
+  pen.y = 1234;
+  pen.pressure = 700;
+  pen.tilt_x = -35;
+  pen.tilt_y = 60;
+  auto payload = EncodePen(pen);
+  CHECK(payload.size() == kPenSize);
+  auto d = DecodePen(payload.data(), payload.size());
+  CHECK(d && d->flags == pen.flags && d->x == 65535 && d->y == 1234 && d->pressure == 700 && d->tilt_x == -35 &&
+        d->tilt_y == 60);
+  CHECK(!DecodePen(payload.data(), kPenSize - 1));
+  // Valores fuera de rango (o bits desconocidos) se acotan.
+  payload[0] = 0xFF;
+  payload[5] = 0xFF;
+  payload[6] = 0xFF;
+  payload[7] = static_cast<uint8_t>(-128);
+  payload[8] = 127;
+  d = DecodePen(payload.data(), payload.size());
+  CHECK(d && d->flags == (kPenInRange | kPenContact | kPenBarrel | kPenEraser) && d->pressure == 1024 &&
+        d->tilt_x == -90 && d->tilt_y == 90);
+}
+
 int main() {
   TestFec();
+  TestPen();
   TestAudioPacket();
   TestQualityRequest();
   TestBurstTypes();

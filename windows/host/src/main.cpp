@@ -596,7 +596,7 @@ int Run(int argc, char** argv) {
   int exit_code = 1;
 
   std::atomic<uint32_t> next_frame_id{1};
-  std::atomic<uint64_t> bytes_sent{0}, frames_encoded{0}, encode_latency_us{0}, keyframes_sent{0}, retransmits{0}, touch_packets{0};
+  std::atomic<uint64_t> bytes_sent{0}, frames_encoded{0}, encode_latency_us{0}, keyframes_sent{0}, retransmits{0}, touch_packets{0}, pen_packets{0};
   std::atomic<uint64_t> packets_sent{0};
   // El envío se atrasó y tiró frames: la tasa lo lee con el siguiente informe de la tablet (RateController).
   std::atomic<bool> send_backlog{false};
@@ -835,7 +835,7 @@ int Run(int argc, char** argv) {
     info.height = static_cast<uint16_t>(eh);
     info.fps = static_cast<uint16_t>(eff.fps);
     info.codec = opt.codec == VideoCodec::kHevc ? dlp::Codec::kHevc : dlp::Codec::kH264;
-    info.host_flags = dlp::kHostAcceptsHelloConfig;
+    info.host_flags = dlp::kHostAcceptsHelloConfig | dlp::kHostAcceptsPen;
     info.host_name = host_name;
     {
       std::lock_guard<std::mutex> lock(info_mutex);
@@ -1116,6 +1116,24 @@ int Run(int argc, char** argv) {
           }
           if (touch_packets++ == 0) std::printf("Primer toque recibido de la tablet.\n");
           touch.Update(contacts);
+          break;
+        }
+        case dlp::PacketType::kPen: {
+          if (!touch_ready || view_only) break;
+          const auto pen = dlp::DecodePen(data + dlp::kHeaderSize, header->payload_size);
+          if (!pen) break;
+          TouchInjector::Pen p;
+          p.in_range = (pen->flags & dlp::kPenInRange) != 0;
+          p.contact = (pen->flags & dlp::kPenContact) != 0;
+          p.barrel = (pen->flags & dlp::kPenBarrel) != 0;
+          p.eraser = (pen->flags & dlp::kPenEraser) != 0;
+          p.x = pen->x / 65535.0f;
+          p.y = pen->y / 65535.0f;
+          p.pressure = pen->pressure;
+          p.tilt_x = pen->tilt_x;
+          p.tilt_y = pen->tilt_y;
+          if (pen_packets++ == 0) std::printf("Lápiz detectado en la tablet (presión e inclinación).\n");
+          touch.UpdatePen(p);
           break;
         }
         case dlp::PacketType::kAudioControl:

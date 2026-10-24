@@ -36,6 +36,7 @@ enum class PacketType : uint8_t {
   kSessionConfig = 17,   // host -> cliente: lo que eligió el PC (ver dlp/session.h); tras STREAM_INFO, al cambiar y cada 2 s
   kClientInfo = 18,      // cliente -> host: texto UTF-8 para el log del PC (modelo y decodificador de la tablet)
   kVideoFec = 19,        // host -> cliente: paridad de un grupo de paquetes VIDEO (ver AddFec)
+  kPen = 20,             // cliente -> host: estado del lápiz (ver PenState); solo si el host pone kHostAcceptsPen
 };
 
 enum Flags : uint8_t {
@@ -63,6 +64,7 @@ constexpr size_t kMaxFecPayload = kMaxPayload + 2;
 // Bits de StreamInfo::host_flags.
 enum HostFlags : uint8_t {
   kHostAcceptsHelloConfig = 1 << 0,  // el host aplica la configuración que la tablet manda en HELLO
+  kHostAcceptsPen = 1 << 1,          // el host entiende PEN: el lápiz llega como lápiz de Windows (si no, como un dedo)
 };
 
 struct StreamInfo {
@@ -110,6 +112,26 @@ constexpr size_t kMaxTouchContacts = 10;
 constexpr size_t kInputModeRequestSize = 1;  // cliente -> host
 constexpr size_t kInputModeStateSize = 2;    // host -> cliente
 enum class InputMode : uint8_t { kTouch = 0, kMouse = 1 };
+
+// Lápiz de la tablet. Como el táctil, se manda el estado completo: cada movimiento y, mientras está cerca de la
+// pantalla, cada 100 ms; el host lo suelta tras 700 ms de silencio.
+enum PenFlags : uint8_t {
+  kPenInRange = 1 << 0,  // cerca de la pantalla (flotando o apoyado); sin él, el lápiz se ha ido
+  kPenContact = 1 << 1,  // la punta toca la pantalla
+  kPenBarrel = 1 << 2,   // botón lateral pulsado
+  kPenEraser = 1 << 3,   // es la goma (el otro extremo, o la goma elegida en el lápiz)
+};
+struct PenState {
+  uint8_t flags = 0;
+  uint16_t x = 0, y = 0;   // 0..65535 sobre la pantalla capturada
+  uint16_t pressure = 0;   // 0..1024 (0 si no toca)
+  int8_t tilt_x = 0;       // grados, -90..90: positivo con el lápiz inclinado hacia la derecha
+  int8_t tilt_y = 0;       // grados, -90..90: positivo con el lápiz inclinado hacia el usuario
+};
+constexpr size_t kPenSize = 9;
+std::vector<uint8_t> EncodePen(const PenState& pen);
+// Acota presión e inclinación; nullopt si faltan bytes. Bytes de más (campos futuros) se ignoran.
+std::optional<PenState> DecodePen(const uint8_t* payload, size_t size);
 
 // Sonido: Opus a 48 kHz estéreo, un trozo cada 10 ms.
 constexpr uint32_t kAudioSampleRate = 48000;

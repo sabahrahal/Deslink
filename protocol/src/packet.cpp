@@ -300,6 +300,29 @@ std::optional<QualityRequest> DecodeQualityRequest(const uint8_t* payload, size_
   return r;
 }
 
+std::vector<uint8_t> EncodePen(const PenState& pen) {
+  std::vector<uint8_t> out(kPenSize);
+  out[0] = pen.flags;
+  Put16(out.data() + 1, pen.x);
+  Put16(out.data() + 3, pen.y);
+  Put16(out.data() + 5, std::min<uint16_t>(pen.pressure, 1024));
+  out[7] = static_cast<uint8_t>(std::clamp<int8_t>(pen.tilt_x, -90, 90));
+  out[8] = static_cast<uint8_t>(std::clamp<int8_t>(pen.tilt_y, -90, 90));
+  return out;
+}
+
+std::optional<PenState> DecodePen(const uint8_t* payload, size_t size) {
+  if (size < kPenSize) return std::nullopt;
+  PenState p;
+  p.flags = payload[0] & (kPenInRange | kPenContact | kPenBarrel | kPenEraser);
+  p.x = Get16(payload + 1);
+  p.y = Get16(payload + 3);
+  p.pressure = std::min<uint16_t>(Get16(payload + 5), 1024);
+  p.tilt_x = std::clamp<int8_t>(static_cast<int8_t>(payload[7]), -90, 90);
+  p.tilt_y = std::clamp<int8_t>(static_cast<int8_t>(payload[8]), -90, 90);
+  return p;
+}
+
 void ScaledSize(uint32_t width, uint32_t height, uint8_t percent, uint32_t* out_width, uint32_t* out_height) {
   percent = percent == 0 ? 100 : std::min<uint8_t>(percent, 100);
   uint32_t w = width * percent / 100;

@@ -97,6 +97,34 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         }
     }
 
+    // Lápiz, si el PC lo admite: va aparte de los dedos y llega a Windows como lápiz (presión, inclinación, botón,
+    // goma y la punta flotando). Mientras está cerca de la pantalla los dedos no cuentan (la mano apoyada al dibujar
+    // no toca nada) y su estado se repite cada 100 ms, como el de los dedos.
+    private var penSupported = false
+    private var penFlags = 0
+    private var penX = 0f
+    private var penY = 0f
+    private var penPressure = 0f
+    private var penTilt = 0
+    private var penIdleRepeats = 0
+    private val penKeepAlive = object : Runnable {
+        override fun run() {
+            if (penFlags != 0 || penIdleRepeats > 0) {
+                sendPenState()
+                if (penFlags == 0) penIdleRepeats--
+                touchHandler.postDelayed(this, 100)
+            }
+        }
+    }
+    // Al apoyar la punta Android dice antes que deja de flotar: se espera un poco antes de dar el lápiz por ido.
+    private val penGone = Runnable {
+        if (penFlags != 0 && penFlags and Dlp.PEN_CONTACT == 0) {
+            penFlags = 0
+            sendPenState()
+            penChanged()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         host = intent.getStringExtra(EXTRA_HOST) ?: run {
@@ -133,6 +161,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
             visibility = if (statsVisible) View.VISIBLE else View.GONE
         }
         surfaceView.setOnTouchListener { _, event -> onSurfaceTouch(event) }
+        surfaceView.setOnHoverListener { _, event -> onSurfaceHover(event) }
         overlay = ComposeView(this).apply {
             setContent {
                 DeskLinkTheme {
@@ -434,10 +463,33 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         val h = surfaceView.height.coerceAtLeast(1).toFloat()
         val up = event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL
         val liftedIndex = if (event.actionMasked == MotionEvent.ACTION_POINTER_UP) event.actionIndex else -1
+        var penIndex = -1
+        if (penSupported) {
+            for (i in 0 until event.pointerCount) {
+                if (Stylus.isPen(event.getToolType(i))) {
+                    penIndex = i
+                    break
+                }
+            }
+        }
+        if (penIndex >= 0) {
+            touchHandler.removeCallbacks(penGone)
+            val lifted = up || liftedIndex == penIndex
+            val down = Dlp.PEN_IN_RANGE or Dlp.PEN_CONTACT
+            // Las muestras que Android juntó entre eventos también se mandan: trazos más finos.
+            if (event.actionMasked == MotionEvent.ACTION_MOVE) {
+                for (pos in 0 until event.historySize) readPen(event, penIndex, pos, down)
+            }
+            readPen(event, penIndex, -1, if (lifted) 0 else down)
+            penChanged()
+            // Solo el lápiz: los dedos no cambian.
+            if (event.pointerCount == 1 && touchCount == 0) return true
+        }
         var n = 0
-        if (!up) {
+        // Con el lápiz cerca, los dedos (la palma) no cuentan.
+        if (!up && penFlags == 0) {
             for (i in 0 until minOf(event.pointerCount, 10)) {
-                if (i == liftedIndex) continue
+                if (i == liftedIndex || i == penIndex) continue
                 touchState[4 * n] = event.getPointerId(i).toFloat()
                 touchState[4 * n + 1] = event.getX(i) / w
                 touchState[4 * n + 2] = event.getY(i) / h
@@ -451,6 +503,61 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         if (n == 0) touchIdleRepeats = 3
         touchHandler.postDelayed(touchKeepAlive, 100)
         return true
+    }
+
+    /** El lápiz flotando sobre la pantalla: en el PC se mueve su cursor sin pintar. */
+    private fun onSurfaceHover(event: MotionEvent): Boolean {
+        if (!penSupported || viewOnly || menuOpen || !Stylus.isPen(event.getToolType(0))) return false
+        when (event.actionMasked) {
+            MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> {
+                touchHandler.removeCallbacks(penGone)
+                readPen(event, 0, -1, Dlp.PEN_IN_RANGE)
+                penChanged()
+                if (touchCount > 0) {
+                    // La palma que ya tocaba se suelta.
+                    touchCount = 0
+                    session?.sendTouch(touchState, 0)
+                }
+            }
+            MotionEvent.ACTION_HOVER_EXIT -> touchHandler.postDelayed(penGone, PEN_GONE_MS)
+        }
+        return true
+    }
+
+    /** Lee el lápiz del puntero [i] ([pos]: muestra del historial, o -1 la actual) y lo manda con [flags]. */
+    private fun readPen(event: MotionEvent, i: Int, pos: Int, flags: Int) {
+        val w = surfaceView.width.coerceAtLeast(1).toFloat()
+        val h = surfaceView.height.coerceAtLeast(1).toFloat()
+        val now = pos < 0
+        var f = flags
+        if (f != 0) {
+            if (event.buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY != 0) f = f or Dlp.PEN_BARREL
+            if (event.getToolType(i) == MotionEvent.TOOL_TYPE_ERASER) f = f or Dlp.PEN_ERASER
+        }
+        penFlags = f
+        penX = (if (now) event.getX(i) else event.getHistoricalX(i, pos)) / w
+        penY = (if (now) event.getY(i) else event.getHistoricalY(i, pos)) / h
+        penPressure = when {
+            f and Dlp.PEN_CONTACT == 0 -> 0f
+            now -> event.getPressure(i)
+            else -> event.getHistoricalPressure(i, pos)
+        }
+        penTilt = Stylus.tilt(
+            if (now) event.getAxisValue(MotionEvent.AXIS_TILT, i) else event.getHistoricalAxisValue(MotionEvent.AXIS_TILT, i, pos),
+            if (now) event.getOrientation(i) else event.getHistoricalOrientation(i, pos),
+        )
+        sendPenState()
+    }
+
+    private fun sendPenState() {
+        session?.sendPen(penFlags, penX, penY, penPressure, Stylus.tiltX(penTilt), Stylus.tiltY(penTilt))
+    }
+
+    /** Tras cada cambio del lápiz: se repite mientras esté cerca y, al irse, el «se fue» un par de veces más. */
+    private fun penChanged() {
+        touchHandler.removeCallbacks(penKeepAlive)
+        if (penFlags == 0) penIdleRepeats = 2
+        touchHandler.postDelayed(penKeepAlive, 100)
     }
 
     override fun onStart() {
@@ -537,7 +644,11 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
 
     private fun stopSession() {
         touchHandler.removeCallbacks(touchKeepAlive)
+        touchHandler.removeCallbacks(penKeepAlive)
+        touchHandler.removeCallbacks(penGone)
         touchCount = 0
+        penFlags = 0
+        penIdleRepeats = 0
         session?.stop()
         session = null
     }
@@ -568,6 +679,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
     override fun onStreamInfo(info: Dlp.StreamInfo) {
         runOnUiThread {
             if (info.hostName.isNotBlank()) hostName = info.hostName
+            penSupported = info.acceptsPen
             fitSurface(info.width, info.height)
             // La tablet adapta su frecuencia de pantalla a la del stream (menos espera de vsync).
             if (Build.VERSION.SDK_INT >= 30 && info.fps > 0) {
@@ -649,6 +761,7 @@ class StreamActivity : ComponentActivity(), SurfaceHolder.Callback, StreamSessio
         const val EXTRA_HOST_NAME = "host_name"
         private const val SCREEN_GRACE_MS = 2 * 60 * 1000L
         private const val BADGE_MS = 8_000L
+        private const val PEN_GONE_MS = 60L
         private const val MENU_BUTTON_DP = 36
         /** Distancia mínima al borde: ahí los gestos de Android (volver, barra de estado) se tragan el toque. */
         private const val MENU_EDGE_DP = 16

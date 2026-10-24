@@ -318,6 +318,12 @@ class StreamSession(
         touchExecutor.execute { send(packet) }
     }
 
+    /** Manda el estado del lápiz (ver [Dlp.pen]); se llama desde el hilo de la interfaz. */
+    fun sendPen(flags: Int, x: Float, y: Float, pressure: Float, tiltX: Int, tiltY: Int) {
+        val packet = Dlp.pen(flags, x, y, pressure, tiltX, tiltY, nowUs())
+        touchExecutor.execute { send(packet) }
+    }
+
     /** Cambia el táctil del PC entre toques reales ([Dlp.INPUT_TOUCH]) y ratón ([Dlp.INPUT_MOUSE]). */
     fun setInputMode(mode: Int) {
         val packet = Dlp.inputMode(mode, nowUs())
